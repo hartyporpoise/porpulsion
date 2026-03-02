@@ -150,7 +150,7 @@
         '<td><a href="#" class="app-open-link">' + _esc(a.name) + '</a></td>' +
         '<td>' + typeLabel + '</td><td>' + statusBadge(a.status) + '</td>' +
         '<td class="time-ago">' + timeAgo(a.updated_at) + '</td>' +
-        '<td><span class="btn-row"><button type="button" class="btn-sm app-detail-btn">Detail</button><button type="button" class="btn-sm btn-danger app-delete-btn">Delete</button></span></td></tr>';
+        '<td><span class="btn-row"><button type="button" class="btn-icon app-detail-btn" title="Detail" aria-label="Detail"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="8.5"/><line x1="12" y1="12" x2="12" y2="16"/></svg></button><button type="button" class="btn-icon btn-icon-danger app-delete-btn" title="Delete" aria-label="Delete"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></button></span></td></tr>';
     }).join('');
   }
 
@@ -172,7 +172,7 @@
         '<td class="mono">' + _esc(a.id) + '</td><td>' + statusBadge(a.status) + '</td>' +
         '<td class="text-muted text-sm">' + _esc(peerVal) + '</td>' +
         '<td class="time-ago">' + timeAgo(a.updated_at) + '</td>' +
-        '<td><span class="btn-row"><button type="button" class="btn-sm app-detail-btn">Detail</button><button type="button" class="btn-sm btn-danger app-delete-btn">Delete</button></span></td></tr>';
+        '<td><span class="btn-row"><button type="button" class="btn-icon app-detail-btn" title="Detail" aria-label="Detail"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="8.5"/><line x1="12" y1="12" x2="12" y2="16"/></svg></button><button type="button" class="btn-icon btn-icon-danger app-delete-btn" title="Delete" aria-label="Delete"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></button></span></td></tr>';
     }).join('');
   }
 
@@ -1305,7 +1305,8 @@
     closeAppModal: closeAppModal,
     deleteApp: deleteApp,
     removePeer: removePeer,
-    initDeploySpecEditor: initDeploySpecEditor
+    initDeploySpecEditor: initDeploySpecEditor,
+    showConfirm: showConfirm
   };
 
   refresh();

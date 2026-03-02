@@ -108,6 +108,28 @@
             </div>
           </div>
           <span id="peer-count-label">0 peers</span>
+          {% if current_user %}
+          <div class="user-menu-wrap" id="user-menu-wrap">
+            <button type="button" class="user-menu-btn" id="user-menu-btn" aria-label="User menu" aria-haspopup="true" aria-expanded="false">
+              <span class="user-avatar">{{ current_user[0].upper() }}</span>
+              <span class="user-menu-name">{{ current_user }}</span>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
+            <div class="user-menu-panel" id="user-menu-panel" hidden>
+              <a href="/users" class="user-menu-item">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
+                Manage users
+              </a>
+              <div class="user-menu-divider"></div>
+              <form method="post" action="/logout" class="user-menu-form">
+                <button type="submit" class="user-menu-item user-menu-item-danger">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                  Sign out
+                </button>
+              </form>
+            </div>
+          </div>
+          {% endif %}
         </div>
       </div>
       <div class="content" id="page-content">
@@ -217,5 +239,24 @@
     });
   </script>
   {% block scripts %}{% endblock %}
+  <script>
+    (function() {
+      var btn = document.getElementById('user-menu-btn');
+      var panel = document.getElementById('user-menu-panel');
+      if (!btn || !panel) return;
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var open = !panel.hidden;
+        panel.hidden = open;
+        btn.setAttribute('aria-expanded', String(!open));
+      });
+      document.addEventListener('click', function(e) {
+        if (!panel.hidden && !document.getElementById('user-menu-wrap').contains(e.target)) {
+          panel.hidden = true;
+          btn.setAttribute('aria-expanded', 'false');
+        }
+      });
+    })();
+  </script>
 </body>
 </html>

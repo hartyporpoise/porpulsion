@@ -1,9 +1,9 @@
 import logging
-import os
 import threading
 import time
 from datetime import datetime, timezone
 from kubernetes import client, config
+from porpulsion import state
 
 log = logging.getLogger("porpulsion.executor")
 
@@ -17,7 +17,7 @@ except config.ConfigException:
 apps_v1 = client.AppsV1Api()
 core_v1 = client.CoreV1Api()
 
-NAMESPACE = os.environ.get("PORPULSION_NAMESPACE", "porpulsion")
+NAMESPACE = state.NAMESPACE
 
 # Tracks the active polling thread stop-event per app id so re-deploys
 # cancel the old watcher before starting a new one.
@@ -168,13 +168,6 @@ def run_workload(remote_app, callback_url, peer=None):
                 container_security_ctx = client.V1SecurityContext(
                     read_only_root_filesystem=sc.readOnlyRootFilesystem
                 )
-
-        try:
-            core_v1.read_namespace(NAMESPACE)
-        except client.ApiException:
-            core_v1.create_namespace(
-                client.V1Namespace(metadata=client.V1ObjectMeta(name=NAMESPACE))
-            )
 
         _report_status(remote_app, callback_url, "Creating", peer=peer)
 

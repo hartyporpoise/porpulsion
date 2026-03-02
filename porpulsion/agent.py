@@ -22,6 +22,7 @@ from porpulsion.routes import settings as settings_bp
 from porpulsion.routes import logs as logs_bp
 from porpulsion.routes import notifications as notifications_bp
 from porpulsion.routes import ui as ui_bp
+from porpulsion.routes import auth as auth_bp
 
 logging.basicConfig(
     level=logging.INFO,
@@ -33,7 +34,6 @@ log = logging.getLogger("porpulsion.agent")
 # ── Bootstrap config ──────────────────────────────────────────
 
 state.AGENT_NAME = os.environ.get("AGENT_NAME", "porpulsion-agent")
-state.NAMESPACE  = os.environ.get("PORPULSION_NAMESPACE", "porpulsion")
 
 _self_url_env = os.environ.get("SELF_URL", "")
 if _self_url_env:
@@ -130,6 +130,15 @@ app = Flask(__name__,
             static_folder=str(_STATIC),
             static_url_path="/static")
 
+# Session secret — load from env or fall back to a stable derivation from the CA key.
+# The CA key is already secret and cluster-unique, so its hash makes a safe default.
+_session_secret = os.environ.get("SECRET_KEY")
+if not _session_secret:
+    import hashlib as _hashlib
+    _session_secret = _hashlib.sha256(_CA_KEY_PEM).hexdigest()
+app.secret_key = _session_secret
+
+app.register_blueprint(auth_bp.bp)
 app.register_blueprint(peers_bp.bp, url_prefix="/api")
 app.register_blueprint(workloads_bp.bp, url_prefix="/api")
 app.register_blueprint(tunnels_bp.bp, url_prefix="/api")

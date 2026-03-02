@@ -3,9 +3,6 @@
 # Helm chart default values
 # ──────────────────────────────────────────────────────────────────────────────
 
-# -- Namespace where the agent and all RemoteApp workloads are deployed.
-namespace: porpulsion
-
 # ── Agent ──────────────────────────────────────────────────────────────────────
 agent:
   # -- Container image for the porpulsion agent.

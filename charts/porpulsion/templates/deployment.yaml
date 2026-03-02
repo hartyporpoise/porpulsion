@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "porpulsion.fullname" . }}-agent
-  namespace: {{ .Values.namespace }}
+  namespace: {{ .Release.Namespace }}
   labels:
     app: {{ include "porpulsion.fullname" . }}-agent
 spec:
@@ -33,8 +33,6 @@ spec:
               value: {{ .Values.agent.agentName | quote }}
             - name: SELF_URL
               value: {{ .Values.agent.selfUrl | quote }}
-            - name: PORPULSION_NAMESPACE
-              value: {{ .Values.namespace | quote }}
           readinessProbe:
             httpGet:
               path: /api/status

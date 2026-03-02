@@ -299,7 +299,7 @@ body {
   nav a { min-height: 44px; padding: 0.75rem 1rem; }
 }
 /* Minimum touch target for tappable controls (accessibility) */
-button:not(.btn-sm),
+button:not(.btn-sm):not(.btn-icon):not(.modal-close):not(.notif-bell):not(.eye-btn):not(.user-menu-btn),
 input[type="submit"],
 input[type="button"],
 .logs-tail-select { min-height: 44px; }
@@ -893,7 +893,29 @@ button:disabled { cursor: default; opacity: 0.35; }
 .btn-outline:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); background: var(--accent-glow); }
 .btn-outline:active:not(:disabled) { opacity: 0.75; color: var(--muted); }
 
-.btn-row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+.btn-row { display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap; }
+
+/* ── Icon-only circle button (28px) ────────────────────────── */
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  min-height: unset;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted2);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.12s, color 0.12s;
+}
+.btn-icon::before, .btn-icon::after { display: none; }
+.btn-icon svg { display: block; pointer-events: none; }
+.btn-icon:hover { background: var(--surface2); color: var(--text); }
+.btn-icon-danger:hover { background: var(--red-dim) !important; color: var(--red) !important; }
 
 /* ── Forms ──────────────────────────────────────────────────── */
 .form-group { display: flex; flex-direction: column; margin-bottom: 1rem; }
@@ -1089,17 +1111,22 @@ select { display: none; }
 .secret-box .secret-val.masked { letter-spacing: 0.12em; color: var(--muted2); }
 .secret-box-block { align-items: flex-start; }
 .eye-btn {
-  background: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  min-height: unset;
+  padding: 0;
+  background: transparent;
   border: none;
-  padding: 2px 4px;
+  border-radius: 50%;
   cursor: pointer;
   color: var(--muted2);
   flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  line-height: 1;
+  transition: background 0.12s, color 0.12s;
 }
-.eye-btn:hover { color: var(--text); }
+.eye-btn:hover { background: var(--surface2); color: var(--text); }
 .eye-btn svg { width: 15px; height: 15px; display: block; }
 
 /* ── Section / toggle ────────────────────────────────────────── */
@@ -1301,8 +1328,8 @@ select { display: none; }
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   flex-shrink: 0;
   background: transparent;
   color: var(--muted);
@@ -1311,10 +1338,11 @@ select { display: none; }
   cursor: pointer;
   padding: 0;
   min-height: unset;
+  transition: background 0.12s, color 0.12s;
 }
 .modal-close::before, .modal-close::after { display: none; }
 .modal-close svg { display: block; pointer-events: none; }
-.modal-close:hover { background: transparent; }
+.modal-close:hover { background: var(--red-dim); color: var(--red); }
 .modal-body { padding: 1rem 1.25rem; overflow-y: auto; flex: 1; }
 
 /* ── Confirm dialog ─────────────────────────────────────────── */
@@ -1760,3 +1788,75 @@ select { display: none; }
   transition: border-color 0.15s;
 }
 .modal-spec-editor:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+
+/* ── User menu (topbar) ─────────────────────────────────────── */
+.user-menu-wrap { position: relative; }
+
+/* Trigger chip — flat, no inset-glow pill */
+.user-menu-btn {
+  display: flex; align-items: center; gap: 7px;
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 20px; padding: 0.2rem 0.6rem 0.2rem 0.25rem;
+  color: var(--text); font-size: 0.82rem; font-weight: 500;
+  cursor: pointer; font-family: inherit;
+  transition: border-color 0.15s, background 0.15s;
+  min-height: unset;
+}
+.user-menu-btn::before, .user-menu-btn::after { display: none; }
+.user-menu-btn:hover { background: var(--surface3); border-color: var(--border2); color: var(--text); }
+.user-menu-btn:active { background: var(--surface3); }
+[data-theme="light"] .user-menu-btn { color: var(--text); }
+[data-theme="light"] .user-menu-btn:hover { color: var(--text); }
+
+.user-avatar {
+  width: 22px; height: 22px; border-radius: 50%;
+  background: var(--accent-glow); border: 1px solid var(--accent);
+  color: var(--accent);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.65rem; font-weight: 700; flex-shrink: 0;
+}
+.user-menu-name { max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Dropdown panel */
+.user-menu-panel {
+  position: absolute; right: 0; top: calc(100% + 5px); z-index: 200;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px; min-width: 168px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.22), 0 1px 4px rgba(0,0,0,0.1);
+  padding: 0.25rem 0;
+  overflow: hidden;
+}
+[data-theme="light"] .user-menu-panel {
+  box-shadow: 0 4px 16px rgba(0,0,0,0.12), 0 1px 3px rgba(0,0,0,0.06);
+}
+.user-menu-panel[hidden] { display: none; }
+
+/* Items — flat row style, NOT the pill button */
+.user-menu-item {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; box-sizing: border-box;
+  padding: 0.5rem 0.85rem;
+  background: none; border: none; border-radius: 0;
+  color: var(--muted); font-size: 0.82rem; font-weight: 400;
+  font-family: inherit; text-decoration: none;
+  cursor: pointer; text-align: left; white-space: nowrap;
+  min-height: unset;
+  transition: background 0.1s, color 0.1s;
+}
+.user-menu-item::before, .user-menu-item::after { display: none; }
+.user-menu-item:hover { background: var(--surface2); color: var(--text); }
+.user-menu-item svg { flex-shrink: 0; opacity: 0.6; }
+.user-menu-item:hover svg { opacity: 1; }
+[data-theme="light"] .user-menu-item { color: var(--muted); }
+[data-theme="light"] .user-menu-item:hover { color: var(--text); }
+[data-theme="light"] .user-menu-item-danger { color: var(--red); }
+[data-theme="light"] .user-menu-item-danger:hover { color: var(--red); }
+
+.user-menu-item-danger { color: var(--red); }
+.user-menu-item-danger svg { opacity: 0.7; }
+.user-menu-item-danger:hover { background: var(--red-dim); color: var(--red); }
+.user-menu-item-danger:hover svg { opacity: 1; }
+
+.user-menu-divider { height: 1px; background: var(--border); margin: 0.2rem 0; }
+.user-menu-form { margin: 0; }

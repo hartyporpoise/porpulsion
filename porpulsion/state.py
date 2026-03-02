@@ -12,7 +12,16 @@ if TYPE_CHECKING:
 
 # ── Runtime config (set by agent.py at startup) ──────────────
 AGENT_NAME: str = ""
-NAMESPACE:  str = "porpulsion"
+
+def _detect_namespace() -> str:
+    """Read namespace from the in-cluster service account mount, falling back to 'default'."""
+    try:
+        with open("/var/run/secrets/kubernetes.io/serviceaccount/namespace") as f:
+            return f.read().strip()
+    except OSError:
+        return "default"
+
+NAMESPACE: str = _detect_namespace()
 SELF_URL:   str = ""
 AGENT_CA_PEM: bytes = b""
 VERSION_HASH: str = ""          # SHA-256 of key protocol files, first 16 hex chars

@@ -9,11 +9,11 @@ Scope enforcement: Service is resolved from k8s at call time using the
 porpulsion.io/remote-app-id label, so the caller never supplies a target address.
 """
 import logging
+from porpulsion import state
 
 log = logging.getLogger("porpulsion.tunnel")
 
-import os
-NAMESPACE = os.environ.get("PORPULSION_NAMESPACE", "porpulsion")
+NAMESPACE = state.NAMESPACE
 
 
 def _k8s_core_v1():
