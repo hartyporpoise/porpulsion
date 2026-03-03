@@ -11,6 +11,9 @@ be created only by already-authenticated users.
 import base64
 import json
 import logging
+import threading
+import time
+from collections import deque
 
 from flask import (
     Blueprint,
@@ -26,6 +29,51 @@ log = logging.getLogger("porpulsion.auth")
 bp = Blueprint("auth", __name__)
 
 _USERS_SECRET = "porpulsion-users"
+
+# ── Login rate limiter ────────────────────────────────────────
+# Tracks failed login attempts per source IP.
+# After _LOCKOUT_FAILURES failures within _RATE_WINDOW seconds the IP is
+# locked out for _LOCKOUT_SECONDS seconds.
+
+_RATE_LOCK = threading.Lock()
+_RATE_WINDOW = 60          # sliding window in seconds
+_LOCKOUT_FAILURES = 10     # max failures before lockout
+_LOCKOUT_SECONDS = 300     # 5-minute lockout
+_rate_failures: dict[str, deque] = {}   # ip → deque of failure timestamps
+_rate_lockout:  dict[str, float] = {}   # ip → lockout-expiry timestamp
+
+
+def _is_rate_limited(ip: str) -> bool:
+    """Return True if the IP is currently locked out."""
+    now = time.monotonic()
+    with _RATE_LOCK:
+        if ip in _rate_lockout:
+            if now < _rate_lockout[ip]:
+                return True
+            del _rate_lockout[ip]
+            _rate_failures.pop(ip, None)
+    return False
+
+
+def _record_failure(ip: str) -> None:
+    """Record a failed login attempt; lock out the IP if the threshold is exceeded."""
+    now = time.monotonic()
+    with _RATE_LOCK:
+        q = _rate_failures.setdefault(ip, deque())
+        while q and now - q[0] > _RATE_WINDOW:
+            q.popleft()
+        q.append(now)
+        if len(q) >= _LOCKOUT_FAILURES:
+            _rate_lockout[ip] = now + _LOCKOUT_SECONDS
+            _rate_failures.pop(ip, None)
+            log.warning("Login rate limit: locking out %s for %ds", ip, _LOCKOUT_SECONDS)
+
+
+def _clear_failures(ip: str) -> None:
+    """Clear failure state after a successful login."""
+    with _RATE_LOCK:
+        _rate_failures.pop(ip, None)
+        _rate_lockout.pop(ip, None)
 
 
 # ── Kubernetes helpers ────────────────────────────────────────
@@ -172,15 +220,22 @@ def login():
     if not users:
         return redirect(url_for("auth.signup"))
 
+    ip = request.remote_addr or "unknown"
     error = None
     if request.method == "POST":
+        if _is_rate_limited(ip):
+            error = "Too many failed attempts. Please try again later."
+            return render_template("auth/login.html", error=error)
+
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
         user = users.get(username)
         if user and _verify_password(password, user["hash"]):
+            _clear_failures(ip)
             session["user"] = username
             next_url = request.args.get("next") or url_for("ui.index")
             return redirect(next_url)
+        _record_failure(ip)
         error = "Invalid username or password."
 
     return render_template("auth/login.html", error=error)

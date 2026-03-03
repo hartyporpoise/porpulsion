@@ -26,9 +26,21 @@ sock = Sock(peer_app)
 sock.route("/ws")(peer_ws)
 
 
+class _StripServerHeader:
+    """WSGI middleware that removes the Werkzeug Server banner."""
+    def __init__(self, app):
+        self._app = app
+
+    def __call__(self, environ, start_response):
+        def _start(status, headers, exc_info=None):
+            headers = [(k, v) for k, v in headers if k.lower() != "server"]
+            return start_response(status, headers, exc_info)
+        return self._app(environ, _start)
+
+
 def start(port: int = 8001):
     """Start the peer-facing server in the calling thread (run in a daemon thread)."""
     from werkzeug.serving import make_server
     log.info("Starting peer-facing server on port %d", port)
-    srv = make_server("0.0.0.0", port, peer_app, threaded=True)
+    srv = make_server("0.0.0.0", port, _StripServerHeader(peer_app), threaded=True)
     srv.serve_forever()

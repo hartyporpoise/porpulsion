@@ -174,14 +174,21 @@ def _require_api_auth():
     # HTTP Basic Auth (curl / scripts)
     auth_header = request.headers.get("Authorization", "")
     if auth_header.startswith("Basic "):
+        ip = request.remote_addr or "unknown"
+        from porpulsion.routes.auth import (
+            _load_users, _verify_password, _is_rate_limited, _record_failure, _clear_failures,
+        )
+        if _is_rate_limited(ip):
+            return jsonify({"error": "too many failed attempts"}), 429
         try:
             username, password = _b64.b64decode(auth_header[6:]).decode().split(":", 1)
-            from porpulsion.routes.auth import _load_users, _verify_password
             users = _load_users()
             if username in users and _verify_password(password, users[username]["hash"]):
+                _clear_failures(ip)
                 return
         except Exception:
             pass
+        _record_failure(ip)
     return jsonify({"error": "unauthorized"}), 401
 
 
@@ -198,6 +205,14 @@ def openapi_yaml():
     """Serve generated OpenAPI 3 spec (YAML)."""
     from porpulsion.openapi_spec import get_openapi_yaml
     return Response(get_openapi_yaml(), mimetype="application/x-yaml")
+
+
+# Catch-all for unknown /api/* paths — return 404 before auth check fires,
+# so attackers can't enumerate valid routes by distinguishing 401 from 404.
+@app.route("/api/", defaults={"path": ""})
+@app.route("/api/<path:path>")
+def api_not_found(path):
+    return jsonify({"error": "not found"}), 404
 
 
 # ── Main ──────────────────────────────────────────────────────

@@ -48,7 +48,9 @@ def accept_peer():
     Step 1 (invite): initiator sends our invite token + their cert.
     Step 2 (confirm): called by accept_inbound() when operator clicks Accept.
     """
-    data = request.json or {}
+    data = request.json
+    if not isinstance(data, dict):
+        return jsonify({"error": "request body must be a JSON object"}), 400
     peer_name = data.get("name", "unknown")
     peer_url  = data.get("url", "")
     peer_ca   = data.get("ca", "")
@@ -224,7 +226,9 @@ def remove_peer(peer_name):
 
 @bp.route("/peer/disconnect", methods=["POST"])
 def peer_disconnect():
-    data = request.json or {}
+    data = request.json
+    if not isinstance(data, dict):
+        data = {}
     peer_name = data.get("name", "")
     removed = False
     if peer_name and peer_name in state.peers:
@@ -248,7 +252,9 @@ def peer_disconnect():
 
 @bp.route("/peers/retry", methods=["POST"])
 def retry_connecting_peer():
-    data = request.json or {}
+    data = request.json
+    if not isinstance(data, dict):
+        return jsonify({"error": "request body must be a JSON object"}), 400
     peer_url       = data.get("url", "")
     token          = data.get("invite_token", "")
     ca_fingerprint = data.get("ca_fingerprint", "")
@@ -284,7 +290,9 @@ def cancel_connecting_peer():
 
 @bp.route("/peers/connect", methods=["POST"])
 def connect_peer():
-    data = request.json or {}
+    data = request.json
+    if not isinstance(data, dict):
+        return jsonify({"error": "request body must be a JSON object"}), 400
     url            = data.get("url", "").rstrip("/")
     token          = data.get("invite_token", "")
     ca_fingerprint = data.get("ca_fingerprint", "")

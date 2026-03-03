@@ -18,6 +18,12 @@ _HOP_BY_HOP = {"host", "transfer-encoding", "connection", "keep-alive",
                "proxy-authenticate", "proxy-authorization", "te", "trailers",
                "upgrade", "content-encoding"}
 
+# Only allow user-space ports (>=1024) to reach through the proxy.
+# Blocks privileged/internal ports (SSH=22, SMTP=25, DNS=53, etc.) and
+# reserved port 0.
+_PROXY_PORT_MIN = 1024
+_PROXY_PORT_MAX = 65535
+
 
 # ── User-facing proxy (submitting side) ───────────────────────
 #
@@ -32,6 +38,9 @@ _HOP_BY_HOP = {"host", "transfer-encoding", "connection", "keep-alive",
           methods=_PROXY_METHODS)
 def proxy_remoteapp(app_id, port, subpath):
     """User-facing: proxy HTTP through to a pod on the peer cluster."""
+    if not (_PROXY_PORT_MIN <= port <= _PROXY_PORT_MAX):
+        return jsonify({"error": f"port must be between {_PROXY_PORT_MIN} and {_PROXY_PORT_MAX}"}), 400
+
     from porpulsion.k8s.store import get_cr_by_app_id, cr_to_dict
     cr, side = get_cr_by_app_id(state.NAMESPACE, app_id)
     if cr is None or side != "submitted":
