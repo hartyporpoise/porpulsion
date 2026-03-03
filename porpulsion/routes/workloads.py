@@ -255,9 +255,10 @@ def create_remoteapp():
     if "spec_yaml" in data:
         import yaml as _yaml
         try:
-            data["spec"] = _encode_spec_secrets(_yaml.safe_load(data["spec_yaml"]) or {})
+            data["spec"] = _yaml.safe_load(data["spec_yaml"]) or {}
         except Exception as e:
             return jsonify({"error": f"invalid YAML: {e}"}), 400
+    data["spec"] = _encode_spec_secrets(data.get("spec") or {})
     if not state.peers:
         return jsonify({"error": "no peers connected"}), 503
 
