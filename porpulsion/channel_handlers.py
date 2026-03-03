@@ -210,6 +210,7 @@ def handle_remoteapp_logs(payload: dict) -> dict:
 
 
 
+
 def handle_remoteapp_config_patch(payload: dict) -> dict:
     """Apply a key-value patch to a managed ConfigMap or Secret and trigger a rollout restart."""
     from porpulsion import state

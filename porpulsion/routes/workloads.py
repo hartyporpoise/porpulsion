@@ -8,7 +8,7 @@ from porpulsion.models import RemoteApp, RemoteAppSpec
 from porpulsion.channel import get_channel
 from porpulsion.k8s.executor import (
     run_workload, delete_workload, scale_workload, get_deployment_status, get_pod_logs,
-    get_configmap_data, patch_configmap_data, get_secret_data, patch_secret_data,
+    get_configmap_data, patch_configmap_data, patch_secret_data,
     rollout_restart,
 )
 from porpulsion.k8s.store import (
@@ -609,28 +609,15 @@ def get_app_secret(app_id, name):
     cr, side = get_cr_by_app_id(state.NAMESPACE, app_id)
     if cr is None:
         return jsonify({"error": "app not found"}), 404
-    d = cr_to_dict(cr, side)
-    if side == "submitted":
-        # Read from local CR spec — values are base64-encoded, decode for the UI
-        spec = d.get("spec", {})
-        for sec in (spec.get("secrets") or []):
-            if sec.get("name") == name:
-                raw = sec.get("data") or {}
-                decoded = {}
-                for k, v in raw.items():
-                    try:
-                        decoded[k] = _b64.b64decode(v).decode() if isinstance(v, str) else v
-                    except Exception:
-                        decoded[k] = v
-                return jsonify({"data": decoded})
-        return jsonify({"data": {}})
-    if side == "executing":
-        try:
-            data = get_secret_data(app_id, name)
-            return jsonify({"data": data})
-        except Exception as e:
-            return jsonify({"error": str(e)}), 500
-    return jsonify({"error": "app not found"}), 404
+    # Secret values are always base64-encoded in the CR spec (both RemoteApp and ExecutingApp).
+    # Decode to plaintext for the UI.
+    spec = cr.get("spec", {})
+    for sec in (spec.get("secrets") or []):
+        if sec.get("name") == name:
+            decoded = {k: _b64.b64decode(v).decode() if isinstance(v, str) else v
+                       for k, v in (sec.get("data") or {}).items()}
+            return jsonify({"data": decoded})
+    return jsonify({"data": {}})
 
 
 @bp.route("/remoteapp/<app_id>/config/secret/<name>", methods=["PATCH"])
@@ -645,6 +632,7 @@ def patch_app_secret(app_id, name):
     if side == "submitted":
         try:
             _forward_config_patch(app_id, "secret", name, data)
+            patch_cr_volume_data(state.NAMESPACE, app_id, "secret", name, data)
             return jsonify({"ok": True})
         except Exception as e:
             return jsonify({"error": str(e)}), 502
