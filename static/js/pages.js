@@ -1008,10 +1008,11 @@
         addRow.style.cssText = 'display:flex;gap:0.5rem;align-items:center;margin-top:0.25rem;';
         var newKey = document.createElement('input');
         newKey.type = 'text'; newKey.placeholder = 'new-key'; newKey.style.flex = '1'; newKey.style.fontSize = '0.78rem';
+        newKey.dataset.role = 'cfg-pending-key';
         var newVal = document.createElement('input');
         newVal.type = isSecret ? 'password' : 'text';
         newVal.placeholder = 'value'; newVal.style.flex = '2'; newVal.style.fontSize = '0.78rem';
-        _pendingNewKey = newKey; _pendingNewVal = newVal;
+        newVal.dataset.role = 'cfg-pending-val';
         if (isSecret) addRow.appendChild(newKey), addRow.appendChild(newVal), addRow.appendChild(_makeEyeBtn(newVal));
         else addRow.appendChild(newKey), addRow.appendChild(newVal);
         var addBtn = document.createElement('button');
@@ -1020,7 +1021,7 @@
         addBtn.addEventListener('click', function () {
           var k = newKey.value.trim();
           if (!k) { toast('Key is required', 'error'); return; }
-          // Capture current edits from DOM before re-rendering
+          // Flush current DOM edits into data before re-rendering
           wrap.querySelectorAll('[data-role="cfg-key"]').forEach(function (ki) {
             var vi = wrap.querySelector('[data-role="cfg-val"][data-idx="' + ki.dataset.idx + '"]');
             var ek = ki.value.trim();
@@ -1034,9 +1035,6 @@
       }
     }
 
-    var _pendingNewKey = null;
-    var _pendingNewVal = null;
-
     // Register a collector function so the tab-level save button can harvest all editors
     _kvEditors[kind + '/' + volName] = {
       appId: appId, kind: kind, volName: volName,
@@ -1047,9 +1045,11 @@
           var k = ki.value.trim();
           if (k) out[k] = vi ? vi.value : '';
         });
-        // Also capture any key typed into the pending new-key row
-        if (_pendingNewKey && _pendingNewKey.value.trim()) {
-          out[_pendingNewKey.value.trim()] = _pendingNewVal ? _pendingNewVal.value : '';
+        // Capture the pending new-key row (typed but not yet added via + Add)
+        var pendingKey = wrap.querySelector('[data-role="cfg-pending-key"]');
+        var pendingVal = wrap.querySelector('[data-role="cfg-pending-val"]');
+        if (pendingKey && pendingKey.value.trim()) {
+          out[pendingKey.value.trim()] = pendingVal ? pendingVal.value : '';
         }
         return out;
       },
