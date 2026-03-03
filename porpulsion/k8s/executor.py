@@ -73,10 +73,12 @@ def apply_configmap(app_id: str, logical_name: str, data: dict) -> str:
 
 
 def patch_configmap_data(app_id: str, logical_name: str, data: dict) -> None:
-    """Patch a ConfigMap's data in-place (used by the config API)."""
+    """Replace a ConfigMap's data in full (used by the config API)."""
     name = _cm_name(app_id, logical_name)
-    core_v1.patch_namespaced_config_map(name=name, namespace=NAMESPACE, body={"data": data})
-    log.info("Patched ConfigMap %s", name)
+    existing = core_v1.read_namespaced_config_map(name=name, namespace=NAMESPACE)
+    existing.data = data
+    core_v1.replace_namespaced_config_map(name=name, namespace=NAMESPACE, body=existing)
+    log.info("Replaced ConfigMap %s", name)
 
 
 def get_configmap_data(app_id: str, logical_name: str) -> dict:
@@ -124,12 +126,13 @@ def apply_secret(app_id: str, logical_name: str, plaintext_data: dict) -> str:
 
 
 def patch_secret_data(app_id: str, logical_name: str, plaintext_data: dict) -> None:
-    """Patch a Secret's stringData in-place (used by the config API)."""
+    """Replace a Secret's data in full (used by the config API)."""
     name = _sec_name(app_id, logical_name)
-    # Encode manually since patch with stringData works but replace is safer
-    encoded = {k: base64.b64encode(v.encode()).decode() for k, v in plaintext_data.items()}
-    core_v1.patch_namespaced_secret(name=name, namespace=NAMESPACE, body={"data": encoded})
-    log.info("Patched Secret %s", name)
+    existing = core_v1.read_namespaced_secret(name=name, namespace=NAMESPACE)
+    existing.data = {k: base64.b64encode(v.encode()).decode() for k, v in plaintext_data.items()}
+    existing.string_data = None
+    core_v1.replace_namespaced_secret(name=name, namespace=NAMESPACE, body=existing)
+    log.info("Replaced Secret %s", name)
 
 
 def get_secret_data(app_id: str, logical_name: str) -> dict:
