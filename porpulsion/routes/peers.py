@@ -18,16 +18,6 @@ log = logging.getLogger("porpulsion.routes.peers")
 bp = Blueprint("peers", __name__)
 
 
-@bp.route("/status")
-def status():
-    return jsonify({
-        "agent": state.AGENT_NAME,
-        "peers": [p.to_dict() for p in state.peers.values()],
-        "local_apps": len(state.local_apps),
-        "remote_apps": len(state.remote_apps),
-    })
-
-
 @bp.route("/peers")
 def list_peers():
     result = []
@@ -180,35 +170,43 @@ def remove_peer(peer_name):
         return jsonify({"error": "peer not found"}), 404
 
     from porpulsion.channel import get_channel
+    from porpulsion.k8s.store import (
+        list_remoteapp_crs, list_executingapp_crs, delete_remoteapp_cr,
+        delete_executingapp_cr, cr_to_dict,
+    )
+    from porpulsion.models import RemoteApp, RemoteAppSpec
 
-    # ── 1. Delete local_apps we submitted to this peer ───────────
-    # Tell the peer to tear down each K8s workload, then clean up locally.
-    for ra in list(state.local_apps.values()):
-        if ra.target_peer == peer_name:
+    # ── 1. Delete RemoteApp CRs we submitted to this peer ────────
+    for cr in list_remoteapp_crs(state.NAMESPACE):
+        d = cr_to_dict(cr, "submitted")
+        if d["target_peer"] == peer_name:
             try:
-                get_channel(peer_name, wait=2.0).call("remoteapp/delete", {"id": ra.id})
+                get_channel(peer_name, wait=2.0).call("remoteapp/delete", {"id": d["id"]})
             except Exception as exc:
-                log.debug("Could not notify %s to delete app %s: %s", peer_name, ra.id, exc)
-            ra.status = "Deleted"
-            del state.local_apps[ra.id]
-            log.info("Deleted local app %s (peer %s removed)", ra.id, peer_name)
+                log.debug("Could not notify %s to delete app %s: %s", peer_name, d["id"], exc)
+            delete_remoteapp_cr(state.NAMESPACE, d["cr_name"])
+            log.info("Deleted RemoteApp CR %s (peer %s removed)", d["id"], peer_name)
 
-    # ── 2. Delete remote_apps we're executing on behalf of this peer ──
-    # Clean up our own K8s workloads; no need to notify the departing peer.
-    for ra in list(state.remote_apps.values()):
-        if ra.source_peer == peer_name:
+    # ── 2. Delete ExecutingApp CRs we're running for this peer ───
+    for cr in list_executingapp_crs(state.NAMESPACE):
+        d = cr_to_dict(cr, "executing")
+        if d["source_peer"] == peer_name:
+            ra = RemoteApp(
+                id=d["id"], name=d["name"],
+                spec=RemoteAppSpec.from_dict(d.get("spec", {})),
+                source_peer=d["source_peer"],
+            )
             try:
                 delete_workload(ra)
             except Exception as exc:
-                log.debug("Could not delete workload for app %s: %s", ra.id, exc)
-            ra.status = "Deleted"
-            del state.remote_apps[ra.id]
-            log.info("Deleted remote app %s (peer %s removed)", ra.id, peer_name)
+                log.debug("Could not delete workload for app %s: %s", d["id"], exc)
+            delete_executingapp_cr(state.NAMESPACE, d["cr_name"])
+            log.info("Deleted ExecutingApp CR %s (peer %s removed)", d["id"], peer_name)
 
-    tls.save_state_configmap(state.NAMESPACE, state.local_apps, state.settings)
+    tls.save_state_configmap(state.NAMESPACE, state.settings)
 
     # ── 3. Notify peer and close the channel ─────────────────────
-    peer = state.peers.pop(peer_name)
+    state.peers.pop(peer_name)
     log.info("Removed peer %s", peer_name)
 
     try:
@@ -233,10 +231,17 @@ def peer_disconnect():
         state.peers.pop(peer_name)
         removed = True
         log.info("Peer %s disconnected us — removed from peer list", peer_name)
-        for ra in list(state.local_apps.values()):
-            if ra.target_peer == peer_name:
-                ra.status = "Failed"
-                log.info("Marked app %s as Failed (peer %s disconnected)", ra.id, peer_name)
+        # Mark all RemoteApp CRs targeting this peer as Failed
+        from porpulsion.k8s.store import list_remoteapp_crs, cr_to_dict, update_remoteapp_cr_status
+        for cr in list_remoteapp_crs(state.NAMESPACE):
+            d = cr_to_dict(cr, "submitted")
+            if d["target_peer"] == peer_name:
+                try:
+                    update_remoteapp_cr_status(state.NAMESPACE, d["cr_name"], "Failed", d["id"],
+                                               message=f"Peer {peer_name!r} disconnected")
+                except Exception as e:
+                    log.debug("Could not update CR status for %s: %s", d["id"], e)
+                log.info("Marked app %s as Failed (peer %s disconnected)", d["id"], peer_name)
         tls.save_peers(state.NAMESPACE, state.peers)
     return jsonify({"ok": True, "removed": removed})
 
@@ -324,6 +329,7 @@ def get_token():
     fp = tls.cert_fingerprint(state.AGENT_CA_PEM)
     return jsonify({
         "agent": state.AGENT_NAME,
+        "namespace": state.NAMESPACE,
         "invite_token": state.invite_token,
         "self_url": state.SELF_URL,
         "cert_fingerprint": fp,

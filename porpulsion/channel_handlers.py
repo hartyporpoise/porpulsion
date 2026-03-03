@@ -22,8 +22,8 @@ def handle_remoteapp_receive(payload: dict) -> dict:
     from porpulsion import state, tls
     from porpulsion.models import RemoteApp, RemoteAppSpec
     from porpulsion.routes.workloads import _check_resource_quota
-
     from porpulsion.notifications import add_notification
+    from porpulsion.k8s.store import create_executingapp_cr
 
     if not state.settings.allow_inbound_remoteapps:
         raise RuntimeError("inbound workloads are disabled on this agent")
@@ -40,6 +40,15 @@ def handle_remoteapp_receive(payload: dict) -> dict:
         raise RuntimeError(quota_err)
 
     app_id = payload.get("id") or __import__("uuid").uuid4().hex[:8]
+    try:
+        from porpulsion.k8s.store import validate_remoteapp_spec
+        val_err = validate_remoteapp_spec(state.NAMESPACE, app_id, payload.get("name", "app"), spec.to_dict(), source_peer)
+        if val_err:
+            raise RuntimeError(f"spec invalid: {val_err}")
+    except RuntimeError:
+        raise
+    except Exception as _ve:
+        log.debug("CRD spec validation skipped: %s", _ve)
     source = state.peers.get(source_peer)
 
     if state.settings.require_remoteapp_approval:
@@ -48,13 +57,12 @@ def handle_remoteapp_receive(payload: dict) -> dict:
             "name": payload["name"],
             "spec": spec.to_dict(),
             "source_peer": source_peer,
-            "callback_url": source_peer,   # channel key — not a URL anymore
+            "callback_url": source_peer,
             "since": datetime.now(timezone.utc).isoformat(),
         }
         state.pending_approval[app_id] = entry
         log.info("App %s queued for approval (via channel) from %s", app_id, source_peer)
-        tls.save_state_configmap(state.NAMESPACE, state.local_apps, state.settings,
-                                 state.pending_approval)
+        tls.save_state_configmap(state.NAMESPACE, state.settings, state.pending_approval)
         add_notification(
             level="info",
             title="Approval required",
@@ -62,66 +70,95 @@ def handle_remoteapp_receive(payload: dict) -> dict:
         )
         return {"id": app_id, "status": "pending_approval"}
 
+    # Create ExecutingApp CR as the durable record on this cluster
+    cr_name = create_executingapp_cr(
+        state.NAMESPACE, app_id, payload["name"], spec.to_dict(), source_peer,
+    )
+    log.info("Received app %s (%s) via channel from %s (cr=%s)", payload["name"], app_id, source_peer, cr_name or "none")
+
     ra = RemoteApp(
         name=payload["name"], spec=spec,
         source_peer=source_peer, id=app_id,
     )
-    state.remote_apps[ra.id] = ra
-    log.info("Received app %s (%s) via channel from %s", ra.name, ra.id, source_peer)
-
+    if cr_name:
+        ra.cr_name = cr_name
     from porpulsion.k8s.executor import run_workload
-    # Pass the peer name as callback_url — executor will route via channel
     run_workload(ra, source_peer, peer=source)
     return ra.to_dict()
 
 
 def handle_remoteapp_status(payload: dict):
     """Status update pushed from executor back to the submitting peer."""
-    from porpulsion import state, tls
+    from porpulsion import state
     from porpulsion.notifications import add_notification
-    app_id = payload.get("id") or payload.get("app_id", "")
-    status = payload.get("status", "")
-    updated_at = payload.get("updated_at", datetime.now(timezone.utc).isoformat())
+    from porpulsion.k8s.store import get_cr_by_app_id, update_remoteapp_cr_status, cr_to_dict
 
-    if app_id in state.local_apps:
-        ra = state.local_apps[app_id]
-        ra.status = status
-        ra.updated_at = updated_at
+    app_id     = payload.get("id") or payload.get("app_id", "")
+    status     = payload.get("status", "")
+
+    # Update the RemoteApp CR status (this is the submitting side)
+    cr, side = get_cr_by_app_id(state.NAMESPACE, app_id)
+    if cr is not None and side == "submitted":
+        d = cr_to_dict(cr, side)
+        try:
+            update_remoteapp_cr_status(state.NAMESPACE, d["cr_name"], status, app_id)
+        except Exception as e:
+            log.debug("CR status update skipped: %s", e)
         log.info("Status update for %s: %s (via channel)", app_id, status)
-        tls.save_state_configmap(state.NAMESPACE, state.local_apps, state.settings)
         if status.startswith("Failed") or status == "Timeout":
             add_notification(
                 level="error",
-                title=f"Workload failed: {ra.name}",
-                message=f"{ra.name!r} on {ra.target_peer} → {status}.",
+                title=f"Workload failed: {d['name']}",
+                message=f"{d['name']!r} on {d['target_peer']} → {status}.",
             )
+    else:
+        log.debug("Status update for unknown app %s: %s", app_id, status)
 
 
 def handle_remoteapp_delete(payload: dict) -> dict:
     """Delete a RemoteApp on this (executing) side."""
     from porpulsion import state
     from porpulsion.k8s.executor import delete_workload
+    from porpulsion.k8s.store import get_ea_cr_by_app_id, delete_executingapp_cr, cr_to_dict
+    from porpulsion.models import RemoteApp, RemoteAppSpec
+
     app_id = payload.get("id", "")
-    if app_id in state.remote_apps:
-        ra = state.remote_apps[app_id]
-        delete_workload(ra)
-        ra.status = "Deleted"
-        del state.remote_apps[app_id]
-        log.info("Deleted remote app %s (via channel)", app_id)
-        return {"ok": True}
-    raise RuntimeError("app not found")
+    ea_cr = get_ea_cr_by_app_id(state.NAMESPACE, app_id)
+    if ea_cr is None:
+        raise RuntimeError("app not found")
+
+    d = cr_to_dict(ea_cr, "executing")
+    ra = RemoteApp(
+        id=app_id, name=d["name"],
+        spec=RemoteAppSpec.from_dict(d.get("spec", {})),
+        source_peer=d["source_peer"],
+    )
+    delete_workload(ra)
+    delete_executingapp_cr(state.NAMESPACE, d["cr_name"])
+    log.info("Deleted executing app %s (via channel)", app_id)
+    return {"ok": True}
 
 
 def handle_remoteapp_scale(payload: dict) -> dict:
     """Scale a RemoteApp on this (executing) side."""
     from porpulsion import state
     from porpulsion.k8s.executor import scale_workload
+    from porpulsion.k8s.store import get_ea_cr_by_app_id, cr_to_dict
+    from porpulsion.models import RemoteApp, RemoteAppSpec
+
     app_id   = payload.get("id", "")
     replicas = payload.get("replicas")
-    if app_id not in state.remote_apps:
+    ea_cr = get_ea_cr_by_app_id(state.NAMESPACE, app_id)
+    if ea_cr is None:
         raise RuntimeError("app not found")
-    scale_workload(state.remote_apps[app_id], int(replicas))
-    state.remote_apps[app_id].spec.replicas = int(replicas)
+
+    d = cr_to_dict(ea_cr, "executing")
+    ra = RemoteApp(
+        id=app_id, name=d["name"],
+        spec=RemoteAppSpec.from_dict(d.get("spec", {})),
+        source_peer=d["source_peer"],
+    )
+    scale_workload(ra, int(replicas))
     return {"ok": True, "replicas": int(replicas)}
 
 
@@ -129,12 +166,22 @@ def handle_remoteapp_detail(payload: dict) -> dict:
     """Return k8s deployment detail for a RemoteApp."""
     from porpulsion import state
     from porpulsion.k8s.executor import get_deployment_status
+    from porpulsion.k8s.store import get_ea_cr_by_app_id, cr_to_dict
+    from porpulsion.models import RemoteApp, RemoteAppSpec
+
     app_id = payload.get("id", "")
-    if app_id not in state.remote_apps:
+    ea_cr = get_ea_cr_by_app_id(state.NAMESPACE, app_id)
+    if ea_cr is None:
         raise RuntimeError("app not found")
-    ra = state.remote_apps[app_id]
+
+    d = cr_to_dict(ea_cr, "executing")
+    ra = RemoteApp(
+        id=app_id, name=d["name"],
+        spec=RemoteAppSpec.from_dict(d.get("spec", {})),
+        source_peer=d["source_peer"],
+    )
     result = get_deployment_status(ra)
-    result["spec"] = ra.spec.to_dict()
+    result["spec"] = d.get("spec", {})
     return result
 
 
@@ -142,33 +189,115 @@ def handle_remoteapp_logs(payload: dict) -> dict:
     """Return pod logs for a RemoteApp (executing on this cluster)."""
     from porpulsion import state
     from porpulsion.k8s.executor import get_pod_logs
+    from porpulsion.k8s.store import get_ea_cr_by_app_id, cr_to_dict
+    from porpulsion.models import RemoteApp, RemoteAppSpec
+
     app_id = payload.get("id", "")
-    if app_id not in state.remote_apps:
+    ea_cr = get_ea_cr_by_app_id(state.NAMESPACE, app_id)
+    if ea_cr is None:
         raise RuntimeError("app not found")
+
+    d = cr_to_dict(ea_cr, "executing")
+    ra = RemoteApp(
+        id=app_id, name=d["name"],
+        spec=RemoteAppSpec.from_dict(d.get("spec", {})),
+        source_peer=d["source_peer"],
+    )
     tail = int(payload.get("tail") or 200)
     pod_name = (payload.get("pod") or "").strip() or None
     order_by_time = payload.get("order") == "time"
-    return get_pod_logs(state.remote_apps[app_id], tail=tail, pod_name=pod_name, order_by_time=order_by_time)
+    return get_pod_logs(ra, tail=tail, pod_name=pod_name, order_by_time=order_by_time)
+
+
+def handle_remoteapp_config_get(payload: dict) -> dict:
+    """Return the current data for a managed ConfigMap or Secret on the executing side."""
+    from porpulsion import state
+    from porpulsion.k8s.executor import get_configmap_data, get_secret_data
+    from porpulsion.k8s.store import get_ea_cr_by_app_id
+
+    app_id = payload.get("id", "")
+    kind   = payload.get("kind", "")
+    name   = payload.get("name", "")
+    if get_ea_cr_by_app_id(state.NAMESPACE, app_id) is None:
+        raise RuntimeError("app not found")
+    if kind == "configmap":
+        return {"data": get_configmap_data(app_id, name)}
+    if kind == "secret":
+        return {"data": get_secret_data(app_id, name)}
+    raise RuntimeError(f"unknown config kind: {kind!r}")
+
+
+def handle_remoteapp_config_patch(payload: dict) -> dict:
+    """Apply a key-value patch to a managed ConfigMap or Secret and trigger a rollout restart."""
+    from porpulsion import state
+    from porpulsion.k8s.executor import patch_configmap_data, patch_secret_data, rollout_restart
+    from porpulsion.k8s.store import get_ea_cr_by_app_id, cr_to_dict
+    from porpulsion.models import RemoteApp, RemoteAppSpec
+
+    app_id = payload.get("id", "")
+    kind   = payload.get("kind", "")
+    name   = payload.get("name", "")
+    data   = payload.get("data", {})
+
+    ea_cr = get_ea_cr_by_app_id(state.NAMESPACE, app_id)
+    if ea_cr is None:
+        raise RuntimeError("app not found")
+
+    d = cr_to_dict(ea_cr, "executing")
+    ra = RemoteApp(
+        id=app_id, name=d["name"],
+        spec=RemoteAppSpec.from_dict(d.get("spec", {})),
+        source_peer=d["source_peer"],
+    )
+    if kind == "configmap":
+        patch_configmap_data(app_id, name, data)
+    elif kind == "secret":
+        patch_secret_data(app_id, name, data)
+    else:
+        raise RuntimeError(f"unknown config kind: {kind!r}")
+    rollout_restart(ra)
+    return {"ok": True}
 
 
 def handle_remoteapp_spec_update(payload: dict) -> dict:
     """Apply a new spec to a RemoteApp on the executing side."""
     from porpulsion import state
-    from porpulsion.models import RemoteAppSpec
+    from porpulsion.models import RemoteApp, RemoteAppSpec
     from porpulsion.routes.workloads import _check_resource_quota
     from porpulsion.k8s.executor import run_workload
+    from porpulsion.k8s.store import get_ea_cr_by_app_id, cr_to_dict, create_executingapp_cr
+
     app_id   = payload.get("id", "")
     new_spec = payload.get("spec")
-    if app_id not in state.remote_apps:
+
+    ea_cr = get_ea_cr_by_app_id(state.NAMESPACE, app_id)
+    if ea_cr is None:
         raise RuntimeError("app not found")
-    ra = state.remote_apps[app_id]
+
+    d = cr_to_dict(ea_cr, "executing")
     parsed = RemoteAppSpec.from_dict(new_spec)
-    quota_err = _check_resource_quota(parsed, source_peer=ra.source_peer)
+    quota_err = _check_resource_quota(parsed, source_peer=d["source_peer"])
     if quota_err:
         raise RuntimeError(quota_err)
-    ra.spec = parsed
-    source = state.peers.get(ra.source_peer)
-    run_workload(ra, ra.source_peer, peer=source)
+    try:
+        from porpulsion.k8s.store import validate_remoteapp_spec
+        val_err = validate_remoteapp_spec(state.NAMESPACE, app_id, d["name"], parsed.to_dict(), d["source_peer"])
+        if val_err:
+            raise RuntimeError(f"spec invalid: {val_err}")
+    except RuntimeError:
+        raise
+    except Exception as _ve:
+        log.debug("CRD spec validation skipped: %s", _ve)
+
+    new_cr_name = create_executingapp_cr(state.NAMESPACE, app_id, d["name"], parsed.to_dict(), d["source_peer"])
+    ra = RemoteApp(
+        id=app_id, name=d["name"],
+        spec=parsed,
+        source_peer=d["source_peer"],
+        cr_name=new_cr_name or d.get("cr_name", ""),
+    )
+    source = state.peers.get(d["source_peer"])
+    run_workload(ra, d["source_peer"], peer=source)
     return {"ok": True}
 
 
@@ -181,6 +310,7 @@ def handle_proxy_request(payload: dict, peer_name: str = "") -> dict:
     """
     from porpulsion import state
     from porpulsion.k8s.tunnel import proxy_request
+    from porpulsion.k8s.store import get_ea_cr_by_app_id
 
     app_id  = payload.get("app_id", "")
     port    = int(payload.get("port", 80))
@@ -192,15 +322,13 @@ def handle_proxy_request(payload: dict, peer_name: str = "") -> dict:
     if not state.settings.allow_inbound_tunnels:
         raise RuntimeError("inbound tunnels are disabled on this agent")
 
-    # Enforce per-peer tunnel allowlist. Empty string = allow all.
     allowed_raw = (state.settings.allowed_tunnel_peers or "").strip()
     if allowed_raw:
         allowed_tokens = {t.strip() for t in allowed_raw.split(",") if t.strip()}
-        # Tokens are either "peer" (allow all apps from that peer) or "peer/app_id"
         if peer_name not in allowed_tokens and f"{peer_name}/{app_id}" not in allowed_tokens:
             raise RuntimeError(f"tunnel from peer '{peer_name}' is not permitted")
 
-    if app_id not in state.remote_apps:
+    if get_ea_cr_by_app_id(state.NAMESPACE, app_id) is None:
         raise RuntimeError("app not found")
 
     status, resp_headers, resp_body = proxy_request(
@@ -221,15 +349,25 @@ def handle_peer_disconnect(payload: dict):
     """Peer is telling us it's disconnecting cleanly."""
     from porpulsion import state, tls
     from porpulsion.notifications import add_notification
+    from porpulsion.k8s.store import list_remoteapp_crs, cr_to_dict, update_remoteapp_cr_status
+
     peer_name = payload.get("name", "")
     if peer_name and peer_name in state.peers:
         state.peers.pop(peer_name)
         state.peer_channels.pop(peer_name, None)
+
+        # Mark all RemoteApp CRs targeting this peer as Failed
         affected = []
-        for ra in list(state.local_apps.values()):
-            if ra.target_peer == peer_name:
-                ra.status = "Failed"
-                affected.append(ra.name)
+        for cr in list_remoteapp_crs(state.NAMESPACE):
+            d = cr_to_dict(cr, "submitted")
+            if d["target_peer"] == peer_name:
+                try:
+                    update_remoteapp_cr_status(state.NAMESPACE, d["cr_name"], "Failed", d["id"],
+                                               message=f"Peer {peer_name!r} disconnected")
+                except Exception as e:
+                    log.debug("Could not update CR status for %s: %s", d["id"], e)
+                affected.append(d["name"])
+
         tls.save_peers(state.NAMESPACE, state.peers)
         log.info("Peer %s disconnected (via channel)", peer_name)
         msg = f"Peer {peer_name!r} disconnected."

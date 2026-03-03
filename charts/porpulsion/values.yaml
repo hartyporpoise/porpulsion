@@ -6,7 +6,7 @@
 # ── Agent ──────────────────────────────────────────────────────────────────────
 agent:
   # -- Container image for the porpulsion agent.
-  image: ghcr.io/hartyporpoise/porpulsion:latest
+  image: ghcr.io/hartyporpoise/porpulsion:v0.1.0
 
   # -- Image pull policy. Use `Always` when pushing to a remote registry.
   pullPolicy: IfNotPresent
@@ -18,6 +18,11 @@ agent:
   #    during peer handshakes. Defaults to the hostname if unset.
   agentName: ""
 
+  # -- Allow inbound RemoteApps to request PersistentVolumeClaims.
+  #    When true, the Role gains PVC create/delete permissions.
+  #    Defaults to false — enable only on clusters where you trust peers to claim storage.
+  allowPvcs: false
+
   # -- Externally reachable URL for this agent (e.g. https://porpulsion.example.com).
   #    Peer agents use this address for the initial peering handshake and the
   #    persistent WebSocket channel (/ws). Should be your Ingress or
@@ -26,20 +31,21 @@ agent:
   selfUrl: ""
 
 # ── Service ────────────────────────────────────────────────────────────────────
-# The Service exposes two ports:
-#   8000 (ui)      — dashboard and local management API. Internal only; never
-#                    exposed via an Ingress. Access via kubectl port-forward.
-#   8001 (peer-ws) — peer handshake (/peer) and WebSocket channel (/ws). This
-#                    is the only port your Ingress should forward to.
+# The Service exposes three ports:
+#   8000 (ui)       — dashboard and management API. Session auth required.
+#                     Internal only; access via kubectl port-forward.
+#   8001 (peer-ws)  — peer handshake (/peer) and WebSocket channel (/ws).
+#                     This is the only port your Ingress should forward to.
+#   8002 (internal) — health/readiness probes (/status). No auth. Never expose externally.
 #
-#   kubectl port-forward svc/porpulsion 8000:8000   # dashboard (local access)
+#   kubectl port-forward svc/porpulsion 8000:8000   # dashboard
 #   kubectl port-forward svc/porpulsion 8001:8001   # peer channel (testing)
 
 service:
   # -- Service type. ClusterIP for production; NodePort for local dev.
   type: ClusterIP
 
-  # -- Port for the dashboard UI and local management API (internal only).
+  # -- Port for the dashboard UI and management API. Session auth required.
   port: 8000
 
   # -- NodePort for the dashboard UI. Only used when type=NodePort.
@@ -51,6 +57,12 @@ service:
 
   # -- NodePort for the peer-facing server. Only used when type=NodePort.
   peerNodePort: ""
+
+  # -- Port for internal probes: /status. No auth. Never expose externally.
+  internalPort: 8002
+
+  # -- NodePort for the internal server. Only used when type=NodePort.
+  internalNodePort: ""
 
 # ── Agent runtime settings ──────────────────────────────────────────────────────
 # These settings are configured at runtime via the dashboard UI or the /settings

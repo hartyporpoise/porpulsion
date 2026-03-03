@@ -94,13 +94,23 @@
             <span class="toggle-slider"></span>
           </label>
         </div>
-        <div class="toggle-row" style="border-bottom:none;">
+        <div class="toggle-row">
           <div class="toggle-info">
             <div class="toggle-label">Require resource limits</div>
             <div class="toggle-desc">Reject apps that don't specify <span class="mono">resources.limits.cpu</span> and <span class="mono">resources.limits.memory</span></div>
           </div>
           <label class="toggle">
             <input type="checkbox" id="setting-require-res-limits" aria-label="Require resource limits">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div class="toggle-row" style="border-bottom:none;">
+          <div class="toggle-info">
+            <div class="toggle-label">Allow persistent volumes (PVCs)</div>
+            <div class="toggle-desc">Allow inbound workloads to request PersistentVolumeClaims from the cluster's default StorageClass. Requires the Helm chart to be installed with <span class="mono">agent.allowPvcs=true</span> for RBAC.</div>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" id="setting-allow-pvcs" aria-label="Allow persistent volumes">
             <span class="toggle-slider"></span>
           </label>
         </div>
@@ -173,6 +183,24 @@
         </div>
         <div class="flex-end">
           <button type="button" id="setting-quotas-save" class="btn-sm">Save quotas</button>
+        </div>
+
+        <hr class="settings-divider">
+        <div class="section-label">PVC storage quotas</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:0.75rem;">
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="setting-max-pvc-per">Max storage per PVC (GB)</label>
+            <input type="number" id="setting-max-pvc-per" min="0" placeholder="0 = unlimited" autocomplete="off">
+            <span class="form-hint">Maximum storage a single PVC may request.</span>
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="setting-max-pvc-total">Max total PVC storage (GB)</label>
+            <input type="number" id="setting-max-pvc-total" min="0" placeholder="0 = unlimited" autocomplete="off">
+            <span class="form-hint">Maximum combined PVC storage per app submission.</span>
+          </div>
+        </div>
+        <div class="flex-end" style="margin-bottom:0;">
+          <button type="button" id="setting-pvc-quotas-save" class="btn-sm">Save PVC quotas</button>
         </div>
 
         <hr class="settings-divider">

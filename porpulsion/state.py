@@ -6,7 +6,7 @@ Config constants (AGENT_NAME, SELF_URL, etc.) are set once at startup
 by porpulsion/agent.py and read by routes at call time.
 """
 from typing import TYPE_CHECKING
-from porpulsion.models import Peer, RemoteApp, TunnelRequest, AgentSettings
+from porpulsion.models import Peer, TunnelRequest, AgentSettings
 if TYPE_CHECKING:
     from porpulsion.channel import PeerChannel
 
@@ -30,8 +30,9 @@ VERSION_HASH: str = ""          # SHA-256 of key protocol files, first 16 hex ch
 peers:          dict[str, Peer]          = {}
 pending_peers:  dict[str, dict]          = {}   # url  -> {name, url, since, attempts, status, ca_pem}
 pending_inbound: dict[str, dict]         = {}   # id   -> {name, url, ca_pem, since}
-local_apps:     dict[str, RemoteApp]     = {}   # apps we submitted, tracked locally
-remote_apps:    dict[str, RemoteApp]     = {}   # apps received from peers, executing here
+# NOTE: local_apps and remote_apps have been removed.
+#       App state is now stored in k8s CRs (RemoteApp / ExecutingApp).
+#       Use porpulsion.k8s.store.list_remoteapp_crs() and list_executingapp_crs() instead.
 pending_approval: dict[str, dict]        = {}   # id -> {id, name, spec, source_peer, callback_url, since}
 tunnel_requests: dict[str, TunnelRequest] = {}  # pending/approved/rejected tunnel requests
 settings: AgentSettings = AgentSettings()

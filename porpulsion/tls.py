@@ -308,16 +308,19 @@ def load_peers(namespace: str) -> list[dict]:
         return []
 
 
-# ── State ConfigMap (local_apps + settings) ───────────────────
+# ── State ConfigMap (pending_approval + settings) ────────────
 
 _STATE_CONFIGMAP = "porpulsion-state"
 
 
-def save_state_configmap(namespace: str, local_apps: dict, settings,
+def save_state_configmap(namespace: str, settings,
                          pending_approval: dict | None = None) -> None:
     """
-    Persist local_apps, pending_approval, and settings to the porpulsion-state ConfigMap
+    Persist settings and pending_approval to the porpulsion-state ConfigMap
     (fire-and-forget thread).
+
+    Note: local_apps and remote_apps are no longer persisted here — they live in
+    k8s CRs (RemoteApp / ExecutingApp) and are read directly from k8s.
     """
     import json
     import threading
@@ -325,7 +328,6 @@ def save_state_configmap(namespace: str, local_apps: dict, settings,
     from kubernetes import client as k8s_client
     _log = logging.getLogger("porpulsion.tls")
 
-    apps_json     = json.dumps([a.to_dict() for a in local_apps.values()])
     settings_json = json.dumps(settings.to_dict())
     pending_json  = json.dumps(list((pending_approval or {}).values()))
 
@@ -336,7 +338,6 @@ def save_state_configmap(namespace: str, local_apps: dict, settings,
                 metadata=k8s_client.V1ObjectMeta(
                     name=_STATE_CONFIGMAP, namespace=namespace),
                 data={
-                    "local_apps": apps_json,
                     "settings": settings_json,
                     "pending_approval": pending_json,
                 },
@@ -348,8 +349,8 @@ def save_state_configmap(namespace: str, local_apps: dict, settings,
                     core_v1.patch_namespaced_config_map(_STATE_CONFIGMAP, namespace, cm)
                 else:
                     raise
-            _log.debug("Persisted %d local app(s), %d pending, + settings to ConfigMap",
-                       len(local_apps), len(pending_approval or {}))
+            _log.debug("Persisted %d pending approval(s) + settings to ConfigMap",
+                       len(pending_approval or {}))
         except Exception as exc:
             _log.warning("Could not persist state to ConfigMap: %s", exc)
 
@@ -358,8 +359,8 @@ def save_state_configmap(namespace: str, local_apps: dict, settings,
 
 def load_state_configmap(namespace: str) -> dict:
     """
-    Load local_apps, pending_approval, and settings from the porpulsion-state ConfigMap.
-    Returns {"local_apps": [...], "pending_approval": [...], "settings": {...}} or {} on error.
+    Load settings and pending_approval from the porpulsion-state ConfigMap.
+    Returns {"pending_approval": [...], "settings": {...}} or {} on error.
     """
     import json
     import logging
@@ -368,14 +369,11 @@ def load_state_configmap(namespace: str) -> dict:
         core_v1 = _k8s_core_v1()
         cm = core_v1.read_namespaced_config_map(_STATE_CONFIGMAP, namespace)
         result = {}
-        if cm.data and "local_apps" in cm.data:
-            result["local_apps"] = json.loads(cm.data["local_apps"])
         if cm.data and "settings" in cm.data:
             result["settings"] = json.loads(cm.data["settings"])
         if cm.data and "pending_approval" in cm.data:
             result["pending_approval"] = json.loads(cm.data["pending_approval"])
-        _log.info("Loaded %d local app(s), %d pending, + settings from ConfigMap",
-                  len(result.get("local_apps", [])),
+        _log.info("Loaded %d pending approval(s) + settings from ConfigMap",
                   len(result.get("pending_approval", [])))
         return result
     except Exception as exc:

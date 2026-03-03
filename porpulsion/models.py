@@ -1,311 +1,187 @@
+"""
+Porpulsion data models.
+
+RemoteAppSpec is driven entirely by the installed CRD's openAPIV3Schema.
+The CRD (charts/porpulsion/templates/crd.yaml) is the single source of truth
+for spec fields, types, and defaults.  To add or remove a spec field, edit
+crd.yaml and run `helm upgrade` — no Python changes required.
+
+All other models (Peer, RemoteApp, AgentSettings, etc.) remain plain dataclasses.
+"""
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Literal
+from typing import Literal
 
 
-@dataclass
-class EnvVarSource:
-    secretKeyRef: dict | None = None    # {"name": str, "key": str}
-    configMapKeyRef: dict | None = None  # {"name": str, "key": str}
-    fieldRef: dict | None = None         # {"fieldPath": str} e.g. spec.nodeName
+# ── CRD-driven spec wrapper ────────────────────────────────────────────────────
 
-    @classmethod
-    def from_dict(cls, d: dict) -> "EnvVarSource":
-        return cls(
-            secretKeyRef=d.get("secretKeyRef"),
-            configMapKeyRef=d.get("configMapKeyRef"),
-            fieldRef=d.get("fieldRef"),
-        )
-
-    def to_dict(self) -> dict:
-        out: dict = {}
-        if self.secretKeyRef:
-            out["secretKeyRef"] = self.secretKeyRef
-        if self.configMapKeyRef:
-            out["configMapKeyRef"] = self.configMapKeyRef
-        if self.fieldRef:
-            out["fieldRef"] = self.fieldRef
-        return out
-
-
-@dataclass
-class EnvVar:
-    name: str
-    value: str = ""
-    valueFrom: EnvVarSource | None = None
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "EnvVar":
-        vf = d.get("valueFrom")
-        return cls(
-            name=d["name"],
-            value=str(d.get("value", "")),
-            valueFrom=EnvVarSource.from_dict(vf) if vf else None,
-        )
-
-    def to_dict(self) -> dict:
-        out: dict = {"name": self.name}
-        if self.valueFrom:
-            out["valueFrom"] = self.valueFrom.to_dict()
-        else:
-            out["value"] = self.value
-        return out
-
-
-@dataclass
-class PortSpec:
-    port: int
-    name: str = ""
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "PortSpec":
-        return cls(port=int(d["port"]), name=str(d.get("name", "")))
-
-    def to_dict(self) -> dict:
-        out: dict = {"port": self.port}
-        if self.name:
-            out["name"] = self.name
-        return out
-
-
-@dataclass
-class ResourceRequirements:
+class _DictWrapper:
     """
-    Kubernetes-native resource requests and limits.
+    Thin wrapper around a plain dict that exposes keys as attributes.
+    Used for RemoteAppSpec and all nested spec objects (ports, env, volumes, etc.)
+    so that existing code like `spec.image`, `cm.name`, `rp.httpGet` keeps working
+    without any hardcoded field lists.
 
-    Values are raw k8s quantity strings:
-      cpu    — e.g. "250m" (250 millicores), "0.5", "1"
-      memory — e.g. "64Mi", "1Gi", "512M"
-
-    Either requests or limits (or both) may be omitted.
+    Attribute writes (e.g. `spec.replicas = 2`) mutate the underlying dict.
+    Missing keys return None rather than raising AttributeError.
     """
-    requests: dict[str, str] = field(default_factory=dict)  # {"cpu": "250m", "memory": "64Mi"}
-    limits: dict[str, str] = field(default_factory=dict)    # {"cpu": "500m", "memory": "128Mi"}
+    __slots__ = ("_d",)
 
-    @classmethod
-    def from_dict(cls, d: dict) -> "ResourceRequirements":
-        return cls(
-            requests=dict(d.get("requests") or {}),
-            limits=dict(d.get("limits") or {}),
-        )
+    def __init__(self, d: dict):
+        object.__setattr__(self, "_d", d if isinstance(d, dict) else {})
 
-    def to_dict(self) -> dict:
-        out: dict = {}
-        if self.requests:
-            out["requests"] = self.requests
-        if self.limits:
-            out["limits"] = self.limits
-        return out
+    def __getattr__(self, name: str):
+        try:
+            return object.__getattribute__(self, "_d")[name]
+        except KeyError:
+            return None
 
-    def is_empty(self) -> bool:
-        return not self.requests and not self.limits
+    def __setattr__(self, name: str, value):
+        object.__getattribute__(self, "_d")[name] = value
 
-
-@dataclass
-class AdditionalConfigItem:
-    """One file to mount: path in the container and its text content (stored in a ConfigMap)."""
-    mountPath: str = ""
-    content: str = ""
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "AdditionalConfigItem":
-        return cls(
-            mountPath=str(d.get("mountPath", "")),
-            content=str(d.get("content", "")),
-        )
+    def get(self, key, default=None):
+        return object.__getattribute__(self, "_d").get(key, default)
 
     def to_dict(self) -> dict:
-        return {"mountPath": self.mountPath, "content": self.content}
+        return dict(object.__getattribute__(self, "_d"))
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}({object.__getattribute__(self, '_d')!r})"
 
 
-@dataclass
-class ReadinessProbe:
-    httpGet: dict | None = None    # {"path": str, "port": int}
-    exec: dict | None = None       # {"command": [str]}
-    initialDelaySeconds: int = 5
-    periodSeconds: int = 10
-    failureThreshold: int = 3
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "ReadinessProbe":
-        return cls(
-            httpGet=d.get("httpGet"),
-            exec=d.get("exec"),
-            initialDelaySeconds=int(d.get("initialDelaySeconds", 5)),
-            periodSeconds=int(d.get("periodSeconds", 10)),
-            failureThreshold=int(d.get("failureThreshold", 3)),
-        )
-
-    def to_dict(self) -> dict:
-        out: dict = {
-            "initialDelaySeconds": self.initialDelaySeconds,
-            "periodSeconds": self.periodSeconds,
-            "failureThreshold": self.failureThreshold,
-        }
-        if self.httpGet:
-            out["httpGet"] = self.httpGet
-        if self.exec:
-            out["exec"] = self.exec
-        return out
-
-
-@dataclass
-class SecurityContext:
-    runAsNonRoot: bool | None = None
-    runAsUser: int | None = None
-    runAsGroup: int | None = None
-    fsGroup: int | None = None
-    readOnlyRootFilesystem: bool | None = None
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "SecurityContext":
-        return cls(
-            runAsNonRoot=d.get("runAsNonRoot"),
-            runAsUser=d.get("runAsUser"),
-            runAsGroup=d.get("runAsGroup"),
-            fsGroup=d.get("fsGroup"),
-            readOnlyRootFilesystem=d.get("readOnlyRootFilesystem"),
-        )
-
-    def to_dict(self) -> dict:
-        out: dict = {}
-        for k in ("runAsNonRoot", "runAsUser", "runAsGroup", "fsGroup", "readOnlyRootFilesystem"):
-            v = getattr(self, k)
-            if v is not None:
-                out[k] = v
-        return out
-
-
-@dataclass
-class RemoteAppSpec:
+def _wrap(value, prop_schema: dict | None = None):
     """
-    Typed schema for a RemoteApp spec. This is the authoritative model
-    for what fields are accepted, their types, and their defaults.
-
-    Required:
-      image — container image to run
-
-    Compute:
-      replicas  — number of pod replicas (default 1)
-      resources — Kubernetes resource requests and limits (cpu/memory quantity strings)
-
-    Networking:
-      port          — single container port shorthand (legacy)
-      ports         — list of PortSpec (preferred)
-
-    Entrypoint:
-      command       — override container ENTRYPOINT
-      args          — override container CMD / arguments
-
-    Environment:
-      env           — list of EnvVar (plain value or valueFrom secret/configmap/fieldRef)
-
-    Volumes:
-      additionalConfig — list of { mountPath, content }; each content is mounted as a file (ConfigMap)
-
-    Image pull:
-      imagePullPolicy   — Always | IfNotPresent | Never (default: IfNotPresent)
-      imagePullSecrets  — list of Secret names with registry credentials
-
-    Health:
-      readinessProbe — ReadinessProbe (httpGet or exec)
-
-    Security:
-      securityContext — SecurityContext (pod-level + container-level fields)
+    Wrap a raw JSON value according to its CRD schema type.
+    - object  → _DictWrapper (with nested wrapping of its properties)
+    - array of objects → list of _DictWrapper
+    - array of scalars → plain list
+    - scalar → value as-is
+    When schema is None we infer from the value type.
     """
-    # Required
-    image: str = "nginx:latest"
+    if value is None:
+        return None
+    typ = (prop_schema or {}).get("type")
+    if typ == "object" or (typ is None and isinstance(value, dict)):
+        # Wrap sub-properties recursively
+        sub_props = (prop_schema or {}).get("properties", {})
+        wrapped = {}
+        for k, v in value.items():
+            wrapped[k] = _wrap(v, sub_props.get(k))
+        return _DictWrapper(wrapped)
+    if typ == "array" or (typ is None and isinstance(value, list)):
+        item_schema = (prop_schema or {}).get("items", {})
+        item_type = item_schema.get("type")
+        if item_type == "object" or (item_type is None and value and isinstance(value[0], dict)):
+            return [_wrap(i, item_schema) for i in value if isinstance(i, dict)]
+        return list(value)
+    return value
 
-    # Compute
-    replicas: int = 1
-    resources: ResourceRequirements = field(default_factory=ResourceRequirements)
 
-    # Networking
-    port: int | None = None
-    ports: list[PortSpec] = field(default_factory=list)
+def _unwrap(value):
+    """Recursively unwrap _DictWrapper objects back to plain dicts for serialization."""
+    if isinstance(value, _DictWrapper):
+        return {k: _unwrap(v) for k, v in object.__getattribute__(value, "_d").items()}
+    if isinstance(value, list):
+        return [_unwrap(i) for i in value]
+    return value
 
-    # Entrypoint
-    command: list[str] | None = None
-    args: list[str] | None = None
 
-    # Environment
-    env: list[EnvVar] = field(default_factory=list)
+class RemoteAppSpec(_DictWrapper):
+    """
+    A RemoteApp spec, loaded from the CRD's openAPIV3Schema at agent startup.
 
-    # Volumes: additional config files (ConfigMap)
-    additionalConfig: list[AdditionalConfigItem] = field(default_factory=list)
+    Fields and their types come entirely from the installed CRD — no field list
+    is hardcoded here.  Access any field as an attribute:
 
-    # Image pull
-    imagePullPolicy: Literal["Always", "IfNotPresent", "Never"] = "IfNotPresent"
-    imagePullSecrets: list[str] = field(default_factory=list)
+        spec.image          # str
+        spec.replicas       # int
+        spec.configMaps     # list of _DictWrapper with .name, .mountPath, .data
+        spec.resources      # _DictWrapper with .requests, .limits dicts
+        spec.env            # list of _DictWrapper with .name, .value, .valueFrom
+        spec.readinessProbe # _DictWrapper or None
+        spec.securityContext # _DictWrapper or None
 
-    # Health
-    readinessProbe: ReadinessProbe | None = None
-
-    # Security
-    securityContext: SecurityContext | None = None
+    To add a new spec field: edit charts/porpulsion/templates/crd.yaml and
+    run `helm upgrade`.  No Python changes needed.
+    """
 
     @classmethod
     def from_dict(cls, d: dict) -> "RemoteAppSpec":
-        """Parse a raw spec dict (e.g. from JSON/YAML) into a typed RemoteAppSpec."""
+        """
+        Parse a raw spec dict into a RemoteAppSpec.
+        Uses the cached CRD schema to coerce types and apply defaults.
+        Falls back to passthrough wrapping if the schema is unavailable.
+        """
         if not isinstance(d, dict):
             d = {}
-        ports_raw = d.get("ports")
-        env_raw = d.get("env")
-        rp_raw = d.get("readinessProbe")
-        sc_raw = d.get("securityContext")
-        pull_secrets = d.get("imagePullSecrets")
-        res_raw = d.get("resources")
-        add_cfg = d.get("additionalConfig")
-        return cls(
-            image=str(d.get("image", "nginx:latest")),
-            replicas=max(1, int(d.get("replicas") or 1)),
-            resources=ResourceRequirements.from_dict(res_raw)
-                      if res_raw and isinstance(res_raw, dict) else ResourceRequirements(),
-            port=int(d["port"]) if d.get("port") else None,
-            ports=[PortSpec.from_dict(p) for p in ports_raw if p.get("port")]
-                  if ports_raw and isinstance(ports_raw, list) else [],
-            command=list(d["command"]) if d.get("command") else None,
-            args=list(d["args"]) if d.get("args") else None,
-            env=[EnvVar.from_dict(e) for e in env_raw if e.get("name")]
-                if env_raw and isinstance(env_raw, list) else [],
-            additionalConfig=[AdditionalConfigItem.from_dict(c) for c in add_cfg if isinstance(c, dict) and c.get("mountPath")]
-                if add_cfg and isinstance(add_cfg, list) else [],
-            imagePullPolicy=d.get("imagePullPolicy", "IfNotPresent"),
-            imagePullSecrets=list(pull_secrets)
-                             if pull_secrets and isinstance(pull_secrets, list) else [],
-            readinessProbe=ReadinessProbe.from_dict(rp_raw)
-                           if rp_raw and isinstance(rp_raw, dict) else None,
-            securityContext=SecurityContext.from_dict(sc_raw)
-                            if sc_raw and isinstance(sc_raw, dict) else None,
-        )
+        from porpulsion.k8s.store import load_spec_schema
+        schema_props = load_spec_schema() or {}
+
+        coerced: dict = {}
+        # Apply CRD defaults for known fields, then overlay what was provided
+        for field_name, field_schema in schema_props.items():
+            if field_name == "targetPeer":
+                continue  # internal CRD field, not part of the user spec
+            raw = d.get(field_name)
+            if raw is None:
+                default = field_schema.get("default")
+                if default is not None:
+                    coerced[field_name] = default
+            else:
+                coerced[field_name] = _coerce(raw, field_schema)
+
+        # Also pass through any fields not in schema (forward-compat / CRD not loaded)
+        for k, v in d.items():
+            if k not in coerced and k != "targetPeer":
+                coerced[k] = _wrap(v)
+
+        # Ensure image always present
+        if "image" not in coerced:
+            coerced["image"] = d.get("image", "nginx:latest")
+        if "replicas" not in coerced:
+            coerced["replicas"] = max(1, int(d.get("replicas") or 1))
+
+        obj = cls.__new__(cls)
+        object.__setattr__(obj, "_d", coerced)
+        return obj
 
     def to_dict(self) -> dict:
-        """Serialize back to a plain dict (for JSON API responses and persistence)."""
-        out: dict[str, Any] = {"image": self.image, "replicas": self.replicas}
-        if not self.resources.is_empty():
-            out["resources"] = self.resources.to_dict()
-        if self.port is not None:
-            out["port"] = self.port
-        if self.ports:
-            out["ports"] = [p.to_dict() for p in self.ports]
-        if self.command:
-            out["command"] = self.command
-        if self.args:
-            out["args"] = self.args
-        if self.env:
-            out["env"] = [e.to_dict() for e in self.env]
-        if self.additionalConfig:
-            out["additionalConfig"] = [c.to_dict() for c in self.additionalConfig]
-        if self.imagePullPolicy != "IfNotPresent":
-            out["imagePullPolicy"] = self.imagePullPolicy
-        if self.imagePullSecrets:
-            out["imagePullSecrets"] = self.imagePullSecrets
-        if self.readinessProbe:
-            out["readinessProbe"] = self.readinessProbe.to_dict()
-        if self.securityContext:
-            out["securityContext"] = self.securityContext.to_dict()
-        return out
+        """Serialize back to a plain dict, unwrapping all nested wrappers."""
+        return _unwrap(self)
+
+    def is_empty(self) -> bool:
+        return not object.__getattribute__(self, "_d")
+
+
+def _coerce(value, schema: dict):
+    """Coerce a raw value to the type declared in the schema."""
+    typ = schema.get("type")
+    if value is None:
+        return schema.get("default")
+    if typ == "integer":
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return value
+    if typ == "boolean":
+        if isinstance(value, bool):
+            return value
+        return str(value).lower() in ("true", "1", "yes")
+    if typ == "string":
+        return str(value)
+    if typ == "array":
+        if not isinstance(value, list):
+            return []
+        return _wrap(value, schema)
+    if typ == "object":
+        if not isinstance(value, dict):
+            return _DictWrapper({})
+        return _wrap(value, schema)
+    return _wrap(value, schema)
+
+
+# ── Remaining models (plain dataclasses) ─────────────────────────────────────
 
 
 @dataclass
@@ -314,9 +190,15 @@ class Peer:
     url: str
     ca_pem: str = ""  # PEM CA cert received from this peer during handshake (internal only)
     connected_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    # CRD schema diff set on connect: {"missing_local": [...], "missing_remote": [...]}
+    # missing_remote = fields this peer lacks; missing_local = fields we lack
+    crd_diff: dict = field(default_factory=dict)
 
     def to_dict(self):
-        return {"name": self.name, "url": self.url, "connected_at": self.connected_at}
+        d = {"name": self.name, "url": self.url, "connected_at": self.connected_at}
+        if self.crd_diff:
+            d["crd_diff"] = self.crd_diff
+        return d
 
 
 @dataclass
@@ -327,6 +209,7 @@ class RemoteApp:
     id: str = field(default_factory=lambda: uuid.uuid4().hex[:8])
     status: str = "Pending"
     target_peer: str = ""   # peer this app was submitted to (set on the submitting side)
+    cr_name: str = ""       # k8s RemoteApp CR name on the local cluster (empty if CRD not installed)
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
@@ -338,6 +221,7 @@ class RemoteApp:
             "source_peer": self.source_peer,
             "target_peer": self.target_peer,
             "status": self.status,
+            "cr_name": self.cr_name,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -375,6 +259,7 @@ class AgentSettings:
       allowed_images             — comma-separated image prefixes; empty = allow all
       blocked_images             — comma-separated image prefixes always rejected
       allowed_source_peers       — comma-separated peer names that may submit; empty = all connected
+      allow_pvcs                 — allow inbound RemoteApps to request PVCs (default: False)
 
     Resource quotas (enforced on inbound RemoteApp submissions).
     All cpu/memory values are k8s quantity strings, e.g. "500m", "1", "256Mi", "2Gi".
@@ -403,6 +288,7 @@ class AgentSettings:
     allowed_images: str = ""            # comma-separated prefixes; empty = allow all
     blocked_images: str = ""            # comma-separated prefixes; always denied
     allowed_source_peers: str = ""      # comma-separated peer names; empty = all connected
+    allow_pvcs: bool = False            # allow inbound apps to request PVCs
 
     # Tunnel control
     allow_inbound_tunnels: bool = True
@@ -429,6 +315,10 @@ class AgentSettings:
     max_total_cpu_requests: str = ""
     max_total_memory_requests: str = ""
 
+    # PVC storage quotas (in GB; 0 = unlimited)
+    max_pvc_storage_per_pvc_gb: int = 0   # max storage per single PVC claim
+    max_pvc_storage_total_gb: int = 0     # max total PVC storage across all apps
+
     def to_dict(self):
         return {
             "require_resource_requests": self.require_resource_requests,
@@ -438,6 +328,7 @@ class AgentSettings:
             "allowed_images": self.allowed_images,
             "blocked_images": self.blocked_images,
             "allowed_source_peers": self.allowed_source_peers,
+            "allow_pvcs": self.allow_pvcs,
             "allow_inbound_tunnels": self.allow_inbound_tunnels,
             "tunnel_approval_mode": self.tunnel_approval_mode,
             "allowed_tunnel_peers": self.allowed_tunnel_peers,
@@ -451,4 +342,6 @@ class AgentSettings:
             "max_total_pods": self.max_total_pods,
             "max_total_cpu_requests": self.max_total_cpu_requests,
             "max_total_memory_requests": self.max_total_memory_requests,
+            "max_pvc_storage_per_pvc_gb": self.max_pvc_storage_per_pvc_gb,
+            "max_pvc_storage_total_gb": self.max_pvc_storage_total_gb,
         }

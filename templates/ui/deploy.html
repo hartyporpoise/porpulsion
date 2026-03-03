@@ -1,0 +1,676 @@
+{% extends "base.html" %}
+{% block title %}Deploy{% endblock %}
+{% block topbar_title %}Deploy{% endblock %}
+{% block content %}
+<!-- PAGE: Deploy (route: /deploy) -->
+<section id="deploy-page" data-page="deploy">
+
+  <!-- ── Visual form ─────────────────────────────────────────────────── -->
+  <div id="deploy-form-wrap">
+
+    <!-- Target -->
+    <div class="card" style="margin-bottom:1rem;">
+      <div class="card-header"><h2>Deploy RemoteApp</h2></div>
+      <div class="card-body">
+        <div class="form-row-2">
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="deploy-name">App name <span class="req">*</span></label>
+            <input type="text" id="deploy-name" placeholder="e.g. my-nginx" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="deploy-target-peer">Target peer <span class="req">*</span></label>
+            <select id="deploy-target-peer">
+              <option value="" disabled hidden selected>— select peer —</option>
+              <option value="*">All Peers</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Container -->
+    <div class="card" style="margin-bottom:1rem;">
+      <div class="card-header"><h2>Container</h2></div>
+      <div class="card-body">
+        <div class="form-group">
+          <label class="form-label" for="deploy-image">Image <span class="req">*</span></label>
+          <input type="text" id="deploy-image" placeholder="e.g. nginx:latest" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="form-row-3">
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="deploy-replicas">Replicas</label>
+            <input type="number" id="deploy-replicas" value="1" min="0" max="100">
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="deploy-pull-policy">Pull policy</label>
+            <select id="deploy-pull-policy">
+              <option value="IfNotPresent" selected>IfNotPresent</option>
+              <option value="Always">Always</option>
+              <option value="Never">Never</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Ports -->
+        <div style="margin-top:1rem;">
+          <div class="section-label-sm">Ports</div>
+          <div id="deploy-ports-list"></div>
+          <button type="button" class="btn-sm btn-outline" id="deploy-add-port" style="margin-top:0.4rem;">+ Add port</button>
+        </div>
+
+        <!-- Resources -->
+        <div style="margin-top:1rem;">
+          <div class="section-label-sm">Resources</div>
+          <div class="form-row-2" style="margin-bottom:0.5rem;">
+            <div class="form-group" style="margin-bottom:0;">
+              <label class="form-label">CPU request</label>
+              <input type="text" id="deploy-cpu-req" placeholder="e.g. 250m" autocomplete="off">
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+              <label class="form-label">CPU limit</label>
+              <input type="text" id="deploy-cpu-lim" placeholder="e.g. 500m" autocomplete="off">
+            </div>
+          </div>
+          <div class="form-row-2">
+            <div class="form-group" style="margin-bottom:0;">
+              <label class="form-label">Memory request</label>
+              <input type="text" id="deploy-mem-req" placeholder="e.g. 64Mi" autocomplete="off">
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+              <label class="form-label">Memory limit</label>
+              <input type="text" id="deploy-mem-lim" placeholder="e.g. 128Mi" autocomplete="off">
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Command & Args -->
+    <div class="card" style="margin-bottom:1rem;">
+      <div class="card-header">
+        <h2>Command &amp; Args</h2>
+        <span class="card-header-sub">Override container ENTRYPOINT / CMD</span>
+      </div>
+      <div class="card-body">
+        <div class="form-group" style="margin-bottom:0.75rem;">
+          <label class="form-label" for="deploy-command">Command (ENTRYPOINT override)</label>
+          <input type="text" id="deploy-command" placeholder='e.g. /bin/sh  or  ["/bin/sh", "-c"]' autocomplete="off" spellcheck="false">
+          <span class="form-hint">Space-separated args become a list. Use JSON array syntax for precise control.</span>
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label" for="deploy-args">Args (CMD override)</label>
+          <input type="text" id="deploy-args" placeholder='e.g. echo hello  or  ["echo", "hello"]' autocomplete="off" spellcheck="false">
+          <span class="form-hint">Space-separated args become a list.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Environment Variables -->
+    <div class="card" style="margin-bottom:1rem;">
+      <div class="card-header"><h2>Environment Variables</h2></div>
+      <div class="card-body">
+        <div id="deploy-env-list"></div>
+        <button type="button" class="btn-sm btn-outline" id="deploy-add-env">+ Add variable</button>
+      </div>
+    </div>
+
+    <!-- Volumes (ConfigMaps / Secrets / PVCs) -->
+    <div class="card" style="margin-bottom:1rem;">
+      <div class="card-header">
+        <h2>Volumes</h2>
+        <span class="card-header-sub">ConfigMaps · Secrets · PVCs</span>
+      </div>
+      <div class="card-body" style="padding-bottom:0.5rem;">
+        <div class="cfg-add-forms" id="deploy-volumes-list"></div>
+        <div style="display:flex;gap:0.5rem;margin-top:0.5rem;flex-wrap:wrap;">
+          <button type="button" class="btn-sm btn-outline" id="deploy-add-cm">+ ConfigMap</button>
+          <button type="button" class="btn-sm btn-outline" id="deploy-add-secret">+ Secret</button>
+          <button type="button" class="btn-sm btn-outline" id="deploy-add-pvc">+ PVC</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Submit -->
+    <div class="flex-end" style="margin-bottom:1.5rem;gap:0.5rem;">
+      <button type="button" class="btn-sm btn-outline" id="deploy-preview-btn">Preview YAML</button>
+      <button type="button" id="deploy-submit-btn">Deploy to Peer</button>
+    </div>
+
+  </div>
+
+<!-- All Peers confirm modal -->
+<div id="all-peers-confirm-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="all-peers-confirm-title">
+  <div class="modal-inner" style="max-width:420px;width:min(420px,90vw);">
+    <div class="modal-header">
+      <span class="modal-title" id="all-peers-confirm-title">Deploy to All Peers?</span>
+      <button type="button" class="modal-close" id="all-peers-confirm-close" aria-label="Close">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <p style="margin:0 0 1.25rem;font-size:0.9rem;color:var(--text);">This will deploy <strong id="all-peers-confirm-name"></strong> to <strong>every connected peer</strong>. Are you sure?</p>
+      <div class="flex-end" style="gap:0.5rem;">
+        <button type="button" class="btn-sm btn-outline" id="all-peers-confirm-cancel">Cancel</button>
+        <button type="button" id="all-peers-confirm-ok">Deploy to All Peers</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- YAML preview modal -->
+<div id="yaml-preview-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="yaml-preview-title">
+  <div class="modal-inner" style="max-width:640px;width:min(640px,90vw);">
+    <div class="modal-header">
+      <span class="modal-title" id="yaml-preview-title">Spec Preview</span>
+      <button type="button" class="modal-close" id="yaml-preview-close" aria-label="Close">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body" style="padding:0;">
+      <pre id="deploy-yaml-pre" class="spec-pre" style="margin:0;border-radius:0 0 28px 28px;font-size:0.78rem;line-height:1.5;overflow:auto;max-height:65vh;padding:1rem;"></pre>
+    </div>
+  </div>
+</div>
+
+</section>
+
+<style>
+  #deploy-form-wrap { max-width: 780px; }
+  .form-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+  .form-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.75rem; }
+  .section-label-sm { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted2); margin-bottom: 0.4rem; }
+  .req { color: var(--red); font-weight: 700; }
+
+  /* Repeating row items (ports, env, etc.) */
+  .list-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    margin-bottom: 0.4rem;
+  }
+  .list-row input, .list-row select { flex: 1; min-width: 0; }
+  .list-row .btn-icon { flex-shrink: 0; }
+
+  /* ConfigMap / Secret block */
+  .vol-block {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 0.75rem;
+    overflow: hidden;
+  }
+  .vol-block-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    background: var(--surface2);
+    border-bottom: 1px solid var(--border);
+    font-size: 0.82rem;
+    font-weight: 600;
+  }
+  .vol-block-header input { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 0.2rem 0.5rem; font-size: 0.85rem; font-weight: 600; color: var(--text); flex: 1; }
+  .vol-block-header input:focus { outline: none; border-color: var(--accent); }
+  .vol-block-body { padding: 0.6rem 0.75rem; }
+  .vol-block-mount { display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.5rem; font-size: 0.78rem; }
+  .vol-block-mount span { color: var(--muted2); flex-shrink: 0; }
+  .vol-block-mount input { flex: 1; font-size: 0.78rem; }
+  .kv-row { display: flex; gap: 0.4rem; align-items: center; margin-bottom: 0.35rem; }
+  .kv-row input { flex: 1; font-size: 0.78rem; min-width: 0; }
+  .kv-row .kv-val { flex: 2; }
+  .kv-add { font-size: 0.75rem; color: var(--accent); background: none; border: none; cursor: pointer; padding: 0; }
+  .kv-add:hover { text-decoration: underline; }
+
+  .spec-pre { background: var(--surface); padding: 1rem; white-space: pre; }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  'use strict';
+  var P = window.Porpulsion;
+  if (!P) return;
+  var _esc = P.esc;
+  var toast = P.toast;
+
+  function el(id) { return document.getElementById(id); }
+
+  // ── Icon helpers ─────────────────────────────────────────────
+  var TRASH_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>';
+  var EYE_ON  = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+  var EYE_OFF = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
+
+  function trashBtn(onclick) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'btn-icon btn-icon-danger';
+    b.innerHTML = TRASH_ICON;
+    b.addEventListener('click', onclick);
+    return b;
+  }
+
+  function eyeBtn(targetInput) {
+    var b = document.createElement('button');
+    b.type = 'button'; b.className = 'btn-icon'; b.title = 'Show/hide value';
+    b.innerHTML = EYE_ON;
+    b.addEventListener('click', function () {
+      var showing = targetInput.type === 'text';
+      targetInput.type = showing ? 'password' : 'text';
+      b.innerHTML = showing ? EYE_ON : EYE_OFF;
+    });
+    return b;
+  }
+
+  // ── Populate peer select ──────────────────────────────────────
+  function populatePeers(peers) {
+    var sel = el('deploy-target-peer');
+    if (!sel) return;
+    // Remove old peer options (keep placeholder and "All peers")
+    var toRemove = [];
+    for (var i = 0; i < sel.options.length; i++) {
+      var opt = sel.options[i];
+      if (opt.value !== '' && opt.value !== '*') toRemove.push(opt);
+    }
+    toRemove.forEach(function (o) { sel.removeChild(o); });
+
+    // Show all confirmed peers (channel field present); pending peers have status but no channel
+    var confirmed = peers.filter(function (p) { return 'channel' in p; });
+    confirmed.forEach(function (p) {
+      var opt = document.createElement('option');
+      opt.value = p.name;
+      opt.textContent = p.channel === 'connected' ? p.name : p.name + ' (reconnecting)';
+      sel.appendChild(opt);
+    });
+    // Directly rebuild the custom dropdown panel now that options are final
+    if (typeof sel._ddRebuild === 'function') sel._ddRebuild();
+  }
+
+  P.getPeers().then(populatePeers).catch(function () {});
+
+  // ── Ports ────────────────────────────────────────────────────
+  function addPort(portVal, nameVal) {
+    var list = el('deploy-ports-list');
+    var row = document.createElement('div');
+    row.className = 'list-row';
+    var portIn = document.createElement('input');
+    portIn.type = 'number'; portIn.placeholder = 'Port (e.g. 8080)'; portIn.min = '1'; portIn.max = '65535';
+    portIn.dataset.role = 'port-number';
+    if (portVal) portIn.value = portVal;
+    var nameIn = document.createElement('input');
+    nameIn.type = 'text'; nameIn.placeholder = 'Name (optional, e.g. http)';
+    nameIn.dataset.role = 'port-name';
+    if (nameVal) nameIn.value = nameVal;
+    row.appendChild(portIn);
+    row.appendChild(nameIn);
+    row.appendChild(trashBtn(function () { list.removeChild(row); updatePreview(); }));
+    portIn.addEventListener('input', updatePreview);
+    nameIn.addEventListener('input', updatePreview);
+    list.appendChild(row);
+  }
+  el('deploy-add-port').addEventListener('click', function () { addPort(); updatePreview(); });
+
+  // ── Env vars ─────────────────────────────────────────────────
+  function addEnv(nameVal, valVal) {
+    var list = el('deploy-env-list');
+    var row = document.createElement('div');
+    row.className = 'list-row';
+    var nameIn = document.createElement('input');
+    nameIn.type = 'text'; nameIn.placeholder = 'NAME';
+    nameIn.dataset.role = 'env-name';
+    if (nameVal) nameIn.value = nameVal;
+    var valIn = document.createElement('input');
+    valIn.type = 'text'; valIn.placeholder = 'value';
+    valIn.dataset.role = 'env-value';
+    if (valVal) valIn.value = valVal;
+    row.appendChild(nameIn); row.appendChild(valIn);
+    row.appendChild(trashBtn(function () { list.removeChild(row); updatePreview(); }));
+    nameIn.addEventListener('input', updatePreview);
+    valIn.addEventListener('input', updatePreview);
+    list.appendChild(row);
+  }
+  el('deploy-add-env').addEventListener('click', function () { addEnv(); updatePreview(); });
+
+  // ── Volume accordion items (ConfigMap / Secret / PVC) ────────
+  var _volCounter = 0;
+
+  function addVolItem(kind, nameVal, mountVal, initialData, storageVal, modeVal) {
+    var list = el('deploy-volumes-list');
+    var idx = ++_volCounter;
+    var isSecret = kind === 'secret';
+    var isPvc = kind === 'pvc';
+    var labelMap = { configmap: 'ConfigMap', secret: 'Secret', pvc: 'PVC' };
+    var label = labelMap[kind];
+    var namePlaceholder = isPvc ? 'e.g. data' : (isSecret ? 'e.g. db-creds' : 'e.g. app-config');
+
+    var section = document.createElement('div');
+    section.className = 'cfg-add-section';
+    section.dataset.volKind = kind;
+
+    // Header (collapsible trigger)
+    var hdr = document.createElement('div');
+    hdr.className = 'cfg-add-header open';
+    hdr.dataset.volIdx = idx;
+    hdr.innerHTML =
+      '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:0.3rem;flex-shrink:0;"><rect x="2" y="3" width="20" height="18" rx="2"/><path d="M8 10h8M8 14h5"/></svg>' +
+      '<span class="vol-item-label">' + label + ': </span>' +
+      '<span class="vol-item-name" style="font-weight:600;margin-left:0.2rem;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + _esc(nameVal || '(unnamed)') + '</span>';
+    var trashB = trashBtn(function () { list.removeChild(section); updatePreview(); });
+    trashB.style.marginLeft = 'auto';
+    hdr.appendChild(trashB);
+
+    // Body (expanded by default for new items)
+    var body = document.createElement('div');
+    body.className = 'cfg-add-body';
+    body.dataset.volBody = idx;
+
+    // Name + mount row
+    var row1 = document.createElement('div');
+    row1.className = 'form-row-2';
+    row1.style.marginBottom = '0.5rem';
+
+    var nameWrap = document.createElement('div');
+    nameWrap.innerHTML = '<label class="form-label">' + label + ' name</label>';
+    var nameIn = document.createElement('input');
+    nameIn.type = 'text'; nameIn.placeholder = namePlaceholder; nameIn.spellcheck = false;
+    nameIn.dataset.role = 'vol-name';
+    if (nameVal) nameIn.value = nameVal;
+    nameIn.addEventListener('input', function () {
+      hdr.querySelector('.vol-item-name').textContent = nameIn.value.trim() || '(unnamed)';
+      updatePreview();
+    });
+    nameWrap.appendChild(nameIn);
+
+    var mountWrap = document.createElement('div');
+    mountWrap.innerHTML = '<label class="form-label">Mount path</label>';
+    var mountIn = document.createElement('input');
+    mountIn.type = 'text'; mountIn.placeholder = isPvc ? '/data' : '/etc/myapp'; mountIn.spellcheck = false;
+    mountIn.dataset.role = 'vol-mount';
+    if (mountVal) mountIn.value = mountVal;
+    mountIn.addEventListener('input', updatePreview);
+    mountWrap.appendChild(mountIn);
+
+    row1.appendChild(nameWrap); row1.appendChild(mountWrap);
+    body.appendChild(row1);
+
+    if (isPvc) {
+      var row2 = document.createElement('div');
+      row2.className = 'form-row-2';
+      row2.style.marginBottom = '0.35rem';
+      row2.innerHTML =
+        '<div><label class="form-label">Storage</label><input type="text" data-role="pvc-storage" placeholder="e.g. 1Gi" value="' + _esc(storageVal || '1Gi') + '"></div>' +
+        '<div><label class="form-label">Access mode</label><select data-role="pvc-mode">' +
+          '<option value="ReadWriteOnce"' + (!modeVal || modeVal === 'ReadWriteOnce' ? ' selected' : '') + '>ReadWriteOnce</option>' +
+          '<option value="ReadWriteMany"' + (modeVal === 'ReadWriteMany' ? ' selected' : '') + '>ReadWriteMany</option>' +
+          '<option value="ReadOnlyMany"' + (modeVal === 'ReadOnlyMany' ? ' selected' : '') + '>ReadOnlyMany</option>' +
+        '</select></div>';
+      row2.querySelectorAll('input, select').forEach(function (i) { i.addEventListener('input', updatePreview); });
+      body.appendChild(row2);
+    } else {
+      // KV editor
+      var kvList = document.createElement('div');
+      kvList.dataset.role = 'kv-list';
+
+      function addKvRow(k, v) {
+        var krow = document.createElement('div');
+        krow.className = 'kv-row';
+        var keyIn = document.createElement('input');
+        keyIn.type = 'text'; keyIn.placeholder = 'key'; keyIn.spellcheck = false;
+        keyIn.dataset.role = 'kv-key';
+        if (k) keyIn.value = k;
+        var valIn = document.createElement('input');
+        valIn.type = isSecret ? 'password' : 'text';
+        valIn.placeholder = 'value'; valIn.spellcheck = false;
+        valIn.className = 'kv-val'; valIn.dataset.role = 'kv-val';
+        if (v !== undefined) valIn.value = v;
+        krow.appendChild(keyIn); krow.appendChild(valIn);
+        if (isSecret) krow.appendChild(eyeBtn(valIn));
+        krow.appendChild(trashBtn(function () { kvList.removeChild(krow); updatePreview(); }));
+        keyIn.addEventListener('input', updatePreview);
+        valIn.addEventListener('input', updatePreview);
+        kvList.appendChild(krow);
+      }
+
+      if (initialData) Object.keys(initialData).forEach(function (k) { addKvRow(k, initialData[k]); });
+
+      var addKvBtn = document.createElement('button');
+      addKvBtn.type = 'button'; addKvBtn.className = 'btn-sm btn-outline';
+      addKvBtn.style.marginTop = '0.35rem';
+      addKvBtn.textContent = '+ Add key';
+      addKvBtn.addEventListener('click', function () { addKvRow('', ''); updatePreview(); });
+
+      body.appendChild(kvList);
+      body.appendChild(addKvBtn);
+    }
+
+    section.appendChild(hdr);
+    section.appendChild(body);
+
+    // Toggle collapse on header click (but not on trash button)
+    hdr.addEventListener('click', function (e) {
+      if (e.target.closest('.btn-icon')) return;
+      var open = !body.hidden;
+      body.hidden = open;
+      hdr.classList.toggle('open', !open);
+    });
+
+    list.appendChild(section);
+    updatePreview();
+  }
+
+  el('deploy-add-cm').addEventListener('click', function () { addVolItem('configmap'); });
+  el('deploy-add-secret').addEventListener('click', function () { addVolItem('secret'); });
+  el('deploy-add-pvc').addEventListener('click', function () { addVolItem('pvc'); });
+
+  // ── Parse a string into a list (JSON array or space-split) ──
+  function parseArgList(str) {
+    str = str.trim();
+    if (!str) return null;
+    if (str.charAt(0) === '[') {
+      try { return JSON.parse(str); } catch (e) { /* fall through */ }
+    }
+    return str.split(/\s+/).filter(Boolean);
+  }
+
+  // ── Build spec from form ──────────────────────────────────────
+  function buildSpec() {
+    var spec = {};
+    var image = (el('deploy-image') || {}).value || '';
+    if (image) spec.image = image.trim();
+    var rep = parseInt((el('deploy-replicas') || {}).value || '1', 10);
+    spec.replicas = isNaN(rep) || rep < 1 ? 1 : rep;
+    var pp = (el('deploy-pull-policy') || {}).value;
+    if (pp && pp !== 'IfNotPresent') spec.imagePullPolicy = pp;
+
+    var cmd = parseArgList((el('deploy-command') || {}).value || '');
+    if (cmd) spec.command = cmd;
+    var args = parseArgList((el('deploy-args') || {}).value || '');
+    if (args) spec.args = args;
+
+    // Ports
+    var ports = [];
+    document.querySelectorAll('#deploy-ports-list .list-row').forEach(function (row) {
+      var pNum = parseInt((row.querySelector('[data-role="port-number"]') || {}).value || '', 10);
+      if (!pNum) return;
+      var p = {port: pNum};
+      var pName = ((row.querySelector('[data-role="port-name"]') || {}).value || '').trim();
+      if (pName) p.name = pName;
+      ports.push(p);
+    });
+    if (ports.length) spec.ports = ports;
+
+    // Resources
+    var cpuReq = (el('deploy-cpu-req') || {}).value || '';
+    var cpuLim = (el('deploy-cpu-lim') || {}).value || '';
+    var memReq = (el('deploy-mem-req') || {}).value || '';
+    var memLim = (el('deploy-mem-lim') || {}).value || '';
+    if (cpuReq || cpuLim || memReq || memLim) {
+      spec.resources = {};
+      if (cpuReq || memReq) { spec.resources.requests = {}; if (cpuReq) spec.resources.requests.cpu = cpuReq.trim(); if (memReq) spec.resources.requests.memory = memReq.trim(); }
+      if (cpuLim || memLim) { spec.resources.limits = {}; if (cpuLim) spec.resources.limits.cpu = cpuLim.trim(); if (memLim) spec.resources.limits.memory = memLim.trim(); }
+    }
+
+    // Env
+    var env = [];
+    document.querySelectorAll('#deploy-env-list .list-row').forEach(function (row) {
+      var n = ((row.querySelector('[data-role="env-name"]') || {}).value || '').trim();
+      if (!n) return;
+      env.push({name: n, value: ((row.querySelector('[data-role="env-value"]') || {}).value || '')});
+    });
+    if (env.length) spec.env = env;
+
+    // ConfigMaps, Secrets, PVCs (unified volumes list)
+    var cms = [], secs = [], pvcs = [];
+    document.querySelectorAll('#deploy-volumes-list .cfg-add-section').forEach(function (section) {
+      var kind = section.dataset.volKind;
+      var name = ((section.querySelector('[data-role="vol-name"]') || {}).value || '').trim();
+      var mount = ((section.querySelector('[data-role="vol-mount"]') || {}).value || '').trim();
+      if (!name || !mount) return;
+      if (kind === 'pvc') {
+        var storage = ((section.querySelector('[data-role="pvc-storage"]') || {}).value || '1Gi').trim();
+        var mode = (section.querySelector('[data-role="pvc-mode"]') || {}).value || 'ReadWriteOnce';
+        pvcs.push({name: name, mountPath: mount, storage: storage, accessMode: mode});
+      } else {
+        var data = {};
+        section.querySelectorAll('[data-role="kv-list"] .kv-row').forEach(function (row) {
+          var k = ((row.querySelector('[data-role="kv-key"]') || {}).value || '').trim();
+          var v = (row.querySelector('[data-role="kv-val"]') || {}).value || '';
+          if (k) data[k] = v;
+        });
+        if (kind === 'secret') secs.push({name: name, mountPath: mount, data: data});
+        else cms.push({name: name, mountPath: mount, data: data});
+      }
+    });
+    if (cms.length) spec.configMaps = cms;
+    if (secs.length) spec.secrets = secs;
+    if (pvcs.length) spec.pvcs = pvcs;
+
+    return spec;
+  }
+
+  // ── YAML preview ──────────────────────────────────────────────
+  function specToYaml(spec) {
+    var lines = [];
+    var keys = ['image','replicas','imagePullPolicy'];
+    keys.forEach(function (k) { if (spec[k] != null) lines.push(k + ': ' + spec[k]); });
+    if (spec.command && spec.command.length) {
+      lines.push('command: [' + spec.command.map(function (s) { return '"' + s + '"'; }).join(', ') + ']');
+    }
+    if (spec.args && spec.args.length) {
+      lines.push('args: [' + spec.args.map(function (s) { return '"' + s + '"'; }).join(', ') + ']');
+    }
+    if (spec.ports && spec.ports.length) {
+      lines.push('ports:');
+      spec.ports.forEach(function (p) {
+        lines.push('  - port: ' + p.port + (p.name ? '\n    name: ' + p.name : ''));
+      });
+    }
+    if (spec.resources) {
+      lines.push('resources:');
+      ['requests','limits'].forEach(function (t) {
+        if (spec.resources[t]) {
+          lines.push('  ' + t + ':');
+          Object.keys(spec.resources[t]).forEach(function (k) { lines.push('    ' + k + ': ' + spec.resources[t][k]); });
+        }
+      });
+    }
+    if (spec.env && spec.env.length) {
+      lines.push('env:');
+      spec.env.forEach(function (e) { lines.push('  - name: ' + e.name + '\n    value: "' + (e.value || '') + '"'); });
+    }
+    if (spec.configMaps && spec.configMaps.length) {
+      lines.push('configMaps:');
+      spec.configMaps.forEach(function (c) {
+        lines.push('  - name: ' + c.name);
+        lines.push('    mountPath: ' + c.mountPath);
+        if (c.data && Object.keys(c.data).length) {
+          lines.push('    data:');
+          Object.keys(c.data).forEach(function (k) { lines.push('      ' + k + ': ' + c.data[k]); });
+        }
+      });
+    }
+    if (spec.secrets && spec.secrets.length) {
+      lines.push('secrets:');
+      spec.secrets.forEach(function (s) {
+        lines.push('  - name: ' + s.name);
+        lines.push('    mountPath: ' + s.mountPath);
+        if (s.data && Object.keys(s.data).length) {
+          lines.push('    data:');
+          Object.keys(s.data).forEach(function (k) { lines.push('      ' + k + ': (hidden)'); });
+        }
+      });
+    }
+    if (spec.pvcs && spec.pvcs.length) {
+      lines.push('pvcs:');
+      spec.pvcs.forEach(function (p) {
+        lines.push('  - name: ' + p.name);
+        lines.push('    mountPath: ' + p.mountPath);
+        lines.push('    storage: ' + p.storage);
+        lines.push('    accessMode: ' + p.accessMode);
+      });
+    }
+    return lines.join('\n');
+  }
+
+  function updatePreview() {
+    var modal = el('yaml-preview-modal');
+    if (!modal || !modal.classList.contains('open')) return;
+    var pre = el('deploy-yaml-pre');
+    if (pre) pre.textContent = specToYaml(buildSpec());
+  }
+
+  el('deploy-preview-btn').addEventListener('click', function () {
+    el('deploy-yaml-pre').textContent = specToYaml(buildSpec());
+    el('yaml-preview-modal').classList.add('open');
+  });
+  el('yaml-preview-close').addEventListener('click', function () {
+    el('yaml-preview-modal').classList.remove('open');
+  });
+  el('yaml-preview-modal').addEventListener('click', function (e) {
+    if (e.target === this) this.classList.remove('open');
+  });
+
+  el('deploy-form-wrap').addEventListener('input', updatePreview);
+
+  // ── Submit ────────────────────────────────────────────────────
+  function doSubmit(name, targetPeer, spec) {
+    var btn = el('deploy-submit-btn');
+    btn.disabled = true; btn.textContent = 'Deploying…';
+    var payload = {name: name, spec: spec, target_peer: targetPeer};
+    P.createRemoteApp(payload).then(function (res) {
+      if (res && res.error) { toast('Error: ' + res.error, 'error'); btn.disabled = false; btn.textContent = 'Deploy to Peer'; }
+      else { window.location.href = '/workloads'; }
+    }).catch(function (err) {
+      toast('Error: ' + (err.message || 'failed'), 'error');
+      btn.disabled = false; btn.textContent = 'Deploy to Peer';
+    });
+  }
+
+  el('deploy-submit-btn').addEventListener('click', function () {
+    var name = (el('deploy-name') || {}).value;
+    if (name) name = name.trim();
+    if (!name) { toast('App name is required', 'error'); return; }
+    var targetPeer = (el('deploy-target-peer') || {}).value;
+    if (!targetPeer) { toast('Select a target peer', 'error'); return; }
+    var spec = buildSpec();
+    if (!spec.image) { toast('Image is required', 'error'); return; }
+    if (targetPeer === '*') {
+      el('all-peers-confirm-name').textContent = name;
+      el('all-peers-confirm-modal').classList.add('open');
+      el('all-peers-confirm-ok').onclick = function () {
+        el('all-peers-confirm-modal').classList.remove('open');
+        doSubmit(name, targetPeer, spec);
+      };
+    } else {
+      doSubmit(name, targetPeer, spec);
+    }
+  });
+
+  el('all-peers-confirm-close').addEventListener('click', function () {
+    el('all-peers-confirm-modal').classList.remove('open');
+  });
+  el('all-peers-confirm-cancel').addEventListener('click', function () {
+    el('all-peers-confirm-modal').classList.remove('open');
+  });
+})();
+</script>
+{% endblock %}

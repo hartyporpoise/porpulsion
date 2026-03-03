@@ -31,11 +31,13 @@ _HOP_BY_HOP = {"host", "transfer-encoding", "connection", "keep-alive",
           methods=_PROXY_METHODS)
 def proxy_remoteapp(app_id, port, subpath):
     """User-facing: proxy HTTP through to a pod on the peer cluster."""
-    if app_id not in state.local_apps:
+    from porpulsion.k8s.store import get_cr_by_app_id, cr_to_dict
+    cr, side = get_cr_by_app_id(state.NAMESPACE, app_id)
+    if cr is None or side != "submitted":
         return jsonify({"error": "app not found"}), 404
 
-    ra = state.local_apps[app_id]
-    peer = state.peers.get(ra.target_peer) or next(iter(state.peers.values()), None)
+    d = cr_to_dict(cr, side)
+    peer = state.peers.get(d["target_peer"]) or next(iter(state.peers.values()), None)
     if not peer:
         return jsonify({"error": "peer not connected"}), 503
 

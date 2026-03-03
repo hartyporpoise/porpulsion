@@ -15,17 +15,18 @@
 │  Cluster A           │                      │  Cluster B           │
 │  ┌────────────────┐  │  persistent WebSocket │  ┌────────────────┐  │
 │  │   porpulsion   │◄─┼──────────────────────┼─►│   porpulsion   │  │
-│  │  :8000         │  │  RemoteApp deploy    │  │  :8000         │  │
-│  │  UI + WS + API │  │  status callbacks    │  │  UI + WS + API │  │
-│  └────────────────┘  │  HTTP proxy tunnel   │  └────────────────┘  │
+│  │  :8001 peer    │  │  RemoteApp deploy    │  │  :8001 peer    │  │
+│  │  :8000 UI+API  │  │  status callbacks    │  │  :8000 UI+API  │  │
+│  │  :8002 probes  │  │  HTTP proxy tunnel   │  │  :8002 probes  │  │
+│  └────────────────┘  │                      │  └────────────────┘  │
 └──────────────────────┘                      └──────────────────────┘
 ```
 
 ## How it works
 
-Each cluster runs one porpulsion agent. Agents exchange self-signed CA certificates during a one-time peering handshake, authenticated by a single-use invite token. Everything happens over plain HTTP/WebSocket on port 8000 — no separate mTLS port needed.
+Each cluster runs one porpulsion agent. Agents exchange self-signed CA certificates during a one-time peering handshake, authenticated by a single-use invite token.
 
-After peering, each agent opens a **persistent WebSocket channel** to its peer on port 8000. All subsequent inter-agent traffic — RemoteApp submissions, status callbacks, HTTP proxy tunnels — flows over this single long-lived connection. No new outbound connections are made per request. If the channel drops, both sides reconnect automatically with exponential backoff.
+After peering, each agent opens a **persistent WebSocket channel** to its peer on port 8001. All subsequent inter-agent traffic — RemoteApp submissions, status callbacks, HTTP proxy tunnels — flows over this single long-lived connection. No new outbound connections are made per request. If the channel drops, both sides reconnect automatically with exponential backoff.
 
 State (peers, submitted apps, settings) is persisted to a Kubernetes Secret and ConfigMap so restarts are transparent.
 
@@ -83,12 +84,13 @@ helm upgrade --install porpulsion oci://ghcr.io/hartyporpoise/porpulsion \
   --set agent.selfUrl=https://porpulsion.example.com
 ```
 
-The agent runs two servers on separate ports:
+The agent runs three servers on separate ports:
 
 | Port | Purpose | Exposure |
 |------|---------|----------|
-| **8000** | Dashboard UI + local management API | Internal only — never expose via Ingress |
+| **8000** | Dashboard UI + management API (session auth) | Internal only — `kubectl port-forward` |
 | **8001** | Peer handshake (`/peer`) + WebSocket channel (`/ws`) | Expose via Ingress |
+| **8002** | Health probes (`/status`) — no auth | Internal only — kubelet only |
 
 ```sh
 # Access the dashboard locally
@@ -156,10 +158,12 @@ Set `agent.selfUrl` to `https://porpulsion.example.com` in your Helm values.
 | `agent.pullPolicy` | `IfNotPresent` | Image pull policy |
 | `namespace` | `porpulsion` | Namespace for the agent and all RemoteApp workloads |
 | `service.type` | `ClusterIP` | Service type — use `NodePort` for local dev |
-| `service.port` | `8000` | Dashboard UI and local management API (internal only) |
+| `service.port` | `8000` | Dashboard UI and management API — session auth required (internal only) |
 | `service.uiNodePort` | `""` | NodePort for dashboard (only when `type=NodePort`) |
 | `service.peerPort` | `8001` | Peer handshake + WebSocket channel (expose via Ingress) |
 | `service.peerNodePort` | `""` | NodePort for peer server (only when `type=NodePort`) |
+| `service.internalPort` | `8002` | Health/readiness probes — no auth (internal only) |
+| `service.internalNodePort` | `""` | NodePort for internal server (only when `type=NodePort`) |
 
 ---
 
@@ -252,28 +256,250 @@ Proxy URL format: `http://<dashboard>/remoteapp/<id>/proxy/<port>/`
 
 ---
 
+## API Reference
+
+All API endpoints are on port 8000 and require a valid session (log in via the dashboard first). Use `curl` with session cookies or a browser session.
+
+### Authentication
+
+API endpoints accept either a session cookie (browser) or HTTP Basic Auth (scripts/curl).
+
+```sh
+# Basic Auth — simplest for scripting
+curl -u admin:yourpassword http://localhost:8000/api/peers
+
+# Or save a session cookie and reuse it
+curl -c cookies.txt -X POST http://localhost:8000/login \
+  -d "username=admin&password=yourpassword"
+curl -u admin:yourpassword http://localhost:8000/api/peers
+```
+
+---
+
+### Peers
+
+#### `GET /api/peers`
+List all connected and pending peers.
+
+```sh
+curl -u admin:yourpassword http://localhost:8000/api/peers
+```
+```json
+[
+  {
+    "name": "cluster-b",
+    "url": "https://porpulsion-b.example.com",
+    "connected_at": "2026-03-03T02:00:00Z",
+    "channel": "connected"
+  }
+]
+```
+
+#### `POST /api/peers/connect`
+Initiate peering with another agent.
+
+```sh
+curl -u admin:yourpassword -X POST http://localhost:8000/api/peers/connect \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://porpulsion-b.example.com",
+    "invite_token": "abc123...",
+    "ca_fingerprint": "sha256:deadbeef..."
+  }'
+```
+
+#### `DELETE /api/peers/<name>`
+Remove a peer and clean up all associated workloads.
+
+```sh
+curl -u admin:yourpassword -X DELETE http://localhost:8000/api/peers/cluster-b
+```
+
+#### `GET /api/token`
+Get this agent's invite token and CA fingerprint (share with a peer operator to initiate peering).
+
+```sh
+curl -u admin:yourpassword http://localhost:8000/api/token
+```
+```json
+{
+  "agent": "cluster-a",
+  "namespace": "porpulsion",
+  "invite_token": "abc123...",
+  "self_url": "https://porpulsion-a.example.com",
+  "cert_fingerprint": "sha256:deadbeef..."
+}
+```
+
+---
+
+### Workloads
+
+#### `GET /api/remoteapps`
+List all submitted and executing apps.
+
+```sh
+curl -u admin:yourpassword http://localhost:8000/api/remoteapps
+```
+```json
+{
+  "submitted": [
+    {
+      "id": "75cf6eef",
+      "name": "my-nginx",
+      "target_peer": "cluster-b",
+      "status": "Running",
+      "created_at": "2026-03-03T02:00:00Z"
+    }
+  ],
+  "executing": []
+}
+```
+
+#### `POST /api/remoteapp`
+Deploy an app to a peer (or all peers with `"*"`).
+
+```sh
+curl -u admin:yourpassword -X POST http://localhost:8000/api/remoteapp \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "my-nginx",
+    "target_peer": "cluster-b",
+    "spec": {
+      "image": "nginx:latest",
+      "replicas": 2,
+      "ports": [{"port": 80, "name": "http"}],
+      "resources": {
+        "requests": {"cpu": "100m", "memory": "64Mi"},
+        "limits":   {"cpu": "250m", "memory": "128Mi"}
+      }
+    }
+  }'
+```
+
+#### `DELETE /api/remoteapp/<id>`
+Delete a submitted or executing app.
+
+```sh
+curl -u admin:yourpassword -X DELETE http://localhost:8000/api/remoteapp/75cf6eef
+```
+
+#### `POST /api/remoteapp/<id>/scale`
+Scale an app to a new replica count.
+
+```sh
+curl -u admin:yourpassword -X POST http://localhost:8000/api/remoteapp/75cf6eef/scale \
+  -H "Content-Type: application/json" \
+  -d '{"replicas": 3}'
+```
+
+#### `GET /api/remoteapp/<id>/detail`
+Get runtime detail for an app (pod status, events, recent logs).
+
+```sh
+curl -u admin:yourpassword http://localhost:8000/api/remoteapp/75cf6eef/detail
+```
+
+#### `GET /api/remoteapp/<id>/logs`
+Stream recent logs from an executing app.
+
+```sh
+curl -u admin:yourpassword "http://localhost:8000/api/remoteapp/75cf6eef/logs?lines=100"
+```
+
+#### `PUT /api/remoteapp/<id>/spec`
+Update the full spec of a submitted app and re-deploy.
+
+```sh
+curl -u admin:yourpassword -X PUT http://localhost:8000/api/remoteapp/75cf6eef/spec \
+  -H "Content-Type: application/json" \
+  -d '{"image": "nginx:1.27", "replicas": 1}'
+```
+
+---
+
+### HTTP Proxy / Tunnels
+
+Access a port on a remote app through the WebSocket tunnel — no extra ports needed on the executing cluster.
+
+```
+GET /api/remoteapp/<id>/proxy/<port>/
+GET /api/remoteapp/<id>/proxy/<port>/<path>
+```
+
+```sh
+# Open in a browser or curl — proxied through the WS channel to the executing cluster
+curl -u admin:yourpassword http://localhost:8000/api/remoteapp/75cf6eef/proxy/80/
+```
+
+---
+
+### Settings
+
+#### `GET /api/settings`
+Get current agent settings.
+
+```sh
+curl -u admin:yourpassword http://localhost:8000/api/settings
+```
+
+#### `POST /api/settings`
+Update one or more settings.
+
+```sh
+curl -u admin:yourpassword -X POST http://localhost:8000/api/settings \
+  -H "Content-Type: application/json" \
+  -d '{"allow_inbound_remoteapps": true, "require_remoteapp_approval": false}'
+```
+
+---
+
+### Internal (port 8002, no auth)
+
+#### `GET /status`
+Health and readiness probe — used by the kubelet. Returns agent name, peer count, and app counts.
+
+```sh
+curl http://localhost:8002/status
+```
+```json
+{
+  "agent": "cluster-a",
+  "peers": [{"name": "cluster-b", "url": "https://..."}],
+  "local_apps": 1,
+  "remote_apps": 0
+}
+```
+
+---
+
 ## Architecture
 
 ```
 porpulsion/
 ├── porpulsion/
-│   ├── agent.py              # Flask app, startup, mTLS server lifecycle
-│   ├── state.py              # Shared in-memory state (peers, apps, settings)
-│   ├── models.py             # Peer, RemoteApp, AgentSettings dataclasses
-│   ├── peering.py            # mTLS cert exchange, peer verification
+│   ├── agent.py              # Flask app entry point, blueprint registration, session config
+│   ├── peer_server.py        # Port 8001 — peer handshake (/peer) + WebSocket (/ws)
+│   ├── internal_server.py    # Port 8002 — health probes (/status), no auth
+│   ├── state.py              # Shared in-memory state (peers, settings, channels)
+│   ├── models.py             # Peer, RemoteApp, RemoteAppSpec, AgentSettings
+│   ├── peering.py            # Peering handshake, CA cert exchange
 │   ├── channel.py            # Persistent WebSocket channel (send/recv, reconnect)
-│   ├── channel_handlers.py   # Message handlers (remoteapp/*, proxy/*, peer/*)
-│   ├── tls.py                # CA/leaf cert generation, k8s Secret/ConfigMap persistence
+│   ├── channel_handlers.py   # Handlers for incoming WS message types
+│   ├── tls.py                # CA/cert generation, k8s Secret/ConfigMap persistence
 │   ├── routes/
-│   │   ├── peers.py          # /api/peers, /api/peer, /api/peers/connect, /api/token
+│   │   ├── peers.py          # /api/peers, /api/peers/connect, /api/token, etc.
 │   │   ├── workloads.py      # /api/remoteapp, /api/remoteapps, /api/remoteapp/<id>/*
-│   │   ├── tunnels.py       # /api/remoteapp/<id>/proxy/* (HTTP reverse proxy)
-│   │   ├── settings.py      # /api/settings
-│   │   ├── logs.py          # /api/logs
-│   │   ├── ui.py            # UI at root: /, /peers, /workloads, /tunnels, /logs, /settings, /docs
-│   │   └── ws.py            # /ws (WebSocket upgrade + CA auth)
+│   │   ├── tunnels.py        # /api/remoteapp/<id>/proxy/* (HTTP reverse proxy over WS)
+│   │   ├── settings.py       # /api/settings
+│   │   ├── logs.py           # /api/logs
+│   │   ├── notifications.py  # /api/notifications
+│   │   ├── auth.py           # /login, /logout, /signup, /users
+│   │   ├── ui.py             # Dashboard pages: /, /peers, /workloads, /deploy, /tunnels, /settings, /docs
+│   │   └── ws.py             # WebSocket auth (CA fingerprint matching)
 │   └── k8s/
 │       ├── executor.py       # Creates/updates/deletes Kubernetes Deployments
+│       ├── store.py          # RemoteApp + ExecutingApp CR CRUD (k8s CRDs as source of truth)
 │       └── tunnel.py         # Resolves pod IP from labels, proxies HTTP
 ├── templates/
 │   ├── base.html             # Layout, nav, theme; all pages extend this
@@ -323,10 +549,10 @@ All peer-to-peer messages are framed as JSON:
 |------|-------|-------|
 | CA cert + invite token | `porpulsion-credentials` Secret | Generated once, reused on restart |
 | Peers (name, URL, CA cert) | `porpulsion-credentials` Secret | Written on every peer add/remove |
-| Submitted apps | `porpulsion-state` ConfigMap | Written on create, status update, delete |
+| Submitted apps | `RemoteApp` CRs (`remoteapps.porpulsion.io`) | Created on submit, deleted on remove |
+| Executing apps | `ExecutingApp` CRs (`executingapps.porpulsion.io`) | Created on receive, deleted on remove |
 | Pending approval queue | `porpulsion-state` ConfigMap | Written on enqueue, approve, and reject |
 | Settings | `porpulsion-state` ConfigMap | Written on every settings change |
-| Executing apps | Reconstructed from k8s Deployments | Labels: `porpulsion.io/remote-app-id` |
 
 ### Security model
 

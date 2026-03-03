@@ -37,22 +37,23 @@
   function populateTargetPeerSelect(peers) {
     var sel = el('app-target-peer');
     if (!sel) return;
-    var connected = peers.filter(function (p) { return !p.status || p.status === 'connected'; });
+    // Confirmed peers have channel field; pending peers have status but no channel
+    var confirmed = peers.filter(function (p) { return 'channel' in p; });
     var prev = sel.value;
     // Placeholder option — value="" so form validation can catch it
     sel.innerHTML = '<option value="" disabled hidden>— select peer —</option>';
-    connected.forEach(function (p) {
+    confirmed.forEach(function (p) {
       var opt = document.createElement('option');
       opt.value = p.name;
-      opt.textContent = p.name;
+      opt.textContent = p.channel === 'connected' ? p.name : p.name + ' (reconnecting)';
       sel.appendChild(opt);
     });
     // Restore previous selection if still valid
-    if (prev && connected.some(function (p) { return p.name === prev; })) {
+    if (prev && confirmed.some(function (p) { return p.name === prev; })) {
       sel.value = prev;
-    } else if (connected.length === 1) {
-      // Auto-select when exactly one peer is connected
-      sel.value = connected[0].name;
+    } else if (confirmed.length === 1) {
+      // Auto-select when exactly one peer is known
+      sel.value = confirmed[0].name;
     }
   }
 
@@ -61,7 +62,7 @@
     var empty = el('overview-peers-empty');
     var badge = el('peers-count-badge');
     if (!body) return;
-    var connected = peers.filter(function (p) { return !p.status || p.status === 'connected'; });
+    var connected = peers.filter(function (p) { return 'channel' in p; });
     if (badge) badge.textContent = connected.length;
     if (!connected.length) { body.innerHTML = ''; if (empty) empty.style.display = ''; return; }
     if (empty) empty.style.display = 'none';
@@ -255,7 +256,8 @@
       var executing = apps.executing || [];
       _lastSubmitted = submitted;
       _lastExecuting = executing;
-      var connected = peers.filter(function (p) { return !p.status || (p.status !== 'connecting' && p.status !== 'awaiting_confirmation' && p.status !== 'failed'); });
+      var connected = peers.filter(function (p) { return 'channel' in p; });
+      var wsUp = connected.filter(function (p) { return p.channel === 'connected'; }).length;
 
       var statPeers = el('stat-peers');
       if (statPeers) statPeers.textContent = connected.length;
@@ -264,11 +266,18 @@
       var statExecuting = el('stat-executing');
       if (statExecuting) statExecuting.textContent = executing.length;
 
+      var healthy = submitted.concat(executing).filter(function (a) { return a.status === 'Ready' || a.status === 'Running'; }).length;
+      var statHealthy = el('stat-healthy');
+      if (statHealthy) statHealthy.textContent = healthy;
+      var statHealthySub = el('stat-healthy-sub');
+      if (statHealthySub) statHealthySub.textContent = healthy === 1 ? 'app ready' : 'apps ready';
+
       var connecting = peers.filter(function (p) { return p.status === 'connecting'; }).length;
       var awaiting = peers.filter(function (p) { return p.status === 'awaiting_confirmation'; }).length;
       var sub = [];
       if (connecting) sub.push(connecting + ' connecting');
       if (awaiting) sub.push(awaiting + ' awaiting');
+      if (wsUp < connected.length && connected.length > 0) sub.push((connected.length - wsUp) + ' reconnecting');
       var statSub = el('stat-peers-sub');
       if (statSub) statSub.textContent = sub.length ? sub.join(', ') : (connected.length ? 'all connected' : 'no peers');
 
@@ -285,6 +294,26 @@
       renderApps(submitted, 'submitted-body', 'submitted-empty', 'submitted-count', false, 'submitted');
       renderApps(executing, 'executing-body', 'executing-empty', 'executing-count', true, 'executing');
       renderProxyApps(submitted);
+
+      // If a modal is open, re-evaluate the config tab's disabled state
+      if (_currentAppId) {
+        var allApps = submitted.concat(executing);
+        var modalApp = allApps.filter(function (a) { return a.id === _currentAppId; })[0];
+        if (modalApp) {
+          var ready = modalApp.status === 'Running' || modalApp.status === 'Ready';
+          var modalBody = el('app-modal-body');
+          var cfgTab = modalBody ? modalBody.querySelector('[data-tab="config"]') : null;
+          if (cfgTab) {
+            cfgTab.classList.toggle('modal-tab-disabled', !ready);
+            cfgTab.disabled = !ready;
+          }
+          var cfgPanelBody = el('cfg-panel-body');
+          if (cfgPanelBody) {
+            cfgPanelBody.style.opacity = ready ? '' : '0.4';
+            cfgPanelBody.style.pointerEvents = ready ? '' : 'none';
+          }
+        }
+      }
 
       var healthDot = el('health-dot');
       if (healthDot) healthDot.className = 'health-dot';
@@ -312,6 +341,8 @@
       P.setSecret('token-pem', d.ca_pem || '');
       var aboutUrl = el('about-url');
       if (aboutUrl) aboutUrl.textContent = url;
+      var ns = el('health-namespace');
+      if (ns) ns.textContent = d.namespace || '—';
     }).catch(function () {});
   }
 
@@ -446,8 +477,8 @@
   }
 
   function _syncTunnelPeersFromData(peers, executing) {
-    // Build peer+app map from connected peers and their executing apps on this cluster
-    var connected = peers.filter(function (p) { return !p.status || p.status === 'connected'; });
+    // Build peer+app map from confirmed peers (have channel field) and their executing apps on this cluster
+    var connected = peers.filter(function (p) { return 'channel' in p; });
     _tunnelState.peers = connected.map(function (peer) {
       var peerApps = (executing || []).filter(function (a) { return a.source_peer === peer.name; })
         .map(function (a) { return { id: a.id, name: a.name }; });
@@ -510,10 +541,27 @@
     return allowed.join(', ');
   }
 
+  function _populateHealthGrid(s, selfUrl) {
+    function setBadge(id, ok, trueLabel, falseLabel) {
+      var e = el(id);
+      if (!e) return;
+      if (ok) e.innerHTML = '<span class="badge badge-mtls"><span class="badge-dot"></span>' + _esc(trueLabel) + '</span>';
+      else e.innerHTML = '<span class="badge badge-failed">' + _esc(falseLabel) + '</span>';
+    }
+    setBadge('health-inbound-apps', s.allow_inbound_remoteapps, 'Enabled', 'Disabled');
+    setBadge('health-pvcs', s.allow_pvcs, 'Enabled', 'Disabled');
+    setBadge('health-approval', !s.require_remoteapp_approval, 'Auto', 'Manual');
+    var ll = el('health-log-level');
+    if (ll) ll.textContent = s.log_level || 'INFO';
+    var au = el('health-agent-url');
+    if (au) au.textContent = selfUrl || '—';
+  }
+
   function loadSettings() {
     var logLevelCtrl = el('setting-log-level');
     var inboundApps = el('setting-inbound-apps');
-    if (!logLevelCtrl && !inboundApps) return;
+    var healthGrid = el('health-grid');
+    if (!logLevelCtrl && !inboundApps && !healthGrid) return;
     P.getSettings().then(function (s) {
       var level = (s.log_level || 'INFO').toUpperCase();
       if (logLevelCtrl) {
@@ -528,6 +576,9 @@
       setChk('setting-require-approval',    s.require_remoteapp_approval);
       setChk('setting-require-res-requests',s.require_resource_requests);
       setChk('setting-require-res-limits',  s.require_resource_limits);
+      setChk('setting-allow-pvcs',          s.allow_pvcs);
+      setVal('setting-max-pvc-per',         s.max_pvc_storage_per_pvc_gb);
+      setVal('setting-max-pvc-total',       s.max_pvc_storage_total_gb);
       setChk('setting-inbound-tunnels',     s.allow_inbound_tunnels);
       setVal('setting-allowed-peers',       s.allowed_source_peers);
       setVal('setting-allowed-images',      s.allowed_images);
@@ -542,6 +593,12 @@
       setVal('setting-max-total-cpu',       s.max_total_cpu_requests);
       setVal('setting-max-total-mem',       s.max_total_memory_requests);
       _loadTunnelDeniedFromValue(s.allowed_tunnel_peers || '');
+      // Health grid (overview page)
+      if (el('health-grid')) {
+        P.getToken().then(function (tok) {
+          _populateHealthGrid(s, tok.self_url || '');
+        }).catch(function () { _populateHealthGrid(s, ''); });
+      }
     }).catch(function () {});
   }
 
@@ -751,7 +808,7 @@
   function _specToYaml(spec) {
     if (!spec) return '';
     var lines = [];
-    var keys = ['image', 'replicas', 'command', 'args', 'imagePullPolicy'];
+    var keys = ['image', 'targetPeer', 'replicas', 'command', 'args', 'imagePullPolicy'];
     keys.forEach(function (k) {
       if (spec[k] != null) {
         var v = spec[k];
@@ -810,6 +867,32 @@
         else lines.push('    content: ' + content);
       });
     }
+    if (spec.configMaps && spec.configMaps.length) {
+      lines.push('configMaps:');
+      spec.configMaps.forEach(function (cm) {
+        lines.push('  - name: ' + cm.name + '\n    mountPath: ' + (cm.mountPath || ''));
+        if (cm.data && Object.keys(cm.data).length) {
+          lines.push('    data:');
+          Object.keys(cm.data).forEach(function (k) { lines.push('      ' + k + ': ' + cm.data[k]); });
+        }
+      });
+    }
+    if (spec.secrets && spec.secrets.length) {
+      lines.push('secrets:');
+      spec.secrets.forEach(function (sec) {
+        lines.push('  - name: ' + sec.name + '\n    mountPath: ' + (sec.mountPath || ''));
+        if (sec.data && Object.keys(sec.data).length) {
+          lines.push('    data:');
+          Object.keys(sec.data).forEach(function (k) { lines.push('      ' + k + ': ' + sec.data[k]); });
+        }
+      });
+    }
+    if (spec.pvcs && spec.pvcs.length) {
+      lines.push('pvcs:');
+      spec.pvcs.forEach(function (pvc) {
+        lines.push('  - name: ' + pvc.name + '\n    mountPath: ' + (pvc.mountPath || '') + '\n    storage: ' + (pvc.storage || '1Gi') + '\n    accessMode: ' + (pvc.accessMode || 'ReadWriteOnce'));
+      });
+    }
     return lines.join('\n');
   }
 
@@ -818,6 +901,8 @@
     if (!body) return;
     body.querySelectorAll('.modal-tab').forEach(function (t) { t.classList.toggle('active', t.dataset.tab === tabName); });
     body.querySelectorAll('.modal-tab-panel').forEach(function (p) { p.classList.toggle('active', p.dataset.panel === tabName); });
+    var cfgSave = el('cfg-tab-save');
+    if (cfgSave) cfgSave.style.display = tabName === 'config' ? '' : 'none';
     if (tabName === 'logs') _fetchModalLogs();
     if (tabName === 'edit' && window.PorpulsionVscodeEditor) {
       var specYamlEl = el('modal-spec-textarea');
@@ -845,8 +930,288 @@
     }).catch(function (err) { pre.textContent = 'Error: ' + (err.message || 'failed'); });
   }
 
-  function openAppModal(appId) {
+  // ── Config tab helpers ──────────────────────────────────────
+  // Registry of all active KV editors in the current modal, keyed by "kind/volName"
+  var _kvEditors = {};
+
+  var EYE_ICON = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+  var EYE_OFF_ICON = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
+
+  function _makeEyeBtn(targetInput) {
+    var btn = document.createElement('button');
+    btn.type = 'button'; btn.className = 'btn-icon'; btn.title = 'Show/hide value';
+    btn.style.flexShrink = '0';
+    btn.innerHTML = EYE_ICON;
+    btn.addEventListener('click', function () {
+      var showing = targetInput.type === 'text';
+      targetInput.type = showing ? 'password' : 'text';
+      btn.innerHTML = showing ? EYE_ICON : EYE_OFF_ICON;
+    });
+    return btn;
+  }
+
+  function _buildKvEditor(containerId, appId, kind, volName, readOnly) {
+    var wrap = el(containerId);
+    if (!wrap) return;
+    var isSecret = kind === 'secret';
+
+    function renderRows(data) {
+      wrap.innerHTML = '';
+      var hdr = document.createElement('div');
+      hdr.style.cssText = 'display:flex;gap:0.5rem;margin-bottom:0.3rem;';
+      hdr.innerHTML = '<span style="flex:1;font-size:0.7rem;color:var(--muted2);text-transform:uppercase;letter-spacing:.06em;">Key</span>' +
+        '<span style="flex:2;font-size:0.7rem;color:var(--muted2);text-transform:uppercase;letter-spacing:.06em;">Value</span>' +
+        (readOnly ? '' : '<span style="width:' + (isSecret ? '60px' : '28px') + ';"></span>');
+      wrap.appendChild(hdr);
+
+      var entries = Object.keys(data || {}).map(function (k) { return {k: k, v: data[k]}; });
+      if (!entries.length && readOnly) {
+        wrap.innerHTML += '<div class="text-muted text-sm" style="padding:0.4rem 0;">(empty)</div>';
+        return;
+      }
+
+      entries.forEach(function (pair, idx) {
+        var row = document.createElement('div');
+        row.style.cssText = 'display:flex;gap:0.5rem;align-items:center;margin-bottom:0.3rem;';
+        var keyIn = document.createElement('input');
+        keyIn.type = 'text'; keyIn.value = pair.k; keyIn.readOnly = readOnly;
+        keyIn.style.flex = '1'; keyIn.style.fontSize = '0.78rem';
+        keyIn.dataset.idx = idx; keyIn.dataset.role = 'cfg-key';
+        var valIn = document.createElement('input');
+        valIn.type = isSecret ? 'password' : 'text';
+        valIn.value = pair.v; valIn.readOnly = readOnly;
+        valIn.style.flex = '2'; valIn.style.fontSize = '0.78rem';
+        valIn.dataset.idx = idx; valIn.dataset.role = 'cfg-val';
+        row.appendChild(keyIn); row.appendChild(valIn);
+        if (isSecret) row.appendChild(_makeEyeBtn(valIn));
+        if (!readOnly) {
+          var del = document.createElement('button');
+          del.type = 'button'; del.className = 'btn-icon btn-icon-danger';
+          del.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>';
+          del.addEventListener('click', function () {
+            delete data[pair.k];
+            renderRows(data);
+          });
+          row.appendChild(del);
+        }
+        wrap.appendChild(row);
+      });
+
+      if (!readOnly) {
+        var addRow = document.createElement('div');
+        addRow.style.cssText = 'display:flex;gap:0.5rem;align-items:center;margin-top:0.25rem;';
+        var newKey = document.createElement('input');
+        newKey.type = 'text'; newKey.placeholder = 'new-key'; newKey.style.flex = '1'; newKey.style.fontSize = '0.78rem';
+        var newVal = document.createElement('input');
+        newVal.type = isSecret ? 'password' : 'text';
+        newVal.placeholder = 'value'; newVal.style.flex = '2'; newVal.style.fontSize = '0.78rem';
+        _pendingNewKey = newKey; _pendingNewVal = newVal;
+        if (isSecret) addRow.appendChild(newKey), addRow.appendChild(newVal), addRow.appendChild(_makeEyeBtn(newVal));
+        else addRow.appendChild(newKey), addRow.appendChild(newVal);
+        var addBtn = document.createElement('button');
+        addBtn.type = 'button'; addBtn.className = 'btn-sm btn-outline'; addBtn.style.flexShrink = '0';
+        addBtn.textContent = '+ Add';
+        addBtn.addEventListener('click', function () {
+          var k = newKey.value.trim();
+          if (!k) { toast('Key is required', 'error'); return; }
+          data[k] = newVal.value;
+          renderRows(data);
+        });
+        addRow.appendChild(addBtn);
+        wrap.appendChild(addRow);
+      }
+    }
+
+    var _pendingNewKey = null;
+    var _pendingNewVal = null;
+
+    // Register a collector function so the tab-level save button can harvest all editors
+    _kvEditors[kind + '/' + volName] = {
+      appId: appId, kind: kind, volName: volName,
+      collect: function () {
+        var out = {};
+        wrap.querySelectorAll('[data-role="cfg-key"]').forEach(function (ki) {
+          var vi = wrap.querySelector('[data-role="cfg-val"][data-idx="' + ki.dataset.idx + '"]');
+          var k = ki.value.trim();
+          if (k) out[k] = vi ? vi.value : '';
+        });
+        // Also capture any key typed into the pending new-key row
+        if (_pendingNewKey && _pendingNewKey.value.trim()) {
+          out[_pendingNewKey.value.trim()] = _pendingNewVal ? _pendingNewVal.value : '';
+        }
+        return out;
+      },
+    };
+
+    // Load current data from server
+    var url = P.API_BASE + '/remoteapp/' + appId + '/config/' + kind + '/' + encodeURIComponent(volName);
+    wrap.innerHTML = '<div class="text-muted text-sm">Loading…</div>';
+    fetch(url).then(function (r) { return r.json(); }).then(function (res) {
+      renderRows(res.data || {});
+    }).catch(function () {
+      wrap.innerHTML = '<div class="text-muted text-sm" style="color:var(--red)">Failed to load</div>';
+    });
+  }
+
+  function _buildConfigTab(spec, isSubmitted) {
+    var hasConfigMaps = spec.configMaps && spec.configMaps.length;
+    var hasSecrets = spec.secrets && spec.secrets.length;
+    var hasPvcs = spec.pvcs && spec.pvcs.length;
+    var html = '';
+
+    var DEL_BTN = '<button type="button" class="btn-icon btn-icon-danger cfg-obj-delete" title="Remove">' +
+      '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>' +
+      '</button>';
+
+    if (hasConfigMaps) {
+      html += '<div style="margin-bottom:1rem;"><h4 style="font-size:0.8rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted2);margin-bottom:0.5rem;">ConfigMaps</h4>';
+      spec.configMaps.forEach(function (cm, i) {
+        var cid = 'cfg-cm-' + i;
+        html += '<div style="margin-bottom:0.85rem;">' +
+          '<div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.3rem;">' +
+            '<span style="font-size:0.82rem;font-weight:600;">' + _esc(cm.name) + '</span>' +
+            '<span class="mono" style="color:var(--muted2);font-size:0.72rem;flex:1;">→ ' + _esc(cm.mountPath || '') + '</span>' +
+            (isSubmitted ? DEL_BTN.replace('cfg-obj-delete', 'cfg-obj-delete cfg-cm-del-' + i) : '') +
+          '</div>' +
+          '<div id="' + cid + '"></div></div>';
+      });
+      html += '</div>';
+    }
+
+    if (hasSecrets) {
+      html += '<div style="margin-bottom:1rem;"><h4 style="font-size:0.8rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted2);margin-bottom:0.5rem;">Secrets</h4>';
+      spec.secrets.forEach(function (sec, i) {
+        var sid = 'cfg-sec-' + i;
+        html += '<div style="margin-bottom:0.85rem;">' +
+          '<div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.3rem;">' +
+            '<span style="font-size:0.82rem;font-weight:600;">' + _esc(sec.name) + '</span>' +
+            '<span class="mono" style="color:var(--muted2);font-size:0.72rem;flex:1;">→ ' + _esc(sec.mountPath || '') + '</span>' +
+            (isSubmitted ? DEL_BTN.replace('cfg-obj-delete', 'cfg-obj-delete cfg-sec-del-' + i) : '') +
+          '</div>' +
+          '<div id="' + sid + '"></div></div>';
+      });
+      html += '</div>';
+    }
+
+    if (hasPvcs) {
+      html += '<div style="margin-bottom:1rem;"><h4 style="font-size:0.8rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted2);margin-bottom:0.5rem;">Persistent Volumes</h4>';
+      spec.pvcs.forEach(function (pvc, i) {
+        html += '<div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.3rem;">' +
+          '<span style="font-size:0.82rem;font-weight:600;">' + _esc(pvc.name) + '</span>' +
+          '<span class="mono text-sm" style="flex:1;">' + _esc(pvc.mountPath) + ' · ' + _esc(pvc.storage) + ' · ' + _esc(pvc.accessMode) + '</span>' +
+          (isSubmitted ? DEL_BTN.replace('cfg-obj-delete', 'cfg-obj-delete cfg-pvc-del-' + i) : '') +
+          '</div>';
+      });
+      html += '</div>';
+    }
+
+    if (!hasConfigMaps && !hasSecrets && !hasPvcs) {
+      html += '<p class="text-muted text-sm" style="padding:0.25rem 0 0.75rem;">No ConfigMaps, Secrets, or PVCs attached yet.</p>';
+    }
+
+    // Save button is rendered in the modal footer (detail-actions), not inline here
+
+    if (isSubmitted) {
+      html +=
+        '<hr style="border:none;border-top:1px solid var(--glass-border);margin:0.75rem 0;">' +
+        '<div class="cfg-add-forms">' +
+          _buildAddConfigForm('configmap') +
+          _buildAddConfigForm('secret') +
+          _buildAddPvcForm() +
+        '</div>';
+    }
+
+    return html;
+  }
+
+  function _buildAddConfigForm(kind) {
+    var label = kind === 'secret' ? 'Secret' : 'ConfigMap';
+    var placeholder = kind === 'secret' ? 'e.g. db-creds' : 'e.g. app-config';
+    var prefix = 'add-' + kind;
+    return '<div class="cfg-add-section" id="' + prefix + '-section">' +
+      '<div class="cfg-add-header" data-toggle="' + prefix + '">' +
+        '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-right:0.3rem;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>' +
+        'Add ' + label +
+      '</div>' +
+      '<div class="cfg-add-body" id="' + prefix + '-body" hidden>' +
+        '<div class="form-row-2" style="margin-bottom:0.5rem;">' +
+          '<div><label class="form-label">Name</label><input type="text" id="' + prefix + '-name" placeholder="' + placeholder + '" autocomplete="off"></div>' +
+          '<div><label class="form-label">Mount path</label><input type="text" id="' + prefix + '-mount" placeholder="e.g. /etc/config" autocomplete="off"></div>' +
+        '</div>' +
+        '<div id="' + prefix + '-kv"></div>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function _buildAddPvcForm() {
+    return '<div class="cfg-add-section" id="add-pvc-section">' +
+      '<div class="cfg-add-header" data-toggle="add-pvc">' +
+        '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-right:0.3rem;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>' +
+        'Add Persistent Volume' +
+      '</div>' +
+      '<div class="cfg-add-body" id="add-pvc-body" hidden>' +
+        '<div class="form-row-2" style="margin-bottom:0.5rem;">' +
+          '<div><label class="form-label">Name</label><input type="text" id="add-pvc-name" placeholder="e.g. data" autocomplete="off"></div>' +
+          '<div><label class="form-label">Mount path</label><input type="text" id="add-pvc-mount" placeholder="e.g. /data" autocomplete="off"></div>' +
+        '</div>' +
+        '<div class="form-row-2" style="margin-bottom:0.5rem;">' +
+          '<div><label class="form-label">Storage</label><input type="text" id="add-pvc-storage" placeholder="e.g. 1Gi" autocomplete="off" value="1Gi"></div>' +
+          '<div><label class="form-label">Access mode</label>' +
+            '<select id="add-pvc-mode" style="width:100%;">' +
+              '<option value="ReadWriteOnce">ReadWriteOnce</option>' +
+              '<option value="ReadWriteMany">ReadWriteMany</option>' +
+              '<option value="ReadOnlyMany">ReadOnlyMany</option>' +
+            '</select>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function _initAddKvEditor(wrap, isSecret) {
+    function addRow() {
+      var row = document.createElement('div');
+      row.style.cssText = 'display:flex;gap:0.5rem;align-items:center;margin-bottom:0.3rem;';
+      var keyIn = document.createElement('input');
+      keyIn.type = 'text'; keyIn.placeholder = 'key'; keyIn.style.flex = '1'; keyIn.style.fontSize = '0.78rem';
+      keyIn.dataset.role = 'add-kv-key';
+      var valIn = document.createElement('input');
+      valIn.type = isSecret ? 'password' : 'text';
+      valIn.placeholder = 'value'; valIn.style.flex = '2'; valIn.style.fontSize = '0.78rem';
+      valIn.dataset.role = 'add-kv-val';
+      row.appendChild(keyIn); row.appendChild(valIn);
+      if (isSecret) row.appendChild(_makeEyeBtn(valIn));
+      var del = document.createElement('button');
+      del.type = 'button'; del.className = 'btn-icon btn-icon-danger';
+      del.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>';
+      del.addEventListener('click', function () { wrap.removeChild(row); });
+      row.appendChild(del);
+      wrap.insertBefore(row, wrap.lastElementChild);
+    }
+    var addBtn = document.createElement('button');
+    addBtn.type = 'button'; addBtn.className = 'btn-sm btn-outline';
+    addBtn.style.marginTop = '0.25rem';
+    addBtn.textContent = '+ Add key';
+    addBtn.addEventListener('click', function () { addRow(); });
+    wrap.appendChild(addBtn);
+    addRow();
+  }
+
+  function _readAddKvEditor(containerId) {
+    var wrap = el(containerId);
+    if (!wrap) return [];
+    var pairs = [];
+    wrap.querySelectorAll('[data-role="add-kv-key"]').forEach(function (ki) {
+      var vi = ki.parentElement ? ki.parentElement.querySelector('[data-role="add-kv-val"]') : null;
+      var k = ki.value.trim();
+      if (k) pairs.push({ key: k, value: vi ? vi.value : '' });
+    });
+    return pairs;
+  }
+
+  function openAppModal(appId, initialTab) {
     _currentAppId = appId;
+    _kvEditors = {};  // clear registry for new modal session
     var modal = el('app-modal');
     var title = el('app-modal-title');
     var body = el('app-modal-body');
@@ -856,7 +1221,9 @@
     modal.classList.add('open');
     P.getAppDetail(appId).then(function (d) {
       var app = d.app || {};
-      var spec = (d.k8s && d.k8s.spec) || app.spec || {};
+      // Use CR spec when available (fullest representation including targetPeer etc.)
+      var crSpec = d.cr && d.cr.spec;
+      var spec = crSpec || (d.k8s && d.k8s.spec) || app.spec || {};
       var isSubmitted = !!app.target_peer;
 
       // ── Overview tab ──────────────────────────────────────────
@@ -871,6 +1238,10 @@
           '<div class="detail-block"><h4>Spec</h4>' +
             '<div class="detail-row"><span class="label">Image</span><span class="mono">' + _esc(spec.image || '—') + '</span></div>' +
             '<div class="detail-row"><span class="label">Replicas</span><span>' + (spec.replicas || 1) + '</span></div>' +
+            (spec.ports && spec.ports.length ? '<div class="detail-row"><span class="label">Ports</span><span>' + spec.ports.map(function (p) { return (p.name ? p.name + ':' : '') + p.port; }).join(', ') + '</span></div>' : '') +
+            ((spec.configMaps || []).length ? '<div class="detail-row"><span class="label">ConfigMaps</span><span>' + spec.configMaps.map(function (c) { return c.name; }).join(', ') + '</span></div>' : '') +
+            ((spec.secrets || []).length ? '<div class="detail-row"><span class="label">Secrets</span><span>' + spec.secrets.map(function (s) { return s.name; }).join(', ') + '</span></div>' : '') +
+            ((spec.pvcs || []).length ? '<div class="detail-row"><span class="label">PVCs</span><span>' + spec.pvcs.map(function (p) { return p.name + ' (' + p.storage + ')'; }).join(', ') + '</span></div>' : '') +
           '</div>' +
         '</div>';
       if ((spec.ports || []).length) {
@@ -894,10 +1265,14 @@
         '</div>' +
         '<div class="modal-logs-viewer"><pre id="modal-logs-pre" class="logs-content">Loading…</pre></div>';
 
-      // ── Spec tab (submitted apps only) ───────────────────────
-      var specYaml = _specToYaml(spec);
+      // ── Config tab ────────────────────────────────────────────
+      var configHtml = _buildConfigTab(spec, isSubmitted);
+
+      // ── Spec tab ──────────────────────────────────────────────
+      // When a CR is present, show the full CR spec (authoritative); otherwise fall back to _specToYaml
+      var specYaml = crSpec ? _specToYaml(crSpec) : _specToYaml(spec);
       var specLineCount = specYaml ? specYaml.split('\n').length : 1;
-      var specEditorPx = Math.max(180, Math.min(520, specLineCount * 19 + 16));
+      var specEditorPx = Math.max(180, Math.min(480, specLineCount * 19 + 16));
       var editHtml = isSubmitted
         ? '<p class="text-sm text-muted" style="margin-bottom:0.75rem;">Edit the YAML spec and save to update the running deployment.</p>' +
           '<div class="monaco-editor-wrap" id="modal-spec-editor-wrap">' +
@@ -907,26 +1282,154 @@
           '<div class="flex-end mt1"><button type="button" class="btn-sm" id="modal-spec-save">Save &amp; apply</button></div>'
         : '<p class="text-sm text-muted">Editing is only available for workloads you submitted.</p>';
 
-      // ── Assemble with tabs ────────────────────────────────────
+      // ── Assemble tabs ─────────────────────────────────────────
+      var podReady = app.status === 'Running' || app.status === 'Ready';
+      var configTabDisabled = !podReady;
       var tabsHtml =
         '<div class="modal-tabs">' +
           '<button type="button" class="modal-tab active" data-tab="overview">Overview</button>' +
           '<button type="button" class="modal-tab" data-tab="logs">Logs</button>' +
+          (isSubmitted ? '<button type="button" class="modal-tab' + (configTabDisabled ? ' modal-tab-disabled' : '') + '" data-tab="config"' + (configTabDisabled ? ' disabled title="Available when pod is Running"' : '') + '>Config</button>' : '') +
           (isSubmitted ? '<button type="button" class="modal-tab" data-tab="edit">Spec</button>' : '') +
         '</div>' +
         '<div class="modal-tab-panel active" data-panel="overview">' + overviewHtml + '</div>' +
         '<div class="modal-tab-panel" data-panel="logs">' + logsHtml + '</div>' +
+        (isSubmitted ? '<div class="modal-tab-panel" data-panel="config"><div id="cfg-panel-body"' + (configTabDisabled ? ' style="opacity:0.4;pointer-events:none;"' : '') + '>' + configHtml + '</div></div>' : '') +
         (isSubmitted ? '<div class="modal-tab-panel" data-panel="edit">' + editHtml + '</div>' : '');
 
-      var actionsHtml = '<div class="detail-actions"><button type="button" class="btn-sm btn-danger app-modal-delete-btn">Delete workload</button></div>';
+      var actionsHtml = '<div class="detail-actions">' +
+        '<button type="button" class="btn-sm btn-danger app-modal-delete-btn">Delete workload</button>' +
+        (isSubmitted ? '<button type="button" class="btn-sm" id="cfg-tab-save" style="display:none;margin-left:auto;">Save &amp; restart</button>' : '') +
+        '</div>';
 
       body.innerHTML = tabsHtml + actionsHtml;
+      if (initialTab) _showModalTab(initialTab);
       initCustomDropdowns();
       initNumSpinners();
 
+      // Wire up config KV editors after DOM is built
+      (spec.configMaps || []).forEach(function (cm, i) {
+        _buildKvEditor('cfg-cm-' + i, app.id, 'configmap', cm.name, !isSubmitted);
+      });
+      (spec.secrets || []).forEach(function (sec, i) {
+        _buildKvEditor('cfg-sec-' + i, app.id, 'secret', sec.name, !isSubmitted);
+      });
+
+      // Save & restart — patches existing KV editors + applies any open add-forms
+      var cfgSaveBtn = el('cfg-tab-save');
+      if (cfgSaveBtn) {
+        cfgSaveBtn.addEventListener('click', function () {
+          cfgSaveBtn.disabled = true; cfgSaveBtn.textContent = 'Saving…';
+
+          // Collect new entries from open add-forms
+          var newSpec = JSON.parse(JSON.stringify(spec));
+          ['configmap', 'secret'].forEach(function (kind) {
+            var bodyEl = el('add-' + kind + '-body');
+            if (!bodyEl || bodyEl.hidden) return;
+            var name = (el('add-' + kind + '-name') || {}).value || '';
+            var mount = (el('add-' + kind + '-mount') || {}).value || '';
+            if (!name.trim() || !mount.trim()) return;
+            var kvPairs = _readAddKvEditor('add-' + kind + '-kv');
+            var entryData = {};
+            kvPairs.forEach(function (p) { if (p.key) entryData[p.key] = p.value; });
+            var entry = { name: name.trim(), mountPath: mount.trim() };
+            if (Object.keys(entryData).length) entry.data = entryData;
+            if (kind === 'configmap') { newSpec.configMaps = (newSpec.configMaps || []).concat([entry]); }
+            else { newSpec.secrets = (newSpec.secrets || []).concat([entry]); }
+          });
+          var pvcBodyEl = el('add-pvc-body');
+          if (pvcBodyEl && !pvcBodyEl.hidden) {
+            var pvcName = (el('add-pvc-name') || {}).value || '';
+            var pvcMount = (el('add-pvc-mount') || {}).value || '';
+            var pvcStorage = (el('add-pvc-storage') || {}).value || '1Gi';
+            var pvcMode = (el('add-pvc-mode') || {}).value || 'ReadWriteOnce';
+            if (pvcName.trim() && pvcMount.trim()) {
+              newSpec.pvcs = (newSpec.pvcs || []).concat([{ name: pvcName.trim(), mountPath: pvcMount.trim(), storage: pvcStorage.trim(), accessMode: pvcMode }]);
+            }
+          }
+
+          var specChanged = JSON.stringify(newSpec) !== JSON.stringify(spec);
+          var editors = Object.values(_kvEditors);
+
+          var doKvPatches = function () {
+            var patches = editors.map(function (ed) {
+              var data = ed.collect();
+              var url = P.API_BASE + '/remoteapp/' + ed.appId + '/config/' + ed.kind + '/' + encodeURIComponent(ed.volName);
+              return fetch(url, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data: data }) })
+                .then(function (r) { return r.json(); })
+                .then(function (res) { if (!res.ok) throw new Error(res.error || 'patch failed'); });
+            });
+            return Promise.all(patches);
+          };
+
+          var work = specChanged
+            ? P.updateAppSpec(app.id, _specToYaml(newSpec))
+            : (editors.length ? doKvPatches() : Promise.resolve());
+
+          work.then(function () {
+            toast('Saved — rollout restarting', 'ok');
+            closeAppModal();
+          }).catch(function (err) {
+            toast('Error: ' + err.message, 'error');
+            cfgSaveBtn.disabled = false; cfgSaveBtn.textContent = 'Save & restart';
+          });
+        });
+      }
+
+      if (isSubmitted) {
+        // Toggle add-form sections open/closed and init KV editors
+        body.querySelectorAll('.cfg-add-header').forEach(function (hdr) {
+          hdr.addEventListener('click', function () {
+            var bodyEl = el(hdr.dataset.toggle + '-body');
+            if (!bodyEl) return;
+            var nowHidden = bodyEl.hidden;
+            bodyEl.hidden = !nowHidden;
+            hdr.classList.toggle('open', nowHidden);
+            if (nowHidden) {
+              var isSecret = hdr.dataset.toggle === 'add-secret';
+              var kvId = hdr.dataset.toggle + '-kv';
+              var kvEl = el(kvId);
+              if (kvEl && !kvEl.dataset.init) { kvEl.dataset.init = '1'; _initAddKvEditor(kvEl, isSecret); }
+            }
+          });
+        });
+
+        // Delete handlers for existing ConfigMaps, Secrets, PVCs
+        function _makeDeleteHandler(listKey, idx, label) {
+          return function () {
+            showConfirm('Remove ' + label + '?', 'This will remove it from the spec and trigger a redeploy.', 'Remove', 'btn-danger', function () {
+              var newSpec = JSON.parse(JSON.stringify(spec));
+              newSpec[listKey] = (newSpec[listKey] || []).filter(function (_, j) { return j !== idx; });
+              P.updateAppSpec(app.id, _specToYaml(newSpec)).then(function () {
+                toast(label + ' removed', 'ok');
+                refresh();
+                openAppModal(app.id, 'config');
+              }).catch(function (err) {
+                toast('Error: ' + err.message, 'error');
+              });
+            });
+          };
+        }
+        (spec.configMaps || []).forEach(function (cm, i) {
+          var btn = body.querySelector('.cfg-cm-del-' + i);
+          if (btn) btn.addEventListener('click', _makeDeleteHandler('configMaps', i, 'ConfigMap "' + cm.name + '"'));
+        });
+        (spec.secrets || []).forEach(function (sec, i) {
+          var btn = body.querySelector('.cfg-sec-del-' + i);
+          if (btn) btn.addEventListener('click', _makeDeleteHandler('secrets', i, 'Secret "' + sec.name + '"'));
+        });
+        (spec.pvcs || []).forEach(function (pvc, i) {
+          var btn = body.querySelector('.cfg-pvc-del-' + i);
+          if (btn) btn.addEventListener('click', _makeDeleteHandler('pvcs', i, 'PVC "' + pvc.name + '"'));
+        });
+      }
+
       // Tab click
       body.querySelectorAll('.modal-tab').forEach(function (t) {
-        t.addEventListener('click', function () { _showModalTab(t.dataset.tab); });
+        t.addEventListener('click', function () {
+          if (t.disabled || t.classList.contains('modal-tab-disabled')) return;
+          _showModalTab(t.dataset.tab);
+        });
       });
 
       // Logs refresh
@@ -1024,17 +1527,62 @@
       return;
     }
 
-    list.innerHTML = notifications.map(function (n) {
-      return '<div class="notif-item' + (n.ack ? ' acked' : '') + '" data-notif-id="' + _esc(n.id) + '">' +
-        '<span class="notif-dot ' + _esc(n.level || 'info') + '"></span>' +
-        '<div class="notif-content">' +
-          '<div class="notif-title">' + _esc(n.title) + '</div>' +
-          '<div class="notif-msg">' + _esc(n.message) + '</div>' +
-          '<div class="notif-ts">' + timeAgo(n.ts) + '</div>' +
-        '</div>' +
-        '<button type="button" class="notif-dismiss" data-notif-id="' + _esc(n.id) + '" title="Dismiss" aria-label="Dismiss">&#x2715;</button>' +
-      '</div>';
-    }).join('');
+    list.innerHTML = '';
+    (notifications || []).forEach(function (n) {
+      var item = document.createElement('div');
+      item.className = 'notif-item' + (n.ack ? ' acked' : '');
+      item.dataset.notifId = n.id;
+
+      var dot = document.createElement('span');
+      dot.className = 'notif-dot ' + (n.level || 'info');
+
+      var content = document.createElement('div');
+      content.className = 'notif-content';
+
+      var titleEl = document.createElement('div');
+      titleEl.className = 'notif-title';
+      titleEl.textContent = n.title;
+
+      var msgEl = document.createElement('div');
+      msgEl.className = 'notif-msg';
+      msgEl.textContent = n.message || '';
+
+      var tsEl = document.createElement('div');
+      tsEl.className = 'notif-ts';
+      tsEl.textContent = timeAgo(n.ts);
+
+      content.appendChild(titleEl);
+      content.appendChild(msgEl);
+
+      // Add show-more toggle if the message is long (more than ~120 chars or has newlines)
+      var isLong = (n.message || '').length > 120 || (n.message || '').indexOf('\n') !== -1;
+      if (isLong) {
+        var moreBtn = document.createElement('button');
+        moreBtn.type = 'button';
+        moreBtn.className = 'notif-show-more';
+        moreBtn.textContent = 'Show more';
+        moreBtn.addEventListener('click', function () {
+          var expanded = msgEl.classList.toggle('expanded');
+          moreBtn.textContent = expanded ? 'Show less' : 'Show more';
+        });
+        content.appendChild(moreBtn);
+      }
+
+      content.appendChild(tsEl);
+
+      var dismiss = document.createElement('button');
+      dismiss.type = 'button';
+      dismiss.className = 'notif-dismiss';
+      dismiss.dataset.notifId = n.id;
+      dismiss.title = 'Dismiss';
+      dismiss.setAttribute('aria-label', 'Dismiss');
+      dismiss.innerHTML = '&#x2715;';
+
+      item.appendChild(dot);
+      item.appendChild(content);
+      item.appendChild(dismiss);
+      list.appendChild(item);
+    });
   }
 
   // Bell toggle
@@ -1161,7 +1709,7 @@
       panel.setAttribute('role', 'listbox');
       panel.style.display = 'none';
       wrap.appendChild(trigger);
-      wrap.appendChild(panel);
+      document.body.appendChild(panel);
       sel.style.display = 'none';
       wrap.appendChild(sel);
       function syncLabel() {
@@ -1194,20 +1742,29 @@
           panel.appendChild(item);
         });
       }
+      function positionPanel() {
+        var rect = trigger.getBoundingClientRect();
+        var panelH = panel.scrollHeight;
+        var spaceBelow = window.innerHeight - rect.bottom;
+        var flipUp = spaceBelow < panelH + 8 && rect.top > panelH + 8;
+        panel.style.position = 'fixed';
+        panel.style.width = rect.width + 'px';
+        panel.style.left = rect.left + 'px';
+        panel.style.zIndex = '9999';
+        if (flipUp) {
+          panel.style.top = '';
+          panel.style.bottom = (window.innerHeight - rect.top + 4) + 'px';
+        } else {
+          panel.style.bottom = '';
+          panel.style.top = (rect.bottom + 4) + 'px';
+        }
+      }
       function openPanel() {
         buildOptions();
         panel.style.display = '';
         trigger.setAttribute('aria-expanded', 'true');
         trigger.classList.add('open');
-        requestAnimationFrame(function () {
-          var rect = wrap.getBoundingClientRect();
-          var spaceBelow = window.innerHeight - rect.bottom;
-          if (spaceBelow < panel.offsetHeight + 8 && rect.top > panel.offsetHeight + 8) {
-            panel.classList.add('flip-up');
-          } else {
-            panel.classList.remove('flip-up');
-          }
-        });
+        requestAnimationFrame(function () { positionPanel(); });
       }
       function closePanel() {
         panel.style.display = 'none';
@@ -1219,18 +1776,20 @@
         if (panel.style.display === 'none') openPanel(); else closePanel();
       });
       document.addEventListener('click', function (e) {
-        if (!wrap.contains(e.target)) closePanel();
+        if (!wrap.contains(e.target) && !panel.contains(e.target)) closePanel();
       }, true);
+      window.addEventListener('scroll', function () { if (panel.style.display !== 'none') positionPanel(); }, true);
       trigger.addEventListener('keydown', function (e) {
         if (e.key === 'ArrowDown') { e.preventDefault(); if (panel.style.display === 'none') openPanel(); }
         if (e.key === 'ArrowUp') { e.preventDefault(); if (panel.style.display === 'none') openPanel(); }
         if (e.key === 'Escape') closePanel();
       });
-      sel.addEventListener('change', function () { syncLabel(); buildOptions(); });
+      sel.addEventListener('change', function () { syncLabel(); });
       if (window.MutationObserver) {
-        var mo = new MutationObserver(function () { syncLabel(); if (panel.style.display !== 'none') buildOptions(); });
+        var mo = new MutationObserver(function () { syncLabel(); });
         mo.observe(sel, { childList: true, subtree: false });
       }
+      sel._ddRebuild = buildOptions;
       syncLabel();
       if (sel.id) { trigger.setAttribute('aria-controls', 'dd-panel-' + sel.id); panel.id = 'dd-panel-' + sel.id; }
       if (sel.hasAttribute('aria-label')) trigger.setAttribute('aria-label', sel.getAttribute('aria-label'));
@@ -1256,6 +1815,7 @@
     bindChk('setting-require-approval',     'require_remoteapp_approval');
     bindChk('setting-require-res-requests', 'require_resource_requests');
     bindChk('setting-require-res-limits',   'require_resource_limits');
+    bindChk('setting-allow-pvcs',           'allow_pvcs');
     bindChk('setting-inbound-tunnels',      'allow_inbound_tunnels');
 
     var filtersSaveBtn = el('setting-filters-save');
@@ -1285,6 +1845,17 @@
           max_total_memory_requests:  (el('setting-max-total-mem') || {}).value || '',
         };
         P.updateSettings(payload).then(function () { toast('Quotas saved', 'ok'); }).catch(function (err) { toast(err.message, 'error'); });
+      });
+    }
+
+    var pvcQuotasSaveBtn = el('setting-pvc-quotas-save');
+    if (pvcQuotasSaveBtn) {
+      pvcQuotasSaveBtn.addEventListener('click', function () {
+        var payload = {
+          max_pvc_storage_per_pvc_gb: parseInt((el('setting-max-pvc-per') || {}).value || '0', 10) || 0,
+          max_pvc_storage_total_gb:   parseInt((el('setting-max-pvc-total') || {}).value || '0', 10) || 0,
+        };
+        P.updateSettings(payload).then(function () { toast('PVC quotas saved', 'ok'); }).catch(function (err) { toast(err.message, 'error'); });
       });
     }
 

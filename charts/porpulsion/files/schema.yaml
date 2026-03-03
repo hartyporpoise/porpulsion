@@ -1,0 +1,189 @@
+image:
+  type: string
+  description: 'Container image, e.g. "nginx:latest" or "myrepo/myapp:1.2"'
+targetPeer:
+  type: string
+  description: Name of the connected peer to deploy on
+replicas:
+  type: integer
+  minimum: 0
+  default: 1
+  description: Number of pod replicas
+ports:
+  type: array
+  description: Container ports to expose (a Service is created automatically)
+  items:
+    type: object
+    required: [port]
+    properties:
+      port:
+        type: integer
+      name:
+        type: string
+command:
+  type: array
+  items:
+    type: string
+  description: Override container ENTRYPOINT
+args:
+  type: array
+  items:
+    type: string
+  description: Override container CMD
+imagePullPolicy:
+  type: string
+  enum: [Always, IfNotPresent, Never]
+  default: IfNotPresent
+imagePullSecrets:
+  type: array
+  items:
+    type: string
+  description: Names of existing Secrets with registry credentials
+env:
+  type: array
+  description: Environment variables
+  items:
+    type: object
+    required: [name]
+    properties:
+      name:
+        type: string
+      value:
+        type: string
+      valueFrom:
+        type: object
+        properties:
+          secretKeyRef:
+            type: object
+            properties:
+              name:
+                type: string
+              key:
+                type: string
+          configMapKeyRef:
+            type: object
+            properties:
+              name:
+                type: string
+              key:
+                type: string
+          fieldRef:
+            type: object
+            properties:
+              fieldPath:
+                type: string
+resources:
+  type: object
+  description: CPU/memory requests and limits (k8s quantity strings)
+  properties:
+    requests:
+      type: object
+      additionalProperties:
+        type: string
+    limits:
+      type: object
+      additionalProperties:
+        type: string
+configMaps:
+  type: array
+  description: >
+    Managed ConfigMaps mounted as file directories. The agent creates
+    and owns these; editing keys via the UI triggers a rollout restart.
+  items:
+    type: object
+    required: [name, mountPath]
+    properties:
+      name:
+        type: string
+        description: Logical name (k8s name becomes ra-<id>-cm-<name>)
+      mountPath:
+        type: string
+        description: Directory path inside the container
+      data:
+        type: object
+        additionalProperties:
+          type: string
+        description: key → file-content map
+secrets:
+  type: array
+  description: >
+    Managed Secrets mounted as file directories. Values are transmitted
+    over the mTLS channel and never logged. Editing triggers rollout restart.
+  items:
+    type: object
+    required: [name, mountPath]
+    properties:
+      name:
+        type: string
+        description: Logical name (k8s name becomes ra-<id>-sec-<name>)
+      mountPath:
+        type: string
+        description: Directory path inside the container
+      data:
+        type: object
+        additionalProperties:
+          type: string
+        description: key → plaintext-value map (base64-encoded in k8s)
+pvcs:
+  type: array
+  description: >
+    PersistentVolumeClaims to mount. Requires allow_pvcs=True on the
+    receiving agent. Uses the cluster's default StorageClass.
+  items:
+    type: object
+    required: [name, mountPath, storage]
+    properties:
+      name:
+        type: string
+        description: PVC name (k8s name becomes ra-<id>-pvc-<name>)
+      mountPath:
+        type: string
+        description: Mount path inside the container
+      storage:
+        type: string
+        description: Storage request, e.g. "1Gi", "500Mi"
+      accessMode:
+        type: string
+        enum: [ReadWriteOnce, ReadOnlyMany, ReadWriteMany]
+        default: ReadWriteOnce
+readinessProbe:
+  type: object
+  description: Readiness probe for the container
+  properties:
+    httpGet:
+      type: object
+      properties:
+        path:
+          type: string
+        port:
+          type: integer
+    exec:
+      type: object
+      properties:
+        command:
+          type: array
+          items:
+            type: string
+    initialDelaySeconds:
+      type: integer
+      default: 5
+    periodSeconds:
+      type: integer
+      default: 10
+    failureThreshold:
+      type: integer
+      default: 3
+securityContext:
+  type: object
+  description: Pod and container security settings
+  properties:
+    runAsNonRoot:
+      type: boolean
+    runAsUser:
+      type: integer
+    runAsGroup:
+      type: integer
+    fsGroup:
+      type: integer
+    readOnlyRootFilesystem:
+      type: boolean

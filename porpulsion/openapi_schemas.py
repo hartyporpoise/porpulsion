@@ -1,6 +1,7 @@
 """
 Marshall model types (dataclasses) to OpenAPI 3 schema dicts.
-Single source of truth: schemas are derived from porpulsion.models, not duplicated.
+RemoteAppSpec schema is derived from the installed CRD (single source of truth).
+All other models are derived from their dataclass field definitions.
 """
 from __future__ import annotations
 
@@ -85,21 +86,60 @@ def _dataclass_to_schema(cls: type, refs: dict[type, str]) -> dict[str, Any]:
     return out
 
 
-# Dependencies first. API name may differ from class name.
+# Dataclass models only (RemoteAppSpec is CRD-driven, handled separately).
 MODEL_ORDER: list[tuple[type, str]] = [
-    (models.EnvVarSource, "EnvVarSource"),
-    (models.EnvVar, "EnvVar"),
-    (models.PortSpec, "PortSpec"),
-    (models.ResourceRequirements, "ResourceRequirements"),
-    (models.AdditionalConfigItem, "AdditionalConfigItem"),
-    (models.ReadinessProbe, "ReadinessProbe"),
-    (models.SecurityContext, "SecurityContext"),
-    (models.RemoteAppSpec, "RemoteAppSpec"),
     (models.Peer, "Peer"),
     (models.RemoteApp, "RemoteApp"),
     (models.AgentSettings, "Settings"),
 ]
 REF_MAP: dict[type, str] = {cls: name for cls, name in MODEL_ORDER}
+
+
+def _crd_prop_to_openapi(prop: dict) -> dict[str, Any]:
+    """Convert a CRD openAPIV3Schema property dict to an OpenAPI schema dict."""
+    typ = prop.get("type")
+    out: dict[str, Any] = {}
+    if typ:
+        out["type"] = typ
+    if "description" in prop:
+        out["description"] = prop["description"]
+    if "enum" in prop:
+        out["enum"] = prop["enum"]
+    if "default" in prop:
+        out["default"] = prop["default"]
+    if "minimum" in prop:
+        out["minimum"] = prop["minimum"]
+    if "maximum" in prop:
+        out["maximum"] = prop["maximum"]
+    if typ == "array" and "items" in prop:
+        out["items"] = _crd_prop_to_openapi(prop["items"])
+    if typ == "object":
+        if "properties" in prop:
+            out["properties"] = {k: _crd_prop_to_openapi(v) for k, v in prop["properties"].items()}
+        elif "additionalProperties" in prop:
+            out["additionalProperties"] = _crd_prop_to_openapi(prop["additionalProperties"])
+    return out
+
+
+def _remoteapp_spec_schema() -> dict[str, Any]:
+    """Build an OpenAPI schema for RemoteAppSpec from the baked-in schema.yaml."""
+    from porpulsion.k8s.store import load_spec_schema
+    spec_props = load_spec_schema() or {}
+    properties: dict[str, Any] = {}
+    for field_name, prop in spec_props.items():
+        if field_name == "targetPeer":
+            continue
+        openapi_prop = _crd_prop_to_openapi(prop)
+        if field_name in REMOTE_APP_SPEC_PROPERTY_DESCRIPTIONS:
+            openapi_prop["description"] = REMOTE_APP_SPEC_PROPERTY_DESCRIPTIONS[field_name]
+        properties[field_name] = openapi_prop
+    return {
+        "type": "object",
+        "description": REMOTE_APP_SPEC_DESCRIPTION,
+        "required": ["image"],
+        "properties": properties,
+        "example": REMOTE_APP_SPEC_EXAMPLES[0]["value"],
+    }
 
 # RemoteApp Spec: documentation and examples (aligned with dashboard Docs tab)
 REMOTE_APP_SPEC_DESCRIPTION = (
@@ -109,22 +149,18 @@ REMOTE_APP_SPEC_DESCRIPTION = (
 REMOTE_APP_SPEC_PROPERTY_DESCRIPTIONS: dict[str, str] = {
     "image": "Container image reference, e.g. nginx:latest or ghcr.io/org/app:v1.2",
     "replicas": "Number of pod replicas. Subject to peer quota limits.",
-    "port": "Single container port (legacy). Prefer ports.",
     "ports": "Ports to expose. Each entry: port (required), name (optional).",
     "resources": "Kubernetes resource requests and limits. requests/limits with cpu (e.g. 250m, 1) and memory (e.g. 128Mi, 1Gi). Checked against peer quotas.",
     "command": "Override the container ENTRYPOINT, e.g. [\"/bin/sh\", \"-c\"].",
     "args": "Override the container CMD / arguments.",
-    "env": "Environment variables. Each entry: name + value, or valueFrom.secretKeyRef / valueFrom.configMapKeyRef / valueFrom.fieldRef (e.g. spec.nodeName).",
-    "additionalConfig": "Optional files to mount into the container. Each entry: mountPath (absolute path in the container, e.g. /etc/app/config.yaml) and content (plain text). Stored in a ConfigMap and mounted read-only.",
+    "env": "Environment variables. Each entry: name + value, or valueFrom.secretKeyRef / valueFrom.configMapKeyRef / valueFrom.fieldRef.",
+    "configMaps": "Managed ConfigMaps mounted as file volumes. Each entry: name, mountPath, data (key→value). Editable after deploy — changes trigger a rollout restart.",
+    "secrets": "Managed Secrets mounted as file volumes. Each entry: name, mountPath, data (key→value, plaintext — transmitted over mTLS). Editable after deploy.",
+    "pvcs": "PersistentVolumeClaims. Each entry: name, mountPath, storage (e.g. 5Gi), accessMode. Requires allow_pvcs=true on the receiving agent.",
     "imagePullPolicy": "Always | IfNotPresent | Never. Use Always with mutable tags like latest.",
     "imagePullSecrets": "Names of k8s Secrets containing registry credentials.",
     "readinessProbe": "Probe for when to send traffic. httpGet (path, port) or exec (command), plus initialDelaySeconds, periodSeconds, failureThreshold.",
     "securityContext": "Pod/container security: runAsNonRoot, runAsUser, runAsGroup, fsGroup, readOnlyRootFilesystem.",
-}
-
-ADDITIONAL_CONFIG_ITEM_PROPERTY_DESCRIPTIONS: dict[str, str] = {
-    "mountPath": "Absolute path in the container where the file will be mounted (e.g. /etc/app/extra.conf).",
-    "content": "Plain-text content of the file. Stored in a ConfigMap and mounted read-only.",
 }
 
 REMOTE_APP_SPEC_EXAMPLES = [
@@ -177,14 +213,13 @@ REMOTE_APP_SPEC_EXAMPLES = [
         },
     },
     {
-        "summary": "With additionalConfig (mount extra files)",
+        "summary": "With configMap volume",
         "value": {
             "image": "nginx:latest",
             "replicas": 1,
             "ports": [{"port": 80, "name": "http"}],
-            "additionalConfig": [
-                {"mountPath": "/etc/app/extra.conf", "content": "# custom config\nserver { listen 80; }"},
-                {"mountPath": "/usr/share/nginx/html/version.txt", "content": "v1.0"},
+            "configMaps": [
+                {"name": "app-config", "mountPath": "/etc/myapp", "data": {"config.yaml": "port: 8080\ndebug: false"}},
             ],
         },
     },
@@ -194,23 +229,11 @@ REMOTE_APP_SPEC_EXAMPLES = [
 def schemas_from_models() -> dict[str, dict[str, Any]]:
     """Return OpenAPI components/schemas dict keyed by schema name, derived from models."""
     out: dict[str, dict[str, Any]] = {}
+    # RemoteAppSpec schema comes from the installed CRD
+    out["RemoteAppSpec"] = _remoteapp_spec_schema()
+    # All other models are derived from their dataclass definitions
     for cls, name in MODEL_ORDER:
         out[name] = _dataclass_to_schema(cls, REF_MAP)
-    # Enrich RemoteAppSpec with docs and examples (match dashboard Docs tab)
-    if "RemoteAppSpec" in out:
-        s = out["RemoteAppSpec"]
-        s["description"] = REMOTE_APP_SPEC_DESCRIPTION
-        for prop, desc in REMOTE_APP_SPEC_PROPERTY_DESCRIPTIONS.items():
-            if "properties" in s and prop in s["properties"]:
-                s["properties"][prop]["description"] = desc
-        s["example"] = REMOTE_APP_SPEC_EXAMPLES[0]["value"]
-    # Hints for AdditionalConfigItem (referenced by additionalConfig)
-    if "AdditionalConfigItem" in out:
-        s = out["AdditionalConfigItem"]
-        s["description"] = "One file to mount: path in the container and its text content (stored in a ConfigMap)."
-        for prop, desc in ADDITIONAL_CONFIG_ITEM_PROPERTY_DESCRIPTIONS.items():
-            if "properties" in s and prop in s["properties"]:
-                s["properties"][prop]["description"] = desc
     return out
 
 
@@ -233,9 +256,9 @@ def remote_app_request_examples() -> dict[str, Any]:
             "summary": REMOTE_APP_SPEC_EXAMPLES[3]["summary"],
             "value": {"name": "api", "spec": REMOTE_APP_SPEC_EXAMPLES[3]["value"]},
         },
-        "with_additional_config": {
+        "with_configmap": {
             "summary": REMOTE_APP_SPEC_EXAMPLES[4]["summary"],
-            "value": {"name": "nginx-extra", "spec": REMOTE_APP_SPEC_EXAMPLES[4]["value"]},
+            "value": {"name": "nginx-config", "spec": REMOTE_APP_SPEC_EXAMPLES[4]["value"]},
         },
     }
 

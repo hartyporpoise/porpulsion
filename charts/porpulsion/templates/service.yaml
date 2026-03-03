@@ -25,3 +25,10 @@ spec:
       {{- if and (eq .Values.service.type "NodePort") .Values.service.peerNodePort }}
       nodePort: {{ .Values.service.peerNodePort }}
       {{- end }}
+    # Internal port: /status and probes only, no auth. Never exposed externally.
+    - name: internal
+      port: {{ .Values.service.internalPort }}
+      targetPort: {{ .Values.service.internalPort }}
+      {{- if and (eq .Values.service.type "NodePort") .Values.service.internalNodePort }}
+      nodePort: {{ .Values.service.internalNodePort }}
+      {{- end }}

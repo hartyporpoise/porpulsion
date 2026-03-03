@@ -42,6 +42,12 @@ def workloads():
     return render_template("ui/workloads.html", **_context())
 
 
+@bp.route("/deploy")
+@login_required
+def deploy():
+    return render_template("ui/deploy.html", **_context())
+
+
 @bp.route("/tunnels")
 @login_required
 def tunnels():

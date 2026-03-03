@@ -4,32 +4,74 @@ metadata:
   name: {{ include "porpulsion.fullname" . }}
   namespace: {{ .Release.Namespace }}
 rules:
+  # ── Deployments ──────────────────────────────────────────────────────────────
   - apiGroups: ["apps"]
     resources: ["deployments"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["apps"]
     resources: ["deployments/status"]
     verbs: ["get"]
+
+  # ── Pods ─────────────────────────────────────────────────────────────────────
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["get", "list", "watch"]
   - apiGroups: [""]
     resources: ["pods/log"]
     verbs: ["get"]
+
+  # ── Services ─────────────────────────────────────────────────────────────────
   - apiGroups: [""]
     resources: ["services"]
     verbs: ["get", "list", "create", "update", "patch", "delete"]
-  - apiGroups: [""]
-    resources: ["secrets"]
-    verbs: ["create"]
+
+  # ── Secrets — porpulsion system secrets (named access) ───────────────────────
   - apiGroups: [""]
     resources: ["secrets"]
     resourceNames: ["porpulsion-credentials", "porpulsion-users"]
     verbs: ["get", "patch"]
+
+  # ── Secrets — remoteapp-managed secrets (create + full lifecycle) ─────────────
   - apiGroups: [""]
-    resources: ["configmaps"]
-    verbs: ["create"]
+    resources: ["secrets"]
+    verbs: ["create", "list"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "update", "patch", "delete"]
+
+  # ── ConfigMaps — porpulsion system configmap (named access) ──────────────────
   - apiGroups: [""]
     resources: ["configmaps"]
     resourceNames: ["porpulsion-state"]
     verbs: ["get", "patch", "delete"]
+
+  # ── ConfigMaps — remoteapp-managed configmaps (create + full lifecycle) ───────
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create", "list"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "update", "patch", "delete"]
+
+  # ── RemoteApp CRD ─────────────────────────────────────────────────────────────
+  - apiGroups: ["porpulsion.io"]
+    resources: ["remoteapps"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["porpulsion.io"]
+    resources: ["remoteapps/status"]
+    verbs: ["get", "update", "patch"]
+
+  # ── ExecutingApp CRD ──────────────────────────────────────────────────────────
+  - apiGroups: ["porpulsion.io"]
+    resources: ["executingapps"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["porpulsion.io"]
+    resources: ["executingapps/status"]
+    verbs: ["get", "update", "patch"]
+
+  {{- if .Values.agent.allowPvcs }}
+  # ── PersistentVolumeClaims — enabled via agent.allowPvcs ─────────────────────
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "create", "update", "patch", "delete"]
+  {{- end }}

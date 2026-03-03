@@ -28,6 +28,8 @@ spec:
               containerPort: {{ .Values.service.port }}
             - name: peer-ws
               containerPort: {{ .Values.service.peerPort }}
+            - name: internal
+              containerPort: {{ .Values.service.internalPort }}
           env:
             - name: AGENT_NAME
               value: {{ .Values.agent.agentName | quote }}
@@ -35,13 +37,13 @@ spec:
               value: {{ .Values.agent.selfUrl | quote }}
           readinessProbe:
             httpGet:
-              path: /api/status
-              port: {{ .Values.service.port }}
+              path: /status
+              port: {{ .Values.service.internalPort }}
             initialDelaySeconds: 2
             periodSeconds: 5
           livenessProbe:
             httpGet:
-              path: /api/status
-              port: {{ .Values.service.port }}
+              path: /status
+              port: {{ .Values.service.internalPort }}
             initialDelaySeconds: 5
             periodSeconds: 10

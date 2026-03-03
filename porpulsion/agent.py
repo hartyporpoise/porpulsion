@@ -73,6 +73,10 @@ def _compute_version_hash() -> str:
         p = _here / fname
         if p.exists():
             h.update(p.read_bytes())
+    # Include schema.yaml so schema changes are detected across peers
+    _schema = _here.parent / "charts" / "porpulsion" / "files" / "schema.yaml"
+    if _schema.exists():
+        h.update(_schema.read_bytes())
     return h.hexdigest()[:16]
 
 state.VERSION_HASH = _compute_version_hash()
@@ -80,22 +84,18 @@ log.info("SELF_URL=%s  VERSION_HASH=%s", state.SELF_URL, state.VERSION_HASH)
 
 # ── Restore persisted state ───────────────────────────────────
 
-from porpulsion.models import Peer, RemoteApp, RemoteAppSpec  # noqa: E402
+from porpulsion.models import Peer  # noqa: E402
+
+# Load and cache the RemoteApp spec schema from the baked-in schema.yaml.
+# Must run before any RemoteAppSpec.from_dict() call.
+from porpulsion.k8s.store import load_spec_schema as _load_spec_schema  # noqa: E402
+_load_spec_schema()
 
 for _p in tls.load_peers(state.NAMESPACE):
     state.peers[_p["name"]] = Peer(
         name=_p["name"], url=_p["url"], ca_pem=_p.get("ca_pem", ""))
 
 _saved = tls.load_state_configmap(state.NAMESPACE)
-for _a in _saved.get("local_apps", []):
-    _ra = RemoteApp(
-        id=_a["id"], name=_a["name"],
-        spec=RemoteAppSpec.from_dict(_a.get("spec", {})),
-        source_peer=_a.get("source_peer", ""), target_peer=_a.get("target_peer", ""),
-        status=_a.get("status", "Unknown"),
-        created_at=_a.get("created_at", ""), updated_at=_a.get("updated_at", ""),
-    )
-    state.local_apps[_ra.id] = _ra
 if "settings" in _saved:
     for _k, _v in _saved["settings"].items():
         if hasattr(state.settings, _k):
@@ -104,8 +104,8 @@ for _entry in _saved.get("pending_approval", []):
     if _entry.get("id"):
         state.pending_approval[_entry["id"]] = _entry
 
-log.info("Restored %d peer(s), %d local app(s), %d pending approval(s) from persistent storage",
-         len(state.peers), len(state.local_apps), len(state.pending_approval))
+log.info("Restored %d peer(s), %d pending approval(s) from persistent storage",
+         len(state.peers), len(state.pending_approval))
 
 # Re-open WS channels for any peers restored from persistent storage.
 # Runs after the Flask app starts (deferred so the WS endpoint is registered).
@@ -138,6 +138,16 @@ if not _session_secret:
     _session_secret = _hashlib.sha256(_CA_KEY_PEM).hexdigest()
 app.secret_key = _session_secret
 
+# Server-side sessions — each browser tab gets its own independent session ID,
+# so logging in/out in one tab doesn't affect other tabs.
+import tempfile as _tempfile
+from flask_session import Session as _Session
+app.config["SESSION_TYPE"] = "filesystem"
+app.config["SESSION_FILE_DIR"] = _tempfile.mkdtemp(prefix="porpulsion-sessions-")
+app.config["SESSION_PERMANENT"] = False
+app.config["SESSION_USE_SIGNER"] = True
+_Session(app)
+
 app.register_blueprint(auth_bp.bp)
 app.register_blueprint(peers_bp.bp, url_prefix="/api")
 app.register_blueprint(workloads_bp.bp, url_prefix="/api")
@@ -146,6 +156,33 @@ app.register_blueprint(settings_bp.bp, url_prefix="/api")
 app.register_blueprint(logs_bp.bp, url_prefix="/api")
 app.register_blueprint(notifications_bp.bp, url_prefix="/api")
 app.register_blueprint(ui_bp.bp)
+
+# ── API auth guard ────────────────────────────────────────────
+# Port 8001 (peer_server) handles all inter-agent traffic.
+# Port 8002 (internal_server) handles probes — no auth needed there.
+# Everything on port 8000 under /api/ is dashboard-only and requires a session.
+
+@app.before_request
+def _require_api_auth():
+    from flask import request, session, jsonify
+    import base64 as _b64
+    if not request.path.startswith("/api/"):
+        return
+    # Session cookie (browser)
+    if session.get("user"):
+        return
+    # HTTP Basic Auth (curl / scripts)
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Basic "):
+        try:
+            username, password = _b64.b64decode(auth_header[6:]).decode().split(":", 1)
+            from porpulsion.routes.auth import _load_users, _verify_password
+            users = _load_users()
+            if username in users and _verify_password(password, users[username]["hash"]):
+                return
+        except Exception:
+            pass
+    return jsonify({"error": "unauthorized"}), 401
 
 
 
@@ -163,76 +200,6 @@ def openapi_yaml():
     return Response(get_openapi_yaml(), mimetype="application/x-yaml")
 
 
-def _reconstruct_remote_apps():
-    """
-    Rebuild state.remote_apps from live k8s Deployments after a restart.
-
-    Lists all Deployments in the porpulsion namespace labelled with
-    porpulsion.io/remote-app-id, reconstructs a minimal RemoteApp for each,
-    and sets status based on ready replicas. Skips IDs already in state.
-    Runs as a daemon thread so it doesn't block startup.
-    """
-    try:
-        from kubernetes import client as _k8s, config as _kube_config
-        try:
-            _kube_config.load_incluster_config()
-        except Exception:
-            _kube_config.load_kube_config()
-        apps_v1 = _k8s.AppsV1Api()
-        deploys = apps_v1.list_namespaced_deployment(
-            state.NAMESPACE,
-            label_selector="porpulsion.io/remote-app-id",
-        )
-        restored = 0
-        for dep in deploys.items:
-            labels = dep.metadata.labels or {}
-            app_id      = labels.get("porpulsion.io/remote-app-id", "")
-            source_peer = labels.get("porpulsion.io/source-peer", "unknown")
-            if not app_id or app_id in state.remote_apps:
-                continue
-            ready   = dep.status.ready_replicas or 0
-            desired = dep.spec.replicas or 1
-            # Reconstruct name from deploy_name: "ra-{id}-{name}" → strip prefix
-            deploy_name = dep.metadata.name
-            name = deploy_name[len(f"ra-{app_id}-"):] if deploy_name.startswith(f"ra-{app_id}-") else deploy_name
-            already_ready = ready >= desired
-            ra = RemoteApp(
-                id=app_id, name=name, spec=RemoteAppSpec(image="", replicas=desired),
-                source_peer=source_peer,
-                status="Ready" if already_ready else "Running",
-            )
-            state.remote_apps[app_id] = ra
-
-            # If not yet ready, find the source peer and resume polling so the
-            # status will eventually transition to Ready.
-            if not already_ready:
-                peer = state.peers.get(source_peer)
-                callback_url = peer.name if peer else ""
-                from porpulsion.k8s.executor import run_workload
-                # run_workload restarts the deployment — we only want to resume
-                # the status watcher. Kick a lightweight watcher thread instead.
-                def _watch(ra=ra, callback_url=callback_url, peer=peer, desired=desired):
-                    from porpulsion.k8s import executor as _ex
-                    import time as _time
-                    deploy_nm = f"ra-{ra.id}-{ra.name}"[:63]
-                    for _ in range(60):
-                        _time.sleep(2)
-                        try:
-                            d = _ex.apps_v1.read_namespaced_deployment_status(deploy_nm, state.NAMESPACE)
-                            if (d.status.ready_replicas or 0) >= desired:
-                                _ex._report_status(ra, callback_url, "Ready", peer=peer)
-                                return
-                        except Exception:
-                            pass
-                    _ex._report_status(ra, callback_url, "Timeout", peer=peer)
-                threading.Thread(target=_watch, daemon=True).start()
-
-            restored += 1
-        log.info("Reconstructed %d remote app(s) from k8s Deployments", restored)
-    except Exception as exc:
-        log.warning("Could not reconstruct remote_apps from k8s: %s", exc)
-
-
 # ── Main ──────────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -241,13 +208,16 @@ if __name__ == "__main__":
     level = getattr(logging, state.settings.log_level.upper(), logging.INFO)
     logging.getLogger().setLevel(level)
 
-    threading.Thread(target=_reconstruct_remote_apps, daemon=True).start()
     threading.Thread(target=_reconnect_persisted_peers, daemon=True).start()
 
     # Peer-facing server (port 8001): /peer and /ws only.
-    # This is the port exposed via the Ingress. The dashboard (port 8000)
-    # stays internal and is only reachable via port-forward or from inside the cluster.
+    # This is the only port exposed via the Ingress.
     from porpulsion.peer_server import start as _start_peer_server
     threading.Thread(target=_start_peer_server, daemon=True, name="peer-server").start()
 
+    # Internal server (port 8002): /status and probes only, no auth.
+    from porpulsion.internal_server import start as _start_internal_server
+    threading.Thread(target=_start_internal_server, daemon=True, name="internal-server").start()
+
+    # Dashboard + API (port 8000): session auth required.
     app.run(host="0.0.0.0", port=8000, threaded=True)

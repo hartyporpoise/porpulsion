@@ -94,6 +94,52 @@ def _emit_version_mismatch(peer_name: str, peer_ver: str):
         log.debug("Could not emit version mismatch notification: %s", exc)
 
 
+def _push_crd_schema(channel: "PeerChannel"):
+    """Push our local CRD spec property names to the peer after connect."""
+    try:
+        from porpulsion.k8s.store import get_spec_properties
+        props = get_spec_properties()
+        if props is not None:
+            channel.push("crd/schema-announce", {"properties": list(props.keys())})
+    except Exception as exc:
+        log.debug("Could not push CRD schema to %s: %s", channel.peer_name, exc)
+
+
+def _handle_crd_schema_announce(peer_name: str, payload: dict):
+    """
+    Receive a peer's CRD spec property list, compare against ours, and
+    store the diff on the peer object (used by _check_crd_compatibility).
+    Schema mismatches are surfaced via the existing version-hash warning;
+    no separate notification is fired here.
+    """
+    try:
+        from porpulsion import state as _state
+        from porpulsion.k8s.store import get_spec_properties, compare_spec_schemas
+
+        peer_prop_names: list[str] = payload.get("properties", [])
+        local_props = get_spec_properties()
+
+        if local_props is None:
+            return
+
+        peer_props = {k: {} for k in peer_prop_names}
+        diff = compare_spec_schemas(local_props, peer_props)
+
+        peer = _state.peers.get(peer_name)
+        if peer is not None:
+            peer.crd_diff = diff
+
+        missing_local  = diff["missing_local"]
+        missing_remote = diff["missing_remote"]
+        if missing_local or missing_remote:
+            log.warning("CRD schema mismatch with %s — missing_remote=%s missing_local=%s",
+                        peer_name, missing_remote, missing_local)
+        else:
+            log.info("CRD schemas in sync with peer %s", peer_name)
+    except Exception as exc:
+        log.debug("CRD schema comparison failed: %s", exc)
+
+
 _CONNECT_TIMEOUT = 5      # seconds for WS handshake
 _RECV_TIMEOUT    = 30     # seconds before treating connection as dead
 _RECONNECT_DELAY = (2, 4, 8, 16, 30)   # backoff steps in seconds
@@ -189,6 +235,9 @@ class PeerChannel:
         except Exception:
             pass
 
+        # Share our CRD spec properties so the peer can flag schema mismatches
+        _push_crd_schema(self)
+
         # Start keepalive ping thread (same as outbound side)
         threading.Thread(target=self._ping_loop, daemon=True).start()
 
@@ -268,6 +317,9 @@ class PeerChannel:
             self.push("version/announce", {"version": _state.VERSION_HASH})
         except Exception:
             pass
+
+        # Share our CRD spec properties so the peer can flag schema mismatches
+        _push_crd_schema(self)
 
         # Start keepalive ping thread
         threading.Thread(target=self._ping_loop, daemon=True).start()
@@ -391,6 +443,9 @@ class PeerChannel:
                 if _state.VERSION_HASH and peer_ver != _state.VERSION_HASH:
                     _emit_version_mismatch(self.peer_name, peer_ver)
             return
+        if msg_type == "crd/schema-announce":
+            _handle_crd_schema_announce(self.peer_name, payload)
+            return
         handler = self._handlers.get(msg_type)
         if handler:
             try:
@@ -495,16 +550,20 @@ def _register_handlers(ch: "PeerChannel"):
         handle_remoteapp_detail,
         handle_remoteapp_logs,
         handle_remoteapp_spec_update,
+        handle_remoteapp_config_get,
+        handle_remoteapp_config_patch,
         handle_proxy_request,
         handle_peer_disconnect,
     )
-    ch.register("remoteapp/receive",     handle_remoteapp_receive)
-    ch.register("remoteapp/status",      handle_remoteapp_status)
-    ch.register("remoteapp/delete",      handle_remoteapp_delete)
-    ch.register("remoteapp/scale",       handle_remoteapp_scale)
-    ch.register("remoteapp/detail",      handle_remoteapp_detail)
-    ch.register("remoteapp/logs",        handle_remoteapp_logs)
-    ch.register("remoteapp/spec-update", handle_remoteapp_spec_update)
+    ch.register("remoteapp/receive",       handle_remoteapp_receive)
+    ch.register("remoteapp/status",        handle_remoteapp_status)
+    ch.register("remoteapp/delete",        handle_remoteapp_delete)
+    ch.register("remoteapp/scale",         handle_remoteapp_scale)
+    ch.register("remoteapp/detail",        handle_remoteapp_detail)
+    ch.register("remoteapp/logs",          handle_remoteapp_logs)
+    ch.register("remoteapp/spec-update",   handle_remoteapp_spec_update)
+    ch.register("remoteapp/config-get",    handle_remoteapp_config_get)
+    ch.register("remoteapp/config-patch",  handle_remoteapp_config_patch)
     # Wrap proxy handler so it can enforce the per-peer tunnel allowlist.
     def _proxy_handler(payload, _peer=ch.peer_name):
         return handle_proxy_request(payload, peer_name=_peer)

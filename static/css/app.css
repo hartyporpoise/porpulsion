@@ -221,8 +221,8 @@ body {
   position: absolute;
   top: calc(100% + 8px);
   right: 0;
-  width: 340px;
-  max-height: 440px;
+  width: 380px;
+  max-height: 480px;
   display: flex;
   flex-direction: column;
   background: var(--surface);
@@ -267,7 +267,20 @@ body {
 .notif-dot.info  { background: var(--accent); }
 .notif-content { flex: 1; min-width: 0; }
 .notif-title { font-size: 0.8rem; font-weight: 600; margin-bottom: 0.2rem; color: var(--text); }
-.notif-msg { font-size: 0.74rem; color: var(--muted); line-height: 1.45; word-break: break-word; }
+.notif-msg {
+  font-size: 0.74rem; color: var(--muted); line-height: 1.45; word-break: break-word;
+  white-space: pre-wrap;
+  max-height: 4.5em; /* ~3 lines */
+  overflow: hidden;
+  transition: max-height 0.2s ease;
+}
+.notif-msg.expanded { max-height: 20em; }
+.notif-show-more {
+  font-size: 0.68rem; color: var(--accent); cursor: pointer;
+  background: none; border: none; padding: 0; margin-top: 0.15rem;
+  min-height: unset; line-height: 1.3;
+}
+.notif-show-more:hover { text-decoration: underline; }
 .notif-ts { font-size: 0.67rem; color: var(--muted2, var(--muted)); margin-top: 0.25rem; }
 .notif-dismiss {
   flex-shrink: 0;
@@ -299,7 +312,7 @@ body {
   nav a { min-height: 44px; padding: 0.75rem 1rem; }
 }
 /* Minimum touch target for tappable controls (accessibility) */
-button:not(.btn-sm):not(.btn-icon):not(.modal-close):not(.notif-bell):not(.eye-btn):not(.user-menu-btn),
+button:not(.btn-sm):not(.btn-icon):not(.modal-close):not(.notif-bell):not(.eye-btn):not(.user-menu-btn):not(.notif-show-more):not(.notif-dismiss),
 input[type="submit"],
 input[type="button"],
 .logs-tail-select { min-height: 44px; }
@@ -1053,22 +1066,17 @@ select { display: none; }
 }
 .custom-dd-trigger.open .custom-dd-chevron { transform: rotate(180deg); }
 .custom-dd-panel {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  right: 0;
+  /* position/top/left/width set by JS (fixed, viewport-relative) to escape overflow:hidden containers */
   background: var(--glass-bg);
   border: 1px solid var(--glass-border);
   border-radius: 8px;
-  overflow: hidden;
-  z-index: 200;
+  overflow-y: auto;
+  z-index: 9999;
   box-shadow: 0 4px 24px rgba(0,0,0,0.32), 0 1px 4px rgba(0,0,0,0.18), var(--glass-highlight);
   backdrop-filter: blur(20px) saturate(200%);
   -webkit-backdrop-filter: blur(20px) saturate(200%);
   max-height: 280px;
-  overflow-y: auto;
 }
-.custom-dd-panel.flip-up { top: auto; bottom: calc(100% + 4px); }
 .custom-dd-option {
   padding: 0.6rem 1rem;
   font-size: 0.845rem;
@@ -1750,9 +1758,26 @@ select { display: none; }
 .modal-tab::before, .modal-tab::after { display: none; }
 .modal-tab:hover { color: var(--text); background: none; box-shadow: none; filter: none; }
 .modal-tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+.modal-tab-disabled { opacity: 0.4; cursor: not-allowed; }
 .modal-tab:active { transform: none !important; box-shadow: none; }
 .modal-tab-panel { display: none; }
 .modal-tab-panel.active { display: block; }
+
+/* ── Config tab add-forms ────────────────────────────────────── */
+.cfg-add-forms { display: flex; flex-direction: column; gap: 0.25rem; }
+.cfg-add-section { border: 1px solid var(--glass-border); border-radius: 6px; overflow: hidden; }
+.cfg-add-header {
+  display: flex; align-items: center; gap: 0.25rem;
+  padding: 0.45rem 0.65rem;
+  font-size: 0.78rem; font-weight: 500; color: var(--accent);
+  cursor: pointer; user-select: none;
+  background: var(--glass-bg);
+  transition: background 0.15s;
+}
+.cfg-add-header:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.cfg-add-header.open { border-bottom: 1px solid var(--glass-border); }
+.cfg-add-body { padding: 0.65rem; background: var(--surface2); }
+.form-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
 
 /* ── Inline logs (inside modal) ──────────────────────────────── */
 .modal-logs-toolbar {

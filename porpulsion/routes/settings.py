@@ -43,7 +43,7 @@ def update_settings():
         state.settings.log_level = level
         _apply_log_level(level)
 
-    bool_fields = ("require_remoteapp_approval", "require_resource_requests", "require_resource_limits")
+    bool_fields = ("require_remoteapp_approval", "require_resource_requests", "require_resource_limits", "allow_pvcs")
     for fld in bool_fields:
         if fld in data:
             setattr(state.settings, fld, bool(data[fld]))
@@ -58,7 +58,8 @@ def update_settings():
         if fld in data:
             setattr(state.settings, fld, str(data[fld]).strip())
 
-    int_fields = ("max_replicas_per_app", "max_total_deployments", "max_total_pods")
+    int_fields = ("max_replicas_per_app", "max_total_deployments", "max_total_pods",
+                  "max_pvc_storage_per_pvc_gb", "max_pvc_storage_total_gb")
     for fld in int_fields:
         if fld in data:
             try:
@@ -67,5 +68,5 @@ def update_settings():
                 return jsonify({"error": f"{fld} must be an integer"}), 400
 
     log.info("Settings updated: %s", state.settings.to_dict())
-    tls.save_state_configmap(state.NAMESPACE, state.local_apps, state.settings)
+    tls.save_state_configmap(state.NAMESPACE, state.settings)
     return jsonify(state.settings.to_dict())

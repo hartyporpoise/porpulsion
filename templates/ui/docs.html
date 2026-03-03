@@ -12,80 +12,9 @@
         <h2>RemoteApp Spec</h2>
       </div>
       <div class="card-body">
-        <p class="docs-intro">The spec is submitted as YAML in the Deploy form. All fields except <code>image</code> are optional.</p>
-        <div class="table-wrap">
-          <table class="docs-table">
-            <thead>
-              <tr>
-                <th>Field</th>
-                <th>Type</th>
-                <th>Default</th>
-                <th>Description</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr><td><code>image</code></td><td>string</td><td><em>required</em></td><td>Container image reference, e.g. <code>nginx:latest</code></td></tr>
-              <tr><td><code>replicas</code></td><td>integer</td><td>1</td><td>Number of pod replicas.</td></tr>
-              <tr><td><code>ports</code></td><td>list</td><td>[]</td><td>Ports to expose. Each entry: <code>port</code> (required), <code>name</code> (optional).</td></tr>
-              <tr><td><code>resources</code></td><td>object</td><td>—</td><td>Kubernetes resource requests and limits.</td></tr>
-              <tr><td><code>command</code></td><td>list</td><td>—</td><td>Override the container ENTRYPOINT.</td></tr>
-              <tr><td><code>args</code></td><td>list</td><td>—</td><td>Override the container CMD.</td></tr>
-              <tr><td><code>env</code></td><td>list</td><td>—</td><td>Environment variables. Each entry: <code>name</code> + <code>value</code>, or <code>valueFrom</code> with <code>secretKeyRef</code>, <code>configMapKeyRef</code>, or <code>fieldRef</code>.</td></tr>
-              <tr><td><code>additionalConfig</code></td><td>list</td><td>—</td><td>Config files to mount into the container via ConfigMap. Each entry: <code>mountPath</code> (full path in container) and <code>content</code> (file text).</td></tr>
-              <tr><td><code>imagePullPolicy</code></td><td>string</td><td>IfNotPresent</td><td>Image pull policy: <code>Always</code>, <code>IfNotPresent</code>, or <code>Never</code>.</td></tr>
-              <tr><td><code>imagePullSecrets</code></td><td>list</td><td>—</td><td>Names of Secrets containing registry credentials, e.g. <code>- ghcr-credentials</code>.</td></tr>
-              <tr><td><code>readinessProbe</code></td><td>object</td><td>—</td><td>Probe for when traffic should be sent to the pod.</td></tr>
-              <tr><td><code>securityContext</code></td><td>object</td><td>—</td><td>Pod/container security settings.</td></tr>
-            </tbody>
-          </table>
-        </div>
-        <div class="docs-section-title">Example</div>
-        <div class="docs-code">
-          <pre>image: ghcr.io/myorg/api:v3.0
-replicas: 2
-command: ["/bin/sh", "-c"]
-args: ["exec myapp --port 8080"]
-ports:
-  - port: 8080
-    name: http
-  - port: 9090
-    name: metrics
-resources:
-  requests:
-    cpu: 250m
-    memory: 256Mi
-  limits:
-    cpu: 500m
-    memory: 512Mi
-env:
-  - name: NODE_ENV
-    value: production
-  - name: API_KEY
-    valueFrom:
-      secretKeyRef:
-        name: my-secret
-        key: api-key
-  - name: NODE_NAME
-    valueFrom:
-      fieldRef:
-        fieldPath: spec.nodeName
-additionalConfig:
-  - mountPath: /etc/myapp/config.yaml
-    content: |
-      log_level: info
-      timeout: 30s
-imagePullPolicy: Always
-imagePullSecrets:
-  - ghcr-credentials
-readinessProbe:
-  httpGet:
-    path: /healthz
-    port: 8080
-  initialDelaySeconds: 10
-  periodSeconds: 5
-securityContext:
-  runAsNonRoot: true
-  readOnlyRootFilesystem: true</pre>
+        <p class="docs-intro">The spec is submitted via the <a href="/deploy">Deploy</a> form or as raw JSON/YAML. All fields except <code>image</code> are optional.</p>
+        <div id="spec-table-wrap">
+          <div class="loading-placeholder">Loading spec reference…</div>
         </div>
       </div>
     </div>
@@ -111,21 +40,50 @@ securityContext:
 (function () {
   'use strict';
 
-  var METHOD_COLOR = {
-    get:     'method-get',
-    post:    'method-post',
-    put:     'method-put',
-    delete:  'method-delete',
-    patch:   'method-patch',
-  };
-
   function esc(s) {
-    return String(s)
+    return String(s || '')
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;');
   }
+
+  // ── Spec table ─────────────────────────────────────────────────
+  function renderSpecTable(data) {
+    var wrap = document.getElementById('spec-table-wrap');
+    if (!wrap) return;
+    var rows = (data.fields || []).map(function (f) {
+      var isReq = f.default === 'required';
+      return '<tr>' +
+        '<td><code>' + esc(f.field) + '</code></td>' +
+        '<td>' + esc(f.type) + '</td>' +
+        '<td>' + (isReq ? '<em>required</em>' : esc(f.default)) + '</td>' +
+        '<td>' + esc(f.description) + '</td>' +
+        '</tr>';
+    });
+    wrap.innerHTML =
+      '<div class="table-wrap"><table class="docs-table"><thead><tr>' +
+      '<th>Field</th><th>Type</th><th>Default</th><th>Description</th>' +
+      '</tr></thead><tbody>' + rows.join('') + '</tbody></table></div>';
+
+  }
+
+  fetch('/api/remoteapp-spec')
+    .then(function (r) { return r.json(); })
+    .then(renderSpecTable)
+    .catch(function (e) {
+      var wrap = document.getElementById('spec-table-wrap');
+      if (wrap) wrap.innerHTML = '<p class="muted">Could not load spec: ' + esc(String(e)) + '</p>';
+    });
+
+  // ── API reference ──────────────────────────────────────────────
+  var METHOD_COLOR = {
+    get:    'method-get',
+    post:   'method-post',
+    put:    'method-put',
+    delete: 'method-delete',
+    patch:  'method-patch',
+  };
 
   function methodBadge(m) {
     var cls = METHOD_COLOR[m] || 'method-other';
@@ -141,8 +99,7 @@ securityContext:
     if (!schema) return '';
     depth = depth || 0;
     if (schema['$ref']) {
-      var name = schema['$ref'].split('/').pop();
-      return '<span class="schema-ref">' + esc(name) + '</span>';
+      return '<span class="schema-ref">' + esc(schema['$ref'].split('/').pop()) + '</span>';
     }
     var type = schema.type || '';
     if (type === 'array') {
@@ -154,19 +111,17 @@ securityContext:
       });
       return '{&nbsp;' + parts.join(',&nbsp;') + '&nbsp;}';
     }
-    if (schema.enum) {
-      return esc(schema.enum.join(' | '));
-    }
+    if (schema.enum) return esc(schema.enum.join(' | '));
     return esc(type || 'any');
   }
 
   function renderParams(params) {
     if (!params || !params.length) return '';
     var rows = params.map(function (p) {
-      var required = p.required ? '<span class="param-required">required</span>' : '';
+      var req = p.required ? '<span class="param-required">required</span>' : '';
       var loc = '<span class="param-in">' + esc(p.in) + '</span>';
       var schm = p.schema ? schemaSnippet(p.schema) : '';
-      return '<tr><td><code>' + esc(p.name) + '</code> ' + required + '</td><td>' + loc + '</td><td class="param-type">' + schm + '</td><td class="param-desc">' + esc(p.description || '') + '</td></tr>';
+      return '<tr><td><code>' + esc(p.name) + '</code> ' + req + '</td><td>' + loc + '</td><td class="param-type">' + schm + '</td><td class="param-desc">' + esc(p.description || '') + '</td></tr>';
     });
     return '<table class="api-params-table"><thead><tr><th>Name</th><th>In</th><th>Type</th><th>Description</th></tr></thead><tbody>' + rows.join('') + '</tbody></table>';
   }
@@ -188,8 +143,8 @@ securityContext:
     if (!rb) return '';
     var schema = rb.content && rb.content['application/json'] && rb.content['application/json'].schema;
     if (!schema) return '';
-    var required = rb.required ? ' <span class="param-required">required</span>' : '';
-    return '<div class="api-section-label">Request body' + required + '</div>' +
+    var req = rb.required ? ' <span class="param-required">required</span>' : '';
+    return '<div class="api-section-label">Request body' + req + '</div>' +
            '<div class="api-body-schema"><code>' + schemaSnippet(schema) + '</code></div>';
   }
 
@@ -198,7 +153,6 @@ securityContext:
     var summary = esc(op.summary || path);
     var desc = op.description ? '<p class="api-op-desc">' + op.description.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>') + '</p>' : '';
     var fullPath = (baseUrl || '/api').replace(/\/$/, '') + path;
-
     var details =
       '<div class="api-op-details">' +
       desc +
@@ -207,7 +161,6 @@ securityContext:
       '<div class="api-section-label">Responses</div>' +
       renderResponses(op.responses) +
       '</div>';
-
     return '<div class="api-op" id="' + id + '">' +
       '<button type="button" class="api-op-summary" aria-expanded="false" aria-controls="' + id + '-body">' +
         methodBadge(method) +
@@ -220,8 +173,7 @@ securityContext:
   }
 
   function groupByTag(paths) {
-    var groups = {};
-    var order = [];
+    var groups = {}, order = [];
     Object.keys(paths).forEach(function (path) {
       Object.keys(paths[path]).forEach(function (method) {
         var op = paths[path][method];
@@ -230,17 +182,15 @@ securityContext:
         groups[tag].push({ method: method, path: path, op: op });
       });
     });
-    // deduplicate order
     var seen = {};
     order = order.filter(function (t) { return seen[t] ? false : (seen[t] = true); });
     return { groups: groups, order: order };
   }
 
-  function render(spec) {
-    var baseUrl = spec.servers && spec.servers[0] && spec.servers[0].url || '/api';
+  function renderApiSpec(spec) {
+    var baseUrl = (spec.servers && spec.servers[0] && spec.servers[0].url) || '/api';
     var grouped = groupByTag(spec.paths || {});
     var html = '';
-
     grouped.order.forEach(function (tag) {
       html += '<div class="api-tag-group">';
       html += '<div class="api-tag-label">' + esc(tag) + '</div>';
@@ -249,11 +199,8 @@ securityContext:
       });
       html += '</div>';
     });
-
     var body = document.getElementById('api-ref-body');
     if (body) body.innerHTML = html || '<p class="muted">No endpoints found.</p>';
-
-    // Accordion toggle
     document.querySelectorAll('.api-op-summary').forEach(function (btn) {
       btn.addEventListener('click', function () {
         var expanded = this.getAttribute('aria-expanded') === 'true';
@@ -265,21 +212,13 @@ securityContext:
     });
   }
 
-  function init() {
-    fetch('/api/openapi.json')
-      .then(function (r) { return r.json(); })
-      .then(render)
-      .catch(function (e) {
-        var body = document.getElementById('api-ref-body');
-        if (body) body.innerHTML = '<p class="muted">Could not load API spec: ' + esc(String(e)) + '</p>';
-      });
-  }
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
-    init();
-  }
+  fetch('/api/openapi.json')
+    .then(function (r) { return r.json(); })
+    .then(renderApiSpec)
+    .catch(function (e) {
+      var body = document.getElementById('api-ref-body');
+      if (body) body.innerHTML = '<p class="muted">Could not load API spec: ' + esc(String(e)) + '</p>';
+    });
 })();
 </script>
 {% endblock %}
