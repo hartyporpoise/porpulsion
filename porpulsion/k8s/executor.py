@@ -28,16 +28,31 @@ _stop_events: dict[str, threading.Event] = {}
 # ── Naming helpers ────────────────────────────────────────────────────────────
 
 def _deploy_name(remote_app) -> str:
-    return f"ra-{remote_app.id}-{remote_app.name}"[:63]
+    # Use the pre-computed resource_name from CR status if available
+    if remote_app.resource_name:
+        return remote_app.resource_name
+    from porpulsion.k8s.store import safe_resource_name
+    return safe_resource_name(remote_app.id, remote_app.name)
 
-def _cm_name(app_id: str, logical_name: str) -> str:
-    return f"ra-{app_id}-cm-{logical_name}"[:63]
+def _resource_name_for(app_id: str) -> str:
+    """Look up status.resourceName from the ExecutingApp CR for this app_id."""
+    from porpulsion.k8s.store import get_ea_cr_by_app_id
+    cr = get_ea_cr_by_app_id(NAMESPACE, app_id)
+    if cr:
+        rn = cr.get("status", {}).get("resourceName", "")
+        if rn:
+            return rn
+    from porpulsion.k8s.store import safe_resource_name
+    return safe_resource_name(app_id, app_id)  # fallback: use app_id as name
 
-def _sec_name(app_id: str, logical_name: str) -> str:
-    return f"ra-{app_id}-sec-{logical_name}"[:63]
+def _cm_name(resource_name: str, logical_name: str) -> str:
+    return f"{resource_name}-cm-{logical_name}"[:63]
 
-def _pvc_name(app_id: str, logical_name: str) -> str:
-    return f"ra-{app_id}-pvc-{logical_name}"[:63]
+def _sec_name(resource_name: str, logical_name: str) -> str:
+    return f"{resource_name}-sec-{logical_name}"[:63]
+
+def _pvc_name(resource_name: str, logical_name: str) -> str:
+    return f"{resource_name}-pvc-{logical_name}"[:63]
 
 def _owner_labels(remote_app) -> dict:
     return {
@@ -49,9 +64,8 @@ def _owner_labels(remote_app) -> dict:
 
 # ── ConfigMap management ──────────────────────────────────────────────────────
 
-def apply_configmap(app_id: str, logical_name: str, data: dict) -> str:
-    """Create or update a ConfigMap. Returns the k8s name."""
-    name = _cm_name(app_id, logical_name)
+def _apply_configmap_by_name(name: str, data: dict) -> None:
+    """Create or update a ConfigMap by its exact k8s name."""
     body = client.V1ConfigMap(
         metadata=client.V1ObjectMeta(name=name, namespace=NAMESPACE),
         data=data or {},
@@ -62,19 +76,24 @@ def apply_configmap(app_id: str, logical_name: str, data: dict) -> str:
     except client.ApiException as e:
         if e.status == 409:
             if not data:
-                # Spec has no data — preserve whatever is live (user may have patched it)
                 log.info("ConfigMap %s already exists with no spec data — preserving live content", name)
             else:
                 core_v1.replace_namespaced_config_map(name=name, namespace=NAMESPACE, body=body)
                 log.info("Updated ConfigMap %s", name)
         else:
             raise
+
+
+def apply_configmap(app_id: str, logical_name: str, data: dict) -> str:
+    """Create or update a ConfigMap. Returns the k8s name."""
+    name = _cm_name(_resource_name_for(app_id), logical_name)
+    _apply_configmap_by_name(name, data)
     return name
 
 
 def patch_configmap_data(app_id: str, logical_name: str, data: dict) -> None:
     """Replace a ConfigMap's data in full (used by the config API)."""
-    name = _cm_name(app_id, logical_name)
+    name = _cm_name(_resource_name_for(app_id), logical_name)
     existing = core_v1.read_namespaced_config_map(name=name, namespace=NAMESPACE)
     existing.data = data
     core_v1.replace_namespaced_config_map(name=name, namespace=NAMESPACE, body=existing)
@@ -83,13 +102,13 @@ def patch_configmap_data(app_id: str, logical_name: str, data: dict) -> None:
 
 def get_configmap_data(app_id: str, logical_name: str) -> dict:
     """Read a ConfigMap's data dict."""
-    name = _cm_name(app_id, logical_name)
+    name = _cm_name(_resource_name_for(app_id), logical_name)
     cm = core_v1.read_namespaced_config_map(name=name, namespace=NAMESPACE)
     return dict(cm.data or {})
 
 
 def delete_configmap(app_id: str, logical_name: str) -> None:
-    name = _cm_name(app_id, logical_name)
+    name = _cm_name(_resource_name_for(app_id), logical_name)
     try:
         core_v1.delete_namespaced_config_map(name=name, namespace=NAMESPACE)
         log.info("Deleted ConfigMap %s", name)
@@ -100,10 +119,8 @@ def delete_configmap(app_id: str, logical_name: str) -> None:
 
 # ── Secret management ─────────────────────────────────────────────────────────
 
-def apply_secret(app_id: str, logical_name: str, plaintext_data: dict) -> str:
-    """Create or update a Secret. plaintext_data values are plain strings; encoding is done here. Returns k8s name."""
-    name = _sec_name(app_id, logical_name)
-    # kubernetes python client accepts string_data for automatic base64 encoding
+def _apply_secret_by_name(name: str, plaintext_data: dict) -> None:
+    """Create or update a Secret by its exact k8s name. plaintext_data values are plain strings."""
     body = client.V1Secret(
         metadata=client.V1ObjectMeta(name=name, namespace=NAMESPACE),
         string_data=plaintext_data or {},
@@ -115,19 +132,24 @@ def apply_secret(app_id: str, logical_name: str, plaintext_data: dict) -> str:
     except client.ApiException as e:
         if e.status == 409:
             if not plaintext_data:
-                # Spec has no data — preserve whatever is live (user may have patched it)
                 log.info("Secret %s already exists with no spec data — preserving live content", name)
             else:
                 core_v1.replace_namespaced_secret(name=name, namespace=NAMESPACE, body=body)
                 log.info("Updated Secret %s", name)
         else:
             raise
+
+
+def apply_secret(app_id: str, logical_name: str, plaintext_data: dict) -> str:
+    """Create or update a Secret. plaintext_data values are plain strings; encoding is done here. Returns k8s name."""
+    name = _sec_name(_resource_name_for(app_id), logical_name)
+    _apply_secret_by_name(name, plaintext_data)
     return name
 
 
 def patch_secret_data(app_id: str, logical_name: str, plaintext_data: dict) -> None:
     """Replace a Secret's data in full (used by the config API)."""
-    name = _sec_name(app_id, logical_name)
+    name = _sec_name(_resource_name_for(app_id), logical_name)
     existing = core_v1.read_namespaced_secret(name=name, namespace=NAMESPACE)
     existing.data = {k: base64.b64encode(v.encode()).decode() for k, v in plaintext_data.items()}
     existing.string_data = None
@@ -137,7 +159,7 @@ def patch_secret_data(app_id: str, logical_name: str, plaintext_data: dict) -> N
 
 def get_secret_data(app_id: str, logical_name: str) -> dict:
     """Read a Secret's data and decode from base64 to plaintext."""
-    name = _sec_name(app_id, logical_name)
+    name = _sec_name(_resource_name_for(app_id), logical_name)
     sec = core_v1.read_namespaced_secret(name=name, namespace=NAMESPACE)
     result = {}
     for k, v in (sec.data or {}).items():
@@ -149,7 +171,7 @@ def get_secret_data(app_id: str, logical_name: str) -> dict:
 
 
 def delete_secret(app_id: str, logical_name: str) -> None:
-    name = _sec_name(app_id, logical_name)
+    name = _sec_name(_resource_name_for(app_id), logical_name)
     try:
         core_v1.delete_namespaced_secret(name=name, namespace=NAMESPACE)
         log.info("Deleted Secret %s", name)
@@ -183,9 +205,8 @@ def _parse_storage_gb(storage: str) -> float:
 
 # ── PVC management ────────────────────────────────────────────────────────────
 
-def apply_pvc(app_id: str, logical_name: str, storage: str, access_mode: str) -> str:
-    """Create a PVC if it doesn't exist yet. Returns k8s name."""
-    name = _pvc_name(app_id, logical_name)
+def _apply_pvc_by_name(name: str, storage: str, access_mode: str) -> None:
+    """Create a PVC by its exact k8s name if it doesn't exist yet."""
     body = client.V1PersistentVolumeClaim(
         metadata=client.V1ObjectMeta(name=name, namespace=NAMESPACE),
         spec=client.V1PersistentVolumeClaimSpec(
@@ -201,11 +222,17 @@ def apply_pvc(app_id: str, logical_name: str, storage: str, access_mode: str) ->
             log.info("PVC %s already exists, skipping", name)
         else:
             raise
+
+
+def apply_pvc(app_id: str, logical_name: str, storage: str, access_mode: str) -> str:
+    """Create a PVC if it doesn't exist yet. Returns k8s name."""
+    name = _pvc_name(_resource_name_for(app_id), logical_name)
+    _apply_pvc_by_name(name, storage, access_mode)
     return name
 
 
 def delete_pvc(app_id: str, logical_name: str) -> None:
-    name = _pvc_name(app_id, logical_name)
+    name = _pvc_name(_resource_name_for(app_id), logical_name)
     try:
         core_v1.delete_namespaced_persistent_volume_claim(name=name, namespace=NAMESPACE)
         log.info("Deleted PVC %s", name)
@@ -309,7 +336,8 @@ def run_workload(remote_app, callback_url, peer=None):
                 cm_data = cm_spec.data
                 if hasattr(cm_data, "to_dict"):
                     cm_data = cm_data.to_dict()
-                k8s_name = apply_configmap(remote_app.id, cm_spec.name, cm_data)
+                k8s_name = _cm_name(deploy_name, cm_spec.name)
+                _apply_configmap_by_name(k8s_name, cm_data)
             except client.ApiException as e:
                 _report_status(remote_app, callback_url, f"Failed: ConfigMap {cm_spec.name}: {e.reason}", peer=peer)
                 return
@@ -328,11 +356,12 @@ def run_workload(remote_app, callback_url, peer=None):
                 sec_data = sec_spec.data
                 if hasattr(sec_data, "to_dict"):
                     sec_data = sec_data.to_dict()
-                # CR spec stores secret values as base64 — decode to plaintext for apply_secret
+                # CR spec stores secret values as base64 — decode to plaintext for k8s string_data
                 if sec_data:
                     sec_data = {k: base64.b64decode(v).decode() if isinstance(v, str) else v
                                 for k, v in sec_data.items()}
-                k8s_name = apply_secret(remote_app.id, sec_spec.name, sec_data)
+                k8s_name = _sec_name(deploy_name, sec_spec.name)
+                _apply_secret_by_name(k8s_name, sec_data)
             except client.ApiException as e:
                 _report_status(remote_app, callback_url, f"Failed: Secret {sec_spec.name}: {e.reason}", peer=peer)
                 return
@@ -365,7 +394,8 @@ def run_workload(remote_app, callback_url, peer=None):
                     _report_status(remote_app, callback_url, f"Failed: PVC {pvc_spec.name} requests {pvc_spec.storage} but per-PVC limit is {per_pvc_limit}Gi", peer=peer)
                     return
             try:
-                k8s_name = apply_pvc(remote_app.id, pvc_spec.name, pvc_spec.storage, pvc_spec.accessMode)
+                k8s_name = _pvc_name(deploy_name, pvc_spec.name)
+                _apply_pvc_by_name(k8s_name, pvc_spec.storage, pvc_spec.accessMode)
             except client.ApiException as e:
                 _report_status(remote_app, callback_url, f"Failed: PVC {pvc_spec.name}: {e.reason}", peer=peer)
                 return
@@ -632,16 +662,33 @@ def delete_workload(remote_app) -> None:
 
     # ConfigMaps
     for cm_spec in (spec.configMaps if spec else []):
-        delete_configmap(remote_app.id, cm_spec.name)
+        name = _cm_name(deploy_name, cm_spec.name)
+        try:
+            core_v1.delete_namespaced_config_map(name=name, namespace=NAMESPACE)
+            log.info("Deleted ConfigMap %s", name)
+        except client.ApiException as e:
+            if e.status != 404:
+                log.warning("Error deleting ConfigMap %s: %s", name, e.reason)
 
     # Secrets
     for sec_spec in (spec.secrets if spec else []):
-        delete_secret(remote_app.id, sec_spec.name)
+        name = _sec_name(deploy_name, sec_spec.name)
+        try:
+            core_v1.delete_namespaced_secret(name=name, namespace=NAMESPACE)
+            log.info("Deleted Secret %s", name)
+        except client.ApiException as e:
+            if e.status != 404:
+                log.warning("Error deleting Secret %s: %s", name, e.reason)
 
     # PVCs (not deleted by default — data retention)
     # Un-comment the loop below if you want PVCs deleted with the workload
     # for pvc_spec in (spec.pvcs if spec else []):
-    #     delete_pvc(remote_app.id, pvc_spec.name)
+    #     name = _pvc_name(deploy_name, pvc_spec.name)
+    #     try:
+    #         core_v1.delete_namespaced_persistent_volume_claim(name=name, namespace=NAMESPACE)
+    #     except client.ApiException as e:
+    #         if e.status != 404:
+    #             log.warning("Error deleting PVC %s: %s", name, e.reason)
 
 
 def scale_workload(remote_app, replicas: int) -> None:

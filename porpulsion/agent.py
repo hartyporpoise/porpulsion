@@ -210,6 +210,31 @@ if __name__ == "__main__":
 
     threading.Thread(target=_reconnect_persisted_peers, daemon=True).start()
 
+    # CR watcher: drives workload execution from ExecutingApp CRs.
+    # RemoteApp CRs are also watched for bootstrap only (no workload run).
+    def _on_cr_added_or_modified(cr: dict, is_new: bool) -> None:
+        # Only ExecutingApp CRs drive workload execution
+        if cr.get("kind") != "ExecutingApp":
+            return
+        from porpulsion.k8s.store import cr_to_dict
+        from porpulsion.models import RemoteApp, RemoteAppSpec
+        from porpulsion.k8s.executor import run_workload
+        d = cr_to_dict(cr, "executing")
+        if not d["id"]:
+            return  # appId not yet bootstrapped — MODIFIED will follow
+        spec = RemoteAppSpec.from_dict(d.get("spec", {}))
+        ra = RemoteApp(id=d["id"], name=d["name"], spec=spec, source_peer=d["source_peer"])
+        log.info("CR watcher: %s ExecutingApp %s (%s) → running workload",
+                 "new" if is_new else "updated", d["name"], d["id"])
+        run_workload(ra, d["source_peer"])
+
+    from porpulsion.k8s.store import start_cr_watcher as _start_cr_watcher
+    _start_cr_watcher(
+        state.NAMESPACE,
+        on_added=lambda cr: _on_cr_added_or_modified(cr, is_new=True),
+        on_modified=lambda cr: _on_cr_added_or_modified(cr, is_new=False),
+    )
+
     # Peer-facing server (port 8001): /peer and /ws only.
     # This is the only port exposed via the Ingress.
     from porpulsion.peer_server import start as _start_peer_server

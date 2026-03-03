@@ -8,7 +8,7 @@ from porpulsion import state, tls
 from porpulsion.models import RemoteApp, RemoteAppSpec
 from porpulsion.channel import get_channel
 from porpulsion.k8s.executor import (
-    run_workload, delete_workload, scale_workload, get_deployment_status, get_pod_logs,
+    delete_workload, scale_workload, get_deployment_status, get_pod_logs,
     get_configmap_data, patch_configmap_data, patch_secret_data,
     rollout_restart,
 )
@@ -322,17 +322,13 @@ def approve_remoteapp(app_id):
     if app_id not in state.pending_approval:
         return jsonify({"error": "not found"}), 404
     entry = state.pending_approval.pop(app_id)
-    parsed_spec = RemoteAppSpec.from_dict(entry["spec"])
-    source = state.peers.get(entry["source_peer"])
-    ra = RemoteApp(
-        name=entry["name"],
-        spec=parsed_spec,
-        source_peer=entry["source_peer"],
-        id=app_id,
-    )
     tls.save_state_configmap(state.NAMESPACE, state.settings, state.pending_approval)
-    log.info("Approved app %s (%s) from %s", ra.name, ra.id, ra.source_peer)
-    run_workload(ra, entry["callback_url"], peer=source)
+    log.info("Approved app %s (%s) from %s", entry["name"], app_id, entry["source_peer"])
+    # Create the ExecutingApp CR — the CR watcher drives workload execution
+    from porpulsion.k8s.store import create_executingapp_cr
+    create_executingapp_cr(
+        state.NAMESPACE, app_id, entry["name"], entry["spec"], entry["source_peer"],
+    )
     return jsonify({"ok": True})
 
 

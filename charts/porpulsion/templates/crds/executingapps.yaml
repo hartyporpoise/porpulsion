@@ -57,6 +57,9 @@ spec:
                 sourcePeer:
                   type: string
                   description: Name of the peer that submitted this app
+                resourceName:
+                  type: string
+                  description: Sanitized k8s resource name used for Deployment/CM/Secret/PVC
                 message:
                   type: string
                   description: Human-readable status message

@@ -208,8 +208,9 @@ class RemoteApp:
     source_peer: str
     id: str = field(default_factory=lambda: uuid.uuid4().hex[:8])
     status: str = "Pending"
-    target_peer: str = ""   # peer this app was submitted to (set on the submitting side)
-    cr_name: str = ""       # k8s RemoteApp CR name on the local cluster (empty if CRD not installed)
+    target_peer: str = ""
+    cr_name: str = ""
+    resource_name: str = ""  # sanitized k8s name used for Deployment/CM/Secret/PVC
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
@@ -222,6 +223,7 @@ class RemoteApp:
             "target_peer": self.target_peer,
             "status": self.status,
             "cr_name": self.cr_name,
+            "resource_name": self.resource_name,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }

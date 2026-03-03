@@ -70,20 +70,14 @@ def handle_remoteapp_receive(payload: dict) -> dict:
         )
         return {"id": app_id, "status": "pending_approval"}
 
-    # Create ExecutingApp CR as the durable record on this cluster
+    # Create ExecutingApp CR — the CR watcher drives workload execution from here
     cr_name = create_executingapp_cr(
         state.NAMESPACE, app_id, payload["name"], spec.to_dict(), source_peer,
     )
     log.info("Received app %s (%s) via channel from %s (cr=%s)", payload["name"], app_id, source_peer, cr_name or "none")
-
-    ra = RemoteApp(
-        name=payload["name"], spec=spec,
-        source_peer=source_peer, id=app_id,
-    )
+    ra = RemoteApp(name=payload["name"], spec=spec, source_peer=source_peer, id=app_id)
     if cr_name:
         ra.cr_name = cr_name
-    from porpulsion.k8s.executor import run_workload
-    run_workload(ra, source_peer, peer=source)
     return ra.to_dict()
 
 
@@ -248,9 +242,8 @@ def handle_remoteapp_config_patch(payload: dict) -> dict:
 def handle_remoteapp_spec_update(payload: dict) -> dict:
     """Apply a new spec to a RemoteApp on the executing side."""
     from porpulsion import state
-    from porpulsion.models import RemoteApp, RemoteAppSpec
+    from porpulsion.models import RemoteAppSpec
     from porpulsion.routes.workloads import _check_resource_quota
-    from porpulsion.k8s.executor import run_workload
     from porpulsion.k8s.store import get_ea_cr_by_app_id, cr_to_dict, create_executingapp_cr
 
     app_id   = payload.get("id", "")
@@ -275,15 +268,8 @@ def handle_remoteapp_spec_update(payload: dict) -> dict:
     except Exception as _ve:
         log.debug("CRD spec validation skipped: %s", _ve)
 
-    new_cr_name = create_executingapp_cr(state.NAMESPACE, app_id, d["name"], parsed.to_dict(), d["source_peer"])
-    ra = RemoteApp(
-        id=app_id, name=d["name"],
-        spec=parsed,
-        source_peer=d["source_peer"],
-        cr_name=new_cr_name or d.get("cr_name", ""),
-    )
-    source = state.peers.get(d["source_peer"])
-    run_workload(ra, d["source_peer"], peer=source)
+    # Update the ExecutingApp CR — the CR watcher drives the re-deploy
+    create_executingapp_cr(state.NAMESPACE, app_id, d["name"], parsed.to_dict(), d["source_peer"])
     return {"ok": True}
 
 

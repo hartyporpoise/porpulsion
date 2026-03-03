@@ -121,16 +121,26 @@ def _check_ea_crd_available(namespace: str) -> bool:
 
 
 
+def safe_resource_name(app_id: str, app_name: str) -> str:
+    """
+    Produce the sanitized k8s resource name used for Deployments, ConfigMaps, Secrets,
+    and PVCs belonging to this app. Format: ea-{id}-{safe_name}.
+    Exported so the executor can use it directly.
+    """
+    safe = "".join(c if c.isalnum() or c == "-" else "-" for c in app_name.lower()).strip("-")
+    return f"ea-{app_id}-{safe}"[:63].rstrip("-")
+
+
 def _cr_name(app_id: str, app_name: str) -> str:
     """Produce a valid k8s name for a RemoteApp CR: ra-{id}-{safe_name}."""
-    safe_name = "".join(c if c.isalnum() or c == "-" else "-" for c in app_name.lower()).strip("-")
-    return f"ra-{app_id}-{safe_name}"[:63].rstrip("-")
+    safe = "".join(c if c.isalnum() or c == "-" else "-" for c in app_name.lower()).strip("-")
+    return f"ra-{app_id}-{safe}"[:63].rstrip("-")
 
 
 def _ea_cr_name(app_id: str, app_name: str) -> str:
     """Produce a valid k8s name for an ExecutingApp CR: ea-{id}-{safe_name}."""
-    safe_name = "".join(c if c.isalnum() or c == "-" else "-" for c in app_name.lower()).strip("-")
-    return f"ea-{app_id}-{safe_name}"[:63].rstrip("-")
+    safe = "".join(c if c.isalnum() or c == "-" else "-" for c in app_name.lower()).strip("-")
+    return f"ea-{app_id}-{safe}"[:63].rstrip("-")
 
 
 def _now_iso() -> str:
@@ -147,16 +157,17 @@ def cr_to_dict(cr: dict, side: str) -> dict:
     spec   = dict(cr.get("spec", {}))
     target_peer = spec.pop("targetPeer", "")
     return {
-        "id":          status.get("appId", ""),
-        "name":        ann.get("porpulsion.io/app-name", meta.get("name", "")),
-        "spec":        spec,
-        "source_peer": status.get("sourcePeer", ""),
-        "target_peer": target_peer,
-        "status":      status.get("phase", "Unknown"),
-        "cr_name":     meta.get("name", ""),
-        "side":        side,
-        "created_at":  status.get("createdAt", meta.get("creationTimestamp", "")),
-        "updated_at":  status.get("updatedAt", status.get("lastUpdated", "")),
+        "id":            status.get("appId", ""),
+        "name":          ann.get("porpulsion.io/app-name", meta.get("name", "")),
+        "spec":          spec,
+        "source_peer":   status.get("sourcePeer", ""),
+        "target_peer":   target_peer,
+        "status":        status.get("phase", "Unknown"),
+        "cr_name":       meta.get("name", ""),
+        "resource_name": status.get("resourceName", ""),
+        "side":          side,
+        "created_at":    status.get("createdAt", meta.get("creationTimestamp", "")),
+        "updated_at":    status.get("updatedAt", status.get("lastUpdated", "")),
     }
 
 
@@ -268,11 +279,12 @@ def create_remoteapp_cr(namespace: str, app_id: str, app_name: str, spec_dict: d
         log.info("Created RemoteApp CR %s/%s", namespace, cr_name)
         # Set initial status with timestamps (status subresource requires a separate patch)
         _patch_status(namespace, PLURAL, cr_name, {
-            "phase":      "Pending",
-            "appId":      app_id,
-            "sourcePeer": source_peer,
-            "createdAt":  now,
-            "updatedAt":  now,
+            "phase":        "Pending",
+            "appId":        app_id,
+            "sourcePeer":   source_peer,
+            "resourceName": safe_resource_name(app_id, app_name),
+            "createdAt":    now,
+            "updatedAt":    now,
         })
         return cr_name
     except ApiException as e:
@@ -373,11 +385,12 @@ def create_executingapp_cr(namespace: str, app_id: str, app_name: str, spec_dict
         _crd_api.create_namespaced_custom_object(GROUP, VERSION, namespace, PLURAL_EA, body)
         log.info("Created ExecutingApp CR %s/%s", namespace, cr_name)
         _patch_status(namespace, PLURAL_EA, cr_name, {
-            "phase":     "Pending",
-            "appId":      app_id,
-            "sourcePeer": source_peer,
-            "createdAt":  now,
-            "updatedAt":  now,
+            "phase":        "Pending",
+            "appId":        app_id,
+            "sourcePeer":   source_peer,
+            "resourceName": safe_resource_name(app_id, app_name),
+            "createdAt":    now,
+            "updatedAt":    now,
         })
         return cr_name
     except ApiException as e:
@@ -572,9 +585,11 @@ def _bootstrap_cr_status(namespace: str, cr: dict, plural: str) -> None:
     address the CR by a stable ID regardless of metadata.name format.
     """
     import uuid as _uuid
-    meta    = cr.get("metadata", {})
-    status  = cr.get("status", {})
-    cr_name = meta.get("name", "")
+    meta     = cr.get("metadata", {})
+    status   = cr.get("status", {})
+    cr_name  = meta.get("name", "")
+    ann      = meta.get("annotations", {})
+    app_name = ann.get("porpulsion.io/app-name") or cr_name
 
     if status.get("appId"):
         return  # already bootstrapped
@@ -582,51 +597,64 @@ def _bootstrap_cr_status(namespace: str, cr: dict, plural: str) -> None:
     app_id = _uuid.uuid4().hex[:8]
     log.info("Bootstrapping status for CR %s with generated app-id=%s", cr_name, app_id)
     _patch_status(namespace, plural, cr_name, {
-        "phase":     "Pending",
-        "appId":     app_id,
-        "createdAt": meta.get("creationTimestamp", _now_iso()),
-        "updatedAt": _now_iso(),
+        "phase":        "Pending",
+        "appId":        app_id,
+        "resourceName": safe_resource_name(app_id, app_name),
+        "createdAt":    meta.get("creationTimestamp", _now_iso()),
+        "updatedAt":    _now_iso(),
     })
 
 
-def start_cr_watcher(namespace: str, on_modified) -> None:
+def start_cr_watcher(namespace: str, on_added=None, on_modified=None) -> None:
     """
-    Start a background thread that watches RemoteApp CRs for ADDED/MODIFIED events.
-    Bootstraps status on manually-applied CRs (ADDED without status.appId).
-    Calls on_modified(cr_obj) for MODIFIED events.
+    Start background threads that watch ExecutingApp and RemoteApp CRs.
+    - ADDED: bootstraps status.appId if missing, then calls on_added(cr_obj).
+    - MODIFIED: calls on_modified(cr_obj).
+    ExecutingApp CRs drive workload execution (the executing-side source of truth).
+    RemoteApp CRs are also watched so manually kubectl-applied ones get bootstrapped.
     """
-    if not _check_crd_available(namespace):
-        log.info("CRD not available — CR watcher not started")
-        return
-
-    def _watch_loop():
+    def _watch_loop(plural: str):
         while True:
             try:
                 w = watch.Watch()
-                log.info("CRD watcher started for %s/%s in ns=%s", GROUP, PLURAL, namespace)
+                log.info("CR watcher started for %s/%s in ns=%s", GROUP, plural, namespace)
                 for event in w.stream(
                     _crd_api.list_namespaced_custom_object,
-                    GROUP, VERSION, namespace, PLURAL,
+                    GROUP, VERSION, namespace, plural,
                     timeout_seconds=3600,
                 ):
                     evt_type = event.get("type", "")
                     obj = event.get("object", {})
                     if evt_type == "ADDED":
                         try:
-                            _bootstrap_cr_status(namespace, obj, PLURAL)
+                            _bootstrap_cr_status(namespace, obj, plural)
+                            # Re-fetch so the callback sees the freshly-written appId
+                            cr_name = obj.get("metadata", {}).get("name", "")
+                            try:
+                                obj = _crd_api.get_namespaced_custom_object(
+                                    GROUP, VERSION, namespace, plural, cr_name)
+                            except Exception:
+                                pass
+                            if on_added:
+                                on_added(obj)
                         except Exception as e:
-                            log.warning("CR watcher bootstrap error: %s", e)
+                            log.warning("CR watcher ADDED error (%s): %s", plural, e)
                     elif evt_type == "MODIFIED":
                         try:
-                            on_modified(obj)
+                            if on_modified:
+                                on_modified(obj)
                         except Exception as e:
-                            log.warning("CR watcher on_modified error: %s", e)
+                            log.warning("CR watcher MODIFIED error (%s): %s", plural, e)
             except ApiException as e:
-                log.warning("CRD watch stream error: %s — retrying in 10s", e)
+                log.warning("CR watch stream error (%s): %s — retrying in 10s", plural, e)
                 time.sleep(10)
             except Exception as e:
-                log.warning("CRD watcher unexpected error: %s — retrying in 10s", e)
+                log.warning("CR watcher unexpected error (%s): %s — retrying in 10s", plural, e)
                 time.sleep(10)
 
-    t = threading.Thread(target=_watch_loop, daemon=True, name="cr-watcher")
-    t.start()
+    if _check_ea_crd_available(namespace):
+        threading.Thread(target=_watch_loop, args=(PLURAL_EA,),
+                         daemon=True, name="cr-watcher-ea").start()
+    if _check_crd_available(namespace):
+        threading.Thread(target=_watch_loop, args=(PLURAL,),
+                         daemon=True, name="cr-watcher-ra").start()
