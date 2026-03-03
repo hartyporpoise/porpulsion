@@ -166,30 +166,35 @@ app.register_blueprint(ui_bp.bp)
 def _require_api_auth():
     from flask import request, session, jsonify
     import base64 as _b64
-    if not request.path.startswith("/api/"):
+    _GUARDED = ("/api/", "/static/js/")
+    if not any(request.path.startswith(p) for p in _GUARDED):
         return
     # Session cookie (browser)
     if session.get("user"):
         return
-    # HTTP Basic Auth (curl / scripts)
-    auth_header = request.headers.get("Authorization", "")
-    if auth_header.startswith("Basic "):
-        ip = request.remote_addr or "unknown"
-        from porpulsion.routes.auth import (
-            _load_users, _verify_password, _is_rate_limited, _record_failure, _clear_failures,
-        )
-        if _is_rate_limited(ip):
-            return jsonify({"error": "too many failed attempts"}), 429
-        try:
-            username, password = _b64.b64decode(auth_header[6:]).decode().split(":", 1)
-            users = _load_users()
-            if username in users and _verify_password(password, users[username]["hash"]):
-                _clear_failures(ip)
-                return
-        except Exception:
-            pass
-        _record_failure(ip)
-    return jsonify({"error": "unauthorized"}), 401
+    # HTTP Basic Auth (curl / scripts) — only honoured for /api/ paths
+    if request.path.startswith("/api/"):
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Basic "):
+            ip = request.remote_addr or "unknown"
+            from porpulsion.routes.auth import (
+                _load_users, _verify_password, _is_rate_limited, _record_failure, _clear_failures,
+            )
+            if _is_rate_limited(ip):
+                return jsonify({"error": "too many failed attempts"}), 429
+            try:
+                username, password = _b64.b64decode(auth_header[6:]).decode().split(":", 1)
+                users = _load_users()
+                if username in users and _verify_password(password, users[username]["hash"]):
+                    _clear_failures(ip)
+                    return
+            except Exception:
+                pass
+            _record_failure(ip)
+        return jsonify({"error": "unauthorized"}), 401
+    # For static assets, return 404 (asset simply won't load; user sees login page)
+    from flask import abort
+    abort(404)
 
 
 
