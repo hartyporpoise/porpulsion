@@ -368,32 +368,14 @@ def delete_remoteapp(app_id):
     cr_name = d["cr_name"]
 
     if side == "submitted":
-        # Notify the executing peer to tear down the workload
-        peer = state.peers.get(d["target_peer"]) or next(iter(state.peers.values()), None)
-        if peer:
-            try:
-                get_channel(peer.name).call("remoteapp/delete", {"id": app_id})
-            except Exception as e:
-                log.warning("Failed to notify peer of deletion: %s", e)
+        # Delete the CR — the CR watcher (DELETED) notifies the peer to delete its EA CR,
+        # which then triggers workload cleanup on the executing side
         delete_remoteapp_cr(state.NAMESPACE, cr_name)
         return jsonify({"ok": True})
 
     if side == "executing":
-        # Delete local workload and notify the source peer
-        ra = RemoteApp(
-            id=app_id, name=d["name"],
-            spec=RemoteAppSpec.from_dict(d.get("spec", {})),
-            source_peer=d["source_peer"],
-        )
-        delete_workload(ra)
+        # Delete the CR — the CR watcher (DELETED) handles workload cleanup and peer notification
         delete_executingapp_cr(state.NAMESPACE, cr_name)
-        try:
-            get_channel(d["source_peer"]).push("remoteapp/status", {
-                "id": app_id, "status": "Deleted",
-                "updated_at": datetime.now(timezone.utc).isoformat(),
-            })
-        except Exception as exc:
-            log.warning("Failed to notify source peer of deletion: %s", exc)
         return jsonify({"ok": True})
 
     return jsonify({"error": "app not found"}), 404

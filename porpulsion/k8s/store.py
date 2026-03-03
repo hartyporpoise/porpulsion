@@ -643,11 +643,12 @@ def _bootstrap_cr_status(namespace: str, cr: dict, plural: str) -> None:
         log.warning("Failed to stamp labels on CR %s: %s", cr_name, e)
 
 
-def start_cr_watcher(namespace: str, on_added=None, on_modified=None) -> None:
+def start_cr_watcher(namespace: str, on_added=None, on_modified=None, on_deleted=None) -> None:
     """
     Start background threads that watch ExecutingApp and RemoteApp CRs.
     - ADDED: bootstraps status.appId if missing, then calls on_added(cr_obj).
-    - MODIFIED: calls on_modified(cr_obj).
+    - MODIFIED: calls on_modified(cr_obj) when spec generation advances.
+    - DELETED: calls on_deleted(cr_obj) with the last-known CR snapshot.
     ExecutingApp CRs drive workload execution (the executing-side source of truth).
     RemoteApp CRs are also watched so manually kubectl-applied ones get bootstrapped.
     """
@@ -703,6 +704,11 @@ def start_cr_watcher(namespace: str, on_added=None, on_modified=None) -> None:
                             log.warning("CR watcher MODIFIED error (%s): %s", plural, e)
                     elif evt_type == "DELETED":
                         _last_gen.pop(cr_name, None)
+                        try:
+                            if on_deleted:
+                                on_deleted(obj)
+                        except Exception as e:
+                            log.warning("CR watcher DELETED error (%s): %s", plural, e)
             except ApiException as e:
                 log.warning("CR watch stream error (%s): %s — retrying in 10s", plural, e)
                 time.sleep(10)

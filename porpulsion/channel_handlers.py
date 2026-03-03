@@ -112,9 +112,7 @@ def handle_remoteapp_status(payload: dict):
 def handle_remoteapp_delete(payload: dict) -> dict:
     """Delete a RemoteApp on this (executing) side."""
     from porpulsion import state
-    from porpulsion.k8s.executor import delete_workload
     from porpulsion.k8s.store import get_ea_cr_by_app_id, delete_executingapp_cr, cr_to_dict
-    from porpulsion.models import RemoteApp, RemoteAppSpec
 
     app_id = payload.get("id", "")
     ea_cr = get_ea_cr_by_app_id(state.NAMESPACE, app_id)
@@ -122,12 +120,7 @@ def handle_remoteapp_delete(payload: dict) -> dict:
         raise RuntimeError("app not found")
 
     d = cr_to_dict(ea_cr, "executing")
-    ra = RemoteApp(
-        id=app_id, name=d["name"],
-        spec=RemoteAppSpec.from_dict(d.get("spec", {})),
-        source_peer=d["source_peer"],
-    )
-    delete_workload(ra)
+    # Delete the CR — the CR watcher (DELETED) handles workload cleanup and peer notification
     delete_executingapp_cr(state.NAMESPACE, d["cr_name"])
     log.info("Deleted executing app %s (via channel)", app_id)
     return {"ok": True}
