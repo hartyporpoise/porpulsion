@@ -16,7 +16,7 @@ from porpulsion.k8s.store import (
     create_remoteapp_cr, delete_remoteapp_cr,
     list_remoteapp_crs, list_executingapp_crs,
     delete_executingapp_cr, cr_to_dict, get_cr_by_app_id, get_ea_cr_by_app_id,
-    patch_cr_volume_data,
+    patch_cr_volume_data, remoteapp_name_exists,
 )
 
 log = logging.getLogger("porpulsion.routes.workloads")
@@ -261,27 +261,28 @@ def create_remoteapp():
     data["spec"] = _encode_spec_secrets(data.get("spec") or {})
     if not state.peers:
         return jsonify({"error": "no peers connected"}), 503
+    if remoteapp_name_exists(state.NAMESPACE, data["name"]):
+        return jsonify({"error": f"a RemoteApp named '{data['name']}' already exists"}), 409
 
     target_peer_name = data.get("target_peer", "")
 
-    def _create_and_forward(peer, spec_dict, app_name):
+    def _create_cr(peer, spec_dict, app_name):
         compat_err = _check_crd_compatibility(peer, spec_dict)
         if compat_err:
             raise RuntimeError(compat_err)
         ra = RemoteApp(name=app_name, spec=RemoteAppSpec.from_dict(spec_dict),
                        source_peer=state.AGENT_NAME, target_peer=peer.name)
+        # Embed targetPeer in spec so the CR carries it
+        spec_dict = {**spec_dict, "targetPeer": peer.name}
         cr_name = create_remoteapp_cr(
             state.NAMESPACE, ra.id, ra.name, spec_dict, peer.name,
             source_peer=state.AGENT_NAME,
         )
         if cr_name:
             ra.cr_name = cr_name
-        ch = get_channel(peer.name)
-        ch.call("remoteapp/receive", {
-            "id": ra.id, "name": ra.name,
-            "spec": ra.spec.to_dict(), "source_peer": state.AGENT_NAME,
-        })
-        log.info("Forwarded app %s (%s) to peer %s (cr=%s)", ra.name, ra.id, peer.name, cr_name or "none")
+        # The CR watcher (agent.py) will forward to the peer once the CR is ready
+        log.info("Created RemoteApp CR %s for app %s (%s) → peer %s",
+                 cr_name or "?", ra.name, ra.id, peer.name)
         return ra
 
     if target_peer_name == "*":
@@ -291,10 +292,10 @@ def create_remoteapp():
         results = []
         for peer in peers_to_deploy:
             try:
-                ra = _create_and_forward(peer, data.get("spec", {}), data["name"])
+                ra = _create_cr(peer, data.get("spec", {}), data["name"])
                 results.append(ra.to_dict())
             except Exception as e:
-                log.warning("Failed to forward app to peer %s: %s", peer.name, e)
+                log.warning("Failed to create RemoteApp CR for peer %s: %s", peer.name, e)
         return jsonify({"deployed": results, "count": len(results)}), 201
 
     if target_peer_name:
@@ -305,9 +306,9 @@ def create_remoteapp():
         peer = next(iter(state.peers.values()))
 
     try:
-        ra = _create_and_forward(peer, data.get("spec", {}), data["name"])
+        ra = _create_cr(peer, data.get("spec", {}), data["name"])
     except Exception as e:
-        return jsonify({"error": f"failed to reach peer: {e}"}), 502
+        return jsonify({"error": f"failed to create RemoteApp CR: {e}"}), 502
 
     return jsonify(ra.to_dict()), 201
 
@@ -416,11 +417,15 @@ def scale_remoteapp(app_id):
     d = cr_to_dict(cr, side)
 
     if side == "submitted":
-        peer = state.peers.get(d["target_peer"]) or next(iter(state.peers.values()), None)
-        if not peer:
-            return jsonify({"error": "peer not connected"}), 503
+        # Update replicas in the RemoteApp CR — the CR watcher (MODIFIED) forwards to the peer
+        spec = dict(d.get("spec") or {})
+        spec["replicas"] = replicas
+        spec["targetPeer"] = d["target_peer"]
         try:
-            get_channel(peer.name).call("remoteapp/scale", {"id": app_id, "replicas": replicas})
+            create_remoteapp_cr(
+                state.NAMESPACE, app_id, d["name"], spec, d["target_peer"],
+                source_peer=d["source_peer"],
+            )
             return jsonify({"ok": True, "replicas": replicas})
         except Exception as e:
             return jsonify({"error": str(e)}), 502
@@ -537,17 +542,11 @@ def update_remoteapp_spec(app_id):
     if compat_err:
         return jsonify({"error": compat_err}), 422
 
-    try:
-        get_channel(peer.name).call("remoteapp/spec-update", {
-            "id": app_id, "spec": new_spec,
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 502
-
-    # Patch the RemoteApp CR spec with the updated spec
+    # Update the RemoteApp CR — the CR watcher (MODIFIED) forwards to the peer
     create_remoteapp_cr(
-        state.NAMESPACE, app_id, d["name"], new_spec, d["target_peer"],
-        source_peer=d["source_peer"],
+        state.NAMESPACE, app_id, d["name"],
+        {**new_spec, "targetPeer": d["target_peer"]},
+        d["target_peer"], source_peer=d["source_peer"],
     )
     return jsonify(d)
 

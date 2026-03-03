@@ -211,22 +211,58 @@ if __name__ == "__main__":
     threading.Thread(target=_reconnect_persisted_peers, daemon=True).start()
 
     # CR watcher: drives workload execution from ExecutingApp CRs.
-    # RemoteApp CRs are also watched for bootstrap only (no workload run).
+    # RemoteApp CRs are also watched: new/updated CRs with a targetPeer are
+    # forwarded to that peer via the WS channel.
     def _on_cr_added_or_modified(cr: dict, is_new: bool) -> None:
-        # Only ExecutingApp CRs drive workload execution
-        if cr.get("kind") != "ExecutingApp":
-            return
         from porpulsion.k8s.store import cr_to_dict
         from porpulsion.models import RemoteApp, RemoteAppSpec
-        from porpulsion.k8s.executor import run_workload
-        d = cr_to_dict(cr, "executing")
-        if not d["id"]:
-            return  # appId not yet bootstrapped — MODIFIED will follow
-        spec = RemoteAppSpec.from_dict(d.get("spec", {}))
-        ra = RemoteApp(id=d["id"], name=d["name"], spec=spec, source_peer=d["source_peer"])
-        log.info("CR watcher: %s ExecutingApp %s (%s) → running workload",
-                 "new" if is_new else "updated", d["name"], d["id"])
-        run_workload(ra, d["source_peer"])
+
+        kind = cr.get("kind", "")
+
+        if kind == "ExecutingApp":
+            from porpulsion.k8s.executor import run_workload
+            d = cr_to_dict(cr, "executing")
+            if not d["id"]:
+                return  # appId not yet bootstrapped — MODIFIED will follow
+            spec = RemoteAppSpec.from_dict(d.get("spec", {}))
+            ra = RemoteApp(
+                id=d["id"], name=d["name"], spec=spec,
+                source_peer=d["source_peer"],
+                resource_name=d.get("resource_name", ""),
+            )
+            ra.cr_name = d.get("cr_name", "")
+            log.info("CR watcher: %s ExecutingApp %s (%s) → running workload",
+                     "new" if is_new else "updated", d["name"], d["id"])
+            run_workload(ra, d["source_peer"])
+
+        elif kind == "RemoteApp":
+            # A RemoteApp CR was added or modified.
+            # Forward to the target peer via the channel.
+            d = cr_to_dict(cr, "submitted")
+            if not d["id"]:
+                return  # not bootstrapped yet
+            target_peer_name = d.get("target_peer", "")
+            if not target_peer_name:
+                return  # no target — nothing to forward
+            peer = state.peers.get(target_peer_name)
+            if not peer:
+                log.warning("CR watcher: RemoteApp %s targets peer %r which is not connected — skipping forward",
+                            d["name"], target_peer_name)
+                return
+            spec_dict = d.get("spec", {})
+            msg_type = "remoteapp/receive" if is_new else "remoteapp/spec-update"
+            payload = {"id": d["id"], "spec": spec_dict, "source_peer": state.AGENT_NAME}
+            if is_new:
+                payload["name"] = d["name"]
+            try:
+                from porpulsion.channel import get_channel
+                ch = get_channel(peer.name)
+                ch.call(msg_type, payload)
+                log.info("CR watcher: %s RemoteApp %s (%s) to peer %s",
+                         "forwarded new" if is_new else "forwarded updated", d["name"], d["id"], peer.name)
+            except Exception as e:
+                log.warning("CR watcher: failed to forward RemoteApp %s to peer %s: %s",
+                            d["name"], peer.name, e)
 
     from porpulsion.k8s.store import start_cr_watcher as _start_cr_watcher
     _start_cr_watcher(

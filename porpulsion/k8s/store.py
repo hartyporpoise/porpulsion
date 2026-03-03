@@ -131,10 +131,25 @@ def safe_resource_name(app_id: str, app_name: str) -> str:
     return f"ea-{app_id}-{safe}"[:63].rstrip("-")
 
 
-def _cr_name(app_id: str, app_name: str) -> str:
-    """Produce a valid k8s name for a RemoteApp CR: ra-{id}-{safe_name}."""
+def _cr_name(app_name: str) -> str:
+    """Sanitize app_name to a valid k8s metadata.name for a RemoteApp CR."""
     safe = "".join(c if c.isalnum() or c == "-" else "-" for c in app_name.lower()).strip("-")
-    return f"ra-{app_id}-{safe}"[:63].rstrip("-")
+    return safe[:63].rstrip("-")
+
+
+def remoteapp_name_exists(namespace: str, name: str) -> bool:
+    """Return True if a RemoteApp CR with this metadata.name already exists."""
+    if not _check_crd_available(namespace):
+        return False
+    try:
+        _crd_api.get_namespaced_custom_object(GROUP, VERSION, namespace, PLURAL, _cr_name(name))
+        return True
+    except ApiException as e:
+        if e.status == 404:
+            return False
+        return False  # on error, let create_remoteapp_cr handle it
+    except Exception:
+        return False
 
 
 def _ea_cr_name(app_id: str, app_name: str) -> str:
@@ -158,7 +173,7 @@ def cr_to_dict(cr: dict, side: str) -> dict:
     target_peer = spec.pop("targetPeer", "")
     return {
         "id":            status.get("appId", ""),
-        "name":          ann.get("porpulsion.io/app-name", meta.get("name", "")),
+        "name":          meta.get("name", ""),
         "spec":          spec,
         "source_peer":   status.get("sourcePeer", ""),
         "target_peer":   target_peer,
@@ -210,7 +225,7 @@ def validate_remoteapp_spec(namespace: str, app_id: str, app_name: str, spec_dic
     if not _check_crd_available(namespace):
         return None
 
-    cr_name = _cr_name(app_id, app_name)
+    cr_name = _cr_name(app_name)
     cr_spec = dict(spec_dict)
     cr_spec["targetPeer"] = target_peer
 
@@ -252,7 +267,7 @@ def create_remoteapp_cr(namespace: str, app_id: str, app_name: str, spec_dict: d
     if not _check_crd_available(namespace):
         return None
 
-    cr_name = _cr_name(app_id, app_name)
+    cr_name = _cr_name(app_name)
     cr_spec = dict(spec_dict)
     cr_spec["targetPeer"] = target_peer
     now = _now_iso()
@@ -267,9 +282,6 @@ def create_remoteapp_cr(namespace: str, app_id: str, app_name: str, spec_dict: d
                 "porpulsion.io/app-id":     app_id,
                 "porpulsion.io/target-peer": target_peer,
                 "porpulsion.io/source-peer": source_peer,
-            },
-            "annotations": {
-                "porpulsion.io/app-name": app_name,
             },
         },
         "spec": cr_spec,
@@ -374,9 +386,6 @@ def create_executingapp_cr(namespace: str, app_id: str, app_name: str, spec_dict
             "labels": {
                 "porpulsion.io/app-id":     app_id,
                 "porpulsion.io/source-peer": source_peer,
-            },
-            "annotations": {
-                "porpulsion.io/app-name": app_name,
             },
         },
         "spec": dict(spec_dict),
@@ -583,18 +592,35 @@ def _bootstrap_cr_status(namespace: str, cr: dict, plural: str) -> None:
     For CRs that have no status.appId (e.g. manually kubectl-applied), generate
     a fresh app-id UUID and write it to status so the rest of the system can
     address the CR by a stable ID regardless of metadata.name format.
+
+    CRs created by porpulsion code always carry the porpulsion.io/app-id label
+    and handle their own status patch — skip bootstrap for those.
     """
     import uuid as _uuid
-    meta     = cr.get("metadata", {})
-    status   = cr.get("status", {})
+    meta   = cr.get("metadata", {})
+    labels = meta.get("labels", {})
+
+    # CRs created by our code always have this label; skip bootstrap for them
+    # to avoid a race between create_*_cr's status patch and our bootstrap.
+    if labels.get("porpulsion.io/app-id"):
+        return
+
     cr_name  = meta.get("name", "")
-    ann      = meta.get("annotations", {})
-    app_name = ann.get("porpulsion.io/app-name") or cr_name
+    app_name = cr_name  # metadata.name IS the app name
+
+    # Re-fetch to get the latest status (in case a concurrent writer beat us)
+    try:
+        cr = _crd_api.get_namespaced_custom_object(GROUP, VERSION, namespace, plural, cr_name)
+    except Exception:
+        pass
+    status = cr.get("status", {})
 
     if status.get("appId"):
         return  # already bootstrapped
 
     app_id = _uuid.uuid4().hex[:8]
+    spec = cr.get("spec", {})
+    target_peer = spec.get("targetPeer", "")
     log.info("Bootstrapping status for CR %s with generated app-id=%s", cr_name, app_id)
     _patch_status(namespace, plural, cr_name, {
         "phase":        "Pending",
@@ -603,6 +629,18 @@ def _bootstrap_cr_status(namespace: str, cr: dict, plural: str) -> None:
         "createdAt":    meta.get("creationTimestamp", _now_iso()),
         "updatedAt":    _now_iso(),
     })
+    # Stamp all lookup labels so label-selector queries work after bootstrap
+    stamp_labels: dict = {"porpulsion.io/app-id": app_id}
+    if target_peer:
+        stamp_labels["porpulsion.io/target-peer"] = target_peer
+    try:
+        _crd_api.patch_namespaced_custom_object(
+            GROUP, VERSION, namespace, plural, cr_name,
+            {"metadata": {"labels": stamp_labels}},
+        )
+        log.debug("Stamped labels %s on CR %s", stamp_labels, cr_name)
+    except Exception as e:
+        log.warning("Failed to stamp labels on CR %s: %s", cr_name, e)
 
 
 def start_cr_watcher(namespace: str, on_added=None, on_modified=None) -> None:
@@ -614,6 +652,10 @@ def start_cr_watcher(namespace: str, on_added=None, on_modified=None) -> None:
     RemoteApp CRs are also watched so manually kubectl-applied ones get bootstrapped.
     """
     def _watch_loop(plural: str):
+        # Track the last spec-generation we acted on per CR name.
+        # metadata.generation only increments when spec changes (not on status patches)
+        # because the CRD has subresources.status defined.
+        _last_gen: dict[str, int] = {}
         while True:
             try:
                 w = watch.Watch()
@@ -625,26 +667,42 @@ def start_cr_watcher(namespace: str, on_added=None, on_modified=None) -> None:
                 ):
                     evt_type = event.get("type", "")
                     obj = event.get("object", {})
+                    meta = obj.get("metadata", {})
+                    cr_name = meta.get("name", "")
+                    generation = meta.get("generation", 0)
                     if evt_type == "ADDED":
                         try:
                             _bootstrap_cr_status(namespace, obj, plural)
-                            # Re-fetch so the callback sees the freshly-written appId
-                            cr_name = obj.get("metadata", {}).get("name", "")
-                            try:
-                                obj = _crd_api.get_namespaced_custom_object(
-                                    GROUP, VERSION, namespace, plural, cr_name)
-                            except Exception:
-                                pass
+                            # Re-fetch so the callback sees the freshly-written appId.
+                            # Retry briefly in case the status patch from the creator
+                            # is still in-flight (labeled CRs bootstrap their own status).
+                            for _attempt in range(5):
+                                try:
+                                    obj = _crd_api.get_namespaced_custom_object(
+                                        GROUP, VERSION, namespace, plural, cr_name)
+                                    generation = obj.get("metadata", {}).get("generation", generation)
+                                except Exception:
+                                    break
+                                if obj.get("status", {}).get("appId"):
+                                    break
+                                time.sleep(0.3)
+                            _last_gen[cr_name] = generation
                             if on_added:
                                 on_added(obj)
                         except Exception as e:
                             log.warning("CR watcher ADDED error (%s): %s", plural, e)
                     elif evt_type == "MODIFIED":
                         try:
+                            # Only fire if spec actually changed (generation advanced)
+                            if generation <= _last_gen.get(cr_name, 0):
+                                continue
+                            _last_gen[cr_name] = generation
                             if on_modified:
                                 on_modified(obj)
                         except Exception as e:
                             log.warning("CR watcher MODIFIED error (%s): %s", plural, e)
+                    elif evt_type == "DELETED":
+                        _last_gen.pop(cr_name, None)
             except ApiException as e:
                 log.warning("CR watch stream error (%s): %s — retrying in 10s", plural, e)
                 time.sleep(10)
