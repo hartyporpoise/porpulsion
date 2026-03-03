@@ -185,6 +185,8 @@
       listEl.innerHTML = '<div class="empty-state" style="padding:1.5rem 0.5rem;"><div class="empty-icon">⇒</div>No submitted apps yet</div>';
       return;
     }
+    var ICON_COPY = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+    var ICON_DETAIL = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="8.5"/><line x1="12" y1="12" x2="12" y2="16"/></svg>';
     listEl.innerHTML = active.map(function (a) {
       var ports = (a.spec && Array.isArray(a.spec.ports) && a.spec.ports.length) ? a.spec.ports : [{ port: (a.spec && a.spec.port) || 80 }];
       var portLinks = ports.map(function (p) {
@@ -192,10 +194,10 @@
         var portLabel = (p.name ? p.name + ' (' + portNum + ')' : portNum);
         var proxyUrl = window.location.origin + API_BASE + '/remoteapp/' + a.id + '/proxy/' + portNum;
         var id = 'proxy-url-' + a.id + '-' + portNum;
-        return '<div style="display:flex;align-items:center;gap:0.5rem;padding:0.3rem 0;border-bottom:1px solid var(--border);">' +
+        return '<div style="display:flex;align-items:center;gap:0.4rem;padding:0.3rem 0;border-bottom:1px solid var(--border);">' +
           '<span class="mono" style="color:var(--muted);min-width:60px;font-size:0.75rem;">' + portLabel + '</span>' +
-          '<span class="mono" id="' + id + '" style="flex:1;font-size:0.72rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--accent2);" title="' + _esc(proxyUrl) + '">' + _esc(proxyUrl) + '</span>' +
-          '<button type="button" class="btn-sm" data-copy-el="' + id + '">Copy</button></div>';
+          '<a href="' + _esc(proxyUrl) + '" target="_blank" rel="noopener" id="' + id + '" class="mono" style="flex:1;font-size:0.72rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--accent);" title="' + _esc(proxyUrl) + '">' + _esc(proxyUrl) + '</a>' +
+          '<button type="button" class="btn-icon" title="Copy URL" aria-label="Copy URL" data-copy-el="' + id + '">' + ICON_COPY + '</button></div>';
       }).join('');
       return '<div style="padding:0.75rem 0;border-bottom:1px solid var(--border);">' +
         '<div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.4rem;">' +
@@ -203,7 +205,7 @@
         '<span class="mono" style="font-size:0.7rem;color:var(--muted2);">' + _esc(a.id) + '</span>' +
         statusBadge(a.status) +
         '<span class="text-muted text-sm" style="margin-left:auto;">' + _esc(a.target_peer || '') + '</span>' +
-        '<button type="button" class="btn-sm app-detail-btn" data-app-id="' + _esc(a.id) + '" style="margin-left:0;">Detail</button>' +
+        '<button type="button" class="btn-icon app-detail-btn" title="Detail" aria-label="Detail" data-app-id="' + _esc(a.id) + '">' + ICON_DETAIL + '</button>' +
         '</div>' + portLinks + '</div>';
     }).join('');
   }
