@@ -1333,14 +1333,16 @@
         cfgSaveBtn.addEventListener('click', function () {
           cfgSaveBtn.disabled = true; cfgSaveBtn.textContent = 'Saving…';
 
-          // Collect new entries from open add-forms
-          var newSpec = JSON.parse(JSON.stringify(spec));
+          // Check for open add-forms (new CM/secret/PVC entries)
+          var newSpec = JSON.parse(JSON.stringify(app.spec || {}));
+          var hasNewEntries = false;
           ['configmap', 'secret'].forEach(function (kind) {
             var bodyEl = el('add-' + kind + '-body');
             if (!bodyEl || bodyEl.hidden) return;
             var name = (el('add-' + kind + '-name') || {}).value || '';
             var mount = (el('add-' + kind + '-mount') || {}).value || '';
             if (!name.trim() || !mount.trim()) return;
+            hasNewEntries = true;
             var kvPairs = _readAddKvEditor('add-' + kind + '-kv');
             var entryData = {};
             kvPairs.forEach(function (p) { if (p.key) entryData[p.key] = p.value; });
@@ -1356,15 +1358,14 @@
             var pvcStorage = (el('add-pvc-storage') || {}).value || '1Gi';
             var pvcMode = (el('add-pvc-mode') || {}).value || 'ReadWriteOnce';
             if (pvcName.trim() && pvcMount.trim()) {
+              hasNewEntries = true;
               newSpec.pvcs = (newSpec.pvcs || []).concat([{ name: pvcName.trim(), mountPath: pvcMount.trim(), storage: pvcStorage.trim(), accessMode: pvcMode }]);
             }
           }
 
-          var specChanged = JSON.stringify(newSpec) !== JSON.stringify(spec);
-          var editors = Object.values(_kvEditors);
-
+          // KV patches for existing CMs/secrets
           var doKvPatches = function () {
-            var patches = editors.map(function (ed) {
+            var patches = Object.values(_kvEditors).map(function (ed) {
               var data = ed.collect();
               var url = P.API_BASE + '/remoteapp/' + ed.appId + '/config/' + ed.kind + '/' + encodeURIComponent(ed.volName);
               return fetch(url, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data: data }) })
@@ -1374,9 +1375,10 @@
             return Promise.all(patches);
           };
 
-          var work = specChanged
-            ? P.updateAppSpec(app.id, _specToYaml(newSpec)).then(editors.length ? doKvPatches : function () { return Promise.resolve(); })
-            : (editors.length ? doKvPatches() : Promise.resolve());
+          // New entries go through spec update; existing KV edits go direct via PATCH
+          var work = hasNewEntries
+            ? P.updateAppSpec(app.id, _specToYaml(newSpec))
+            : doKvPatches();
 
           work.then(function () {
             toast('Saved — rollout restarting', 'ok');

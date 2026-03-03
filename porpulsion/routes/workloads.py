@@ -583,6 +583,7 @@ def patch_app_configmap(app_id, name):
     if side == "submitted":
         try:
             _forward_config_patch(app_id, "configmap", name, data)
+            patch_cr_volume_data(state.NAMESPACE, app_id, "configmap", name, data)
             return jsonify({"ok": True})
         except Exception as e:
             return jsonify({"error": str(e)}), 502
