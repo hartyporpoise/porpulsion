@@ -8,6 +8,7 @@ Both CRDs share the same spec schema (charts/porpulsion/files/schema.yaml), bake
 into the Docker image at build time. This is the single source of truth for spec
 fields, types, and defaults — no k8s API call is needed to discover the schema.
 """
+import base64 as _b64
 import datetime
 import logging
 import pathlib
@@ -222,6 +223,38 @@ def validate_remoteapp_spec(namespace: str, app_id: str, app_name: str, spec_dic
         return None
 
 
+def _normalise_secret_data(spec_dict: dict) -> dict:
+    """
+    Return a copy of spec_dict where every secrets[i].data value is base64-encoded.
+    Values that are already valid base64 (i.e. were stored correctly before) are
+    left untouched; plaintext values are encoded.
+    """
+    secrets = spec_dict.get("secrets")
+    if not secrets:
+        return spec_dict
+    normalised_secrets = []
+    for sec in secrets:
+        if not isinstance(sec, dict):
+            normalised_secrets.append(sec)
+            continue
+        raw_data = sec.get("data") or {}
+        encoded_data = {}
+        for k, v in raw_data.items():
+            if not isinstance(v, str):
+                encoded_data[k] = v
+                continue
+            # Check if already valid base64 — try to decode and re-encode; if identical it's b64
+            try:
+                decoded = _b64.b64decode(v, validate=True)
+                re_enc = _b64.b64encode(decoded).decode()
+                encoded_data[k] = re_enc  # already base64, keep as-is
+            except Exception:
+                # Not valid base64 — encode it
+                encoded_data[k] = _b64.b64encode(v.encode()).decode()
+        normalised_secrets.append({**sec, "data": encoded_data})
+    return {**spec_dict, "secrets": normalised_secrets}
+
+
 def create_remoteapp_cr(namespace: str, app_id: str, app_name: str, spec_dict: dict,
                         target_peer: str, source_peer: str = "") -> str | None:
     """
@@ -232,7 +265,7 @@ def create_remoteapp_cr(namespace: str, app_id: str, app_name: str, spec_dict: d
         return None
 
     cr_name = _cr_name(app_id, app_name)
-    cr_spec = dict(spec_dict)
+    cr_spec = _normalise_secret_data(dict(spec_dict))
     cr_spec["targetPeer"] = target_peer
     now = _now_iso()
 
@@ -356,7 +389,7 @@ def create_executingapp_cr(namespace: str, app_id: str, app_name: str, spec_dict
                 "porpulsion.io/app-name": app_name,
             },
         },
-        "spec": spec_dict,
+        "spec": _normalise_secret_data(dict(spec_dict)),
     }
     try:
         _crd_api.create_namespaced_custom_object(GROUP, VERSION, namespace, PLURAL_EA, body)
@@ -459,8 +492,6 @@ def patch_cr_volume_data(namespace: str, app_id: str, kind: str, vol_name: str,
     data: plaintext key→value dict. ConfigMap values stored as-is; secret
           values are base64-encoded in the CR (decoded by executor on apply).
     """
-    import base64 as _b64
-
     # Find the CR — could be either type
     plural, cr = None, None
     ea = get_ea_cr_by_app_id(namespace, app_id)

@@ -617,8 +617,15 @@ def get_app_secret(app_id, name):
     spec = cr.get("spec", {})
     for sec in (spec.get("secrets") or []):
         if sec.get("name") == name:
-            decoded = {k: _b64.b64decode(v).decode() if isinstance(v, str) else v
-                       for k, v in (sec.get("data") or {}).items()}
+            decoded = {}
+            for k, v in (sec.get("data") or {}).items():
+                if not isinstance(v, str):
+                    decoded[k] = v
+                    continue
+                try:
+                    decoded[k] = _b64.b64decode(v).decode()
+                except Exception:
+                    decoded[k] = v  # already plaintext (legacy CR)
             return jsonify({"data": decoded})
     return jsonify({"data": {}})
 
