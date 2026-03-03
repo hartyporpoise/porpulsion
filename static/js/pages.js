@@ -989,6 +989,12 @@
           del.type = 'button'; del.className = 'btn-icon btn-icon-danger';
           del.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>';
           del.addEventListener('click', function () {
+            // Capture current edits from DOM before re-rendering
+            wrap.querySelectorAll('[data-role="cfg-key"]').forEach(function (ki) {
+              var vi = wrap.querySelector('[data-role="cfg-val"][data-idx="' + ki.dataset.idx + '"]');
+              var ek = ki.value.trim();
+              if (ek) data[ek] = vi ? vi.value : '';
+            });
             delete data[pair.k];
             renderRows(data);
           });
@@ -1014,6 +1020,12 @@
         addBtn.addEventListener('click', function () {
           var k = newKey.value.trim();
           if (!k) { toast('Key is required', 'error'); return; }
+          // Capture current edits from DOM before re-rendering
+          wrap.querySelectorAll('[data-role="cfg-key"]').forEach(function (ki) {
+            var vi = wrap.querySelector('[data-role="cfg-val"][data-idx="' + ki.dataset.idx + '"]');
+            var ek = ki.value.trim();
+            if (ek) data[ek] = vi ? vi.value : '';
+          });
           data[k] = newVal.value;
           renderRows(data);
         });
