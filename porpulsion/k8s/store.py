@@ -430,6 +430,27 @@ def update_executingapp_cr_status(namespace: str, cr_name: str, phase: str, app_
     })
 
 
+def patch_executingapp_cr_spec(namespace: str, cr_name: str, spec_dict: dict) -> bool:
+    """
+    Patch only the spec of an existing ExecutingApp CR (for spec updates).
+    Returns True on success, False if the CR was not found or CRD unavailable.
+    """
+    if not _check_ea_crd_available(namespace):
+        return False
+    try:
+        _crd_api.patch_namespaced_custom_object(
+            GROUP, VERSION, namespace, PLURAL_EA, cr_name,
+            {"spec": dict(spec_dict)},
+        )
+        log.info("Patched ExecutingApp CR %s/%s spec", namespace, cr_name)
+        return True
+    except ApiException as e:
+        if e.status == 404:
+            return False
+        log.warning("Failed to patch ExecutingApp CR %s spec: %s", cr_name, e)
+        return False
+
+
 def delete_executingapp_cr(namespace: str, cr_name: str) -> None:
     """Delete an ExecutingApp CR."""
     if not _check_ea_crd_available(namespace):

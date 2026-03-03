@@ -105,6 +105,12 @@ def handle_remoteapp_status(payload: dict):
                 title=f"Workload failed: {d['name']}",
                 message=f"{d['name']!r} on {d['target_peer']} → {status}.",
             )
+        elif status == "Deleted":
+            add_notification(
+                level="warn",
+                title=f"Workload deleted: {d['name']}",
+                message=f"{d['name']!r} was removed from {d['target_peer']}.",
+            )
     else:
         log.debug("Status update for unknown app %s: %s", app_id, status)
 
@@ -237,7 +243,7 @@ def handle_remoteapp_spec_update(payload: dict) -> dict:
     from porpulsion import state
     from porpulsion.models import RemoteAppSpec
     from porpulsion.routes.workloads import _check_resource_quota
-    from porpulsion.k8s.store import get_ea_cr_by_app_id, cr_to_dict, create_executingapp_cr
+    from porpulsion.k8s.store import get_ea_cr_by_app_id, cr_to_dict, patch_executingapp_cr_spec
 
     app_id   = payload.get("id", "")
     new_spec = payload.get("spec")
@@ -261,8 +267,11 @@ def handle_remoteapp_spec_update(payload: dict) -> dict:
     except Exception as _ve:
         log.debug("CRD spec validation skipped: %s", _ve)
 
-    # Update the ExecutingApp CR — the CR watcher drives the re-deploy
-    create_executingapp_cr(state.NAMESPACE, app_id, d["name"], parsed.to_dict(), d["source_peer"])
+    # Patch only the spec on the existing ExecutingApp CR — preserves status/metadata.
+    # The CR watcher MODIFIED event drives the re-deploy.
+    ok = patch_executingapp_cr_spec(state.NAMESPACE, d["cr_name"], parsed.to_dict())
+    if not ok:
+        raise RuntimeError("failed to patch ExecutingApp CR spec")
     return {"ok": True}
 
 

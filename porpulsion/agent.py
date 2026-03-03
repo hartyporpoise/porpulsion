@@ -339,6 +339,8 @@ if __name__ == "__main__":
                     })
                 except Exception as e:
                     log.warning("CR watcher: failed to notify source peer of EA deletion: %s", e)
+            else:
+                log.warning("CR watcher: EA %s deleted but source_peer is empty — cannot notify", d["id"])
 
     from porpulsion.k8s.store import start_cr_watcher as _start_cr_watcher
     _start_cr_watcher(
