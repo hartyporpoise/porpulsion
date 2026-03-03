@@ -1363,7 +1363,7 @@
           };
 
           var work = specChanged
-            ? P.updateAppSpec(app.id, _specToYaml(newSpec))
+            ? P.updateAppSpec(app.id, _specToYaml(newSpec)).then(editors.length ? doKvPatches : function () { return Promise.resolve(); })
             : (editors.length ? doKvPatches() : Promise.resolve());
 
           work.then(function () {
