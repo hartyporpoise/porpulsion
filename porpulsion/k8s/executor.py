@@ -287,7 +287,15 @@ def run_workload(remote_app, callback_url, peer=None):
         deploy_name = _deploy_name(remote_app)
         labels      = _owner_labels(remote_app)
 
-        _report_status(remote_app, callback_url, "Creating", peer=peer)
+        # Check if this is an update (deployment already exists)
+        try:
+            apps_v1.read_namespaced_deployment(deploy_name, NAMESPACE)
+            _report_status(remote_app, callback_url, "Updating", peer=peer)
+        except client.ApiException as e:
+            if e.status == 404:
+                _report_status(remote_app, callback_url, "Creating", peer=peer)
+            else:
+                _report_status(remote_app, callback_url, "Creating", peer=peer)
 
         # ── Volumes + VolumeMounts ──────────────────────────────────────────
         volumes: list[client.V1Volume] = []

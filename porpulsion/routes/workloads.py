@@ -1,3 +1,4 @@
+import base64 as _b64
 import logging
 from datetime import datetime, timezone
 
@@ -21,6 +22,24 @@ from porpulsion.k8s.store import (
 log = logging.getLogger("porpulsion.routes.workloads")
 
 bp = Blueprint("workloads", __name__)
+
+
+def _encode_spec_secrets(spec: dict) -> dict:
+    """Base64-encode secret data values in a spec dict (plaintext from user YAML)."""
+    secrets = spec.get("secrets")
+    if not secrets:
+        return spec
+    encoded = []
+    for sec in secrets:
+        if not isinstance(sec, dict):
+            encoded.append(sec)
+            continue
+        raw = sec.get("data") or {}
+        encoded.append({**sec, "data": {
+            k: _b64.b64encode(v.encode()).decode() if isinstance(v, str) else v
+            for k, v in raw.items()
+        }})
+    return {**spec, "secrets": encoded}
 
 
 # ── k8s quantity parser ────────────────────────────────────────
@@ -236,7 +255,7 @@ def create_remoteapp():
     if "spec_yaml" in data:
         import yaml as _yaml
         try:
-            data["spec"] = _yaml.safe_load(data["spec_yaml"]) or {}
+            data["spec"] = _encode_spec_secrets(_yaml.safe_load(data["spec_yaml"]) or {})
         except Exception as e:
             return jsonify({"error": f"invalid YAML: {e}"}), 400
     if not state.peers:
@@ -501,7 +520,7 @@ def update_remoteapp_spec(app_id):
     if "spec_yaml" in data:
         import yaml as _yaml
         try:
-            data["spec"] = _yaml.safe_load(data["spec_yaml"]) or {}
+            data["spec"] = _encode_spec_secrets(_yaml.safe_load(data["spec_yaml"]) or {})
         except Exception as e:
             return jsonify({"error": f"invalid YAML: {e}"}), 400
     new_spec = data.get("spec")

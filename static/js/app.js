@@ -34,6 +34,7 @@
     if (s === 'ready') { cls = 'badge-ready'; dot = '<span class="badge-dot"></span>'; }
     else if (s === 'running') { cls = 'badge-running'; }
     else if (s === 'creating') { cls = 'badge-creating'; }
+    else if (s === 'updating') { cls = 'badge-creating'; }
     else if (s.indexOf('fail') === 0) { cls = 'badge-failed'; }
     else if (s === 'timeout') { cls = 'badge-timeout'; }
     else if (s === 'approved') { cls = 'badge-approved'; }
