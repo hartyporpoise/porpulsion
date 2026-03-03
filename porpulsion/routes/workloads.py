@@ -440,7 +440,10 @@ def remoteapp_detail(app_id):
             detail = get_channel(peer.name).call("remoteapp/detail", {"id": app_id})
         except Exception as e:
             detail = {"error": str(e)}
-        resp = {"app": d, "k8s": detail, "cr": cr}
+        import yaml as _yaml
+        spec = dict(cr.get("spec", {}))
+        spec.pop("targetPeer", None)
+        resp = {"app": d, "k8s": detail, "cr": cr, "spec_yaml": _yaml.dump(spec, default_flow_style=False, allow_unicode=True)}
         return jsonify(resp)
 
     if side == "executing":

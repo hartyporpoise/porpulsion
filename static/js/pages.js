@@ -1281,8 +1281,7 @@
       var configHtml = _buildConfigTab(spec, isSubmitted);
 
       // ── Spec tab ──────────────────────────────────────────────
-      // When a CR is present, show the full CR spec (authoritative); otherwise fall back to _specToYaml
-      var specYaml = crSpec ? _specToYaml(crSpec) : _specToYaml(spec);
+      var specYaml = d.spec_yaml || _specToYaml(spec);
       var specLineCount = specYaml ? specYaml.split('\n').length : 1;
       var specEditorPx = Math.max(180, Math.min(480, specLineCount * 19 + 16));
       var editHtml = isSubmitted

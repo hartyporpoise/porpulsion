@@ -118,23 +118,6 @@ def _check_ea_crd_available(namespace: str) -> bool:
     return _ea_crd_available
 
 
-def _normalise_spec_secret_data(spec_dict: dict) -> dict:
-    """
-    Return a copy of spec_dict with secret .data values base64-encoded.
-    Idempotent: values that are already valid base64 are left unchanged
-    only if they were explicitly already encoded; we always re-encode from
-    plaintext to ensure consistency. Caller must pass plaintext values.
-    """
-    import base64 as _b64
-    import copy
-    spec = copy.deepcopy(spec_dict)
-    for sec in spec.get("secrets", []) or []:
-        if isinstance(sec, dict) and sec.get("data"):
-            sec["data"] = {
-                k: _b64.b64encode(v.encode()).decode() if isinstance(v, str) else v
-                for k, v in sec["data"].items()
-            }
-    return spec
 
 
 def _cr_name(app_id: str, app_name: str) -> str:
@@ -249,7 +232,7 @@ def create_remoteapp_cr(namespace: str, app_id: str, app_name: str, spec_dict: d
         return None
 
     cr_name = _cr_name(app_id, app_name)
-    cr_spec = _normalise_spec_secret_data(spec_dict)
+    cr_spec = dict(spec_dict)
     cr_spec["targetPeer"] = target_peer
     now = _now_iso()
 
@@ -373,7 +356,7 @@ def create_executingapp_cr(namespace: str, app_id: str, app_name: str, spec_dict
                 "porpulsion.io/app-name": app_name,
             },
         },
-        "spec": _normalise_spec_secret_data(spec_dict),
+        "spec": spec_dict,
     }
     try:
         _crd_api.create_namespaced_custom_object(GROUP, VERSION, namespace, PLURAL_EA, body)
