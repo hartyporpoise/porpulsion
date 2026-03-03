@@ -1,5 +1,6 @@
 import base64
 import logging
+import re
 
 from flask import Blueprint, request, jsonify, Response
 
@@ -58,8 +59,14 @@ def proxy_remoteapp(app_id, port, subpath):
     except Exception as exc:
         return jsonify({"error": f"failed to reach peer: {exc}"}), 502
 
-    resp_headers = {k: v for k, v in result.get("headers", {}).items()
-                    if k.lower() not in _HOP_BY_HOP}
+    proxy_prefix = request.url_root.rstrip("/") + f"/api/remoteapp/{app_id}/proxy/{port}"
+    resp_headers = {}
+    for k, v in result.get("headers", {}).items():
+        if k.lower() in _HOP_BY_HOP:
+            continue
+        if k.lower() == "location":
+            v = re.sub(r'^https?://[^/]*', proxy_prefix, v)
+        resp_headers[k] = v
     body = base64.b64decode(result.get("body", ""))
     return Response(body, status=result.get("status", 502), headers=resp_headers)
 
