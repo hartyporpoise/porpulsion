@@ -4,7 +4,7 @@ description: >
   Peer-to-peer Kubernetes connector. Deploy and manage workloads across clusters
   over mutual TLS, with built-in HTTP proxying and a live dashboard.
 type: application
-version: 0.1.0
+version: 0.1.1
 appVersion: "0.1.0"
 keywords:
   - kubernetes
