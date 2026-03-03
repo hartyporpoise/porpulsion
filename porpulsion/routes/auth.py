@@ -225,7 +225,7 @@ def login():
     if request.method == "POST":
         if _is_rate_limited(ip):
             error = "Too many failed attempts. Please try again later."
-            return render_template("auth/login.html", error=error)
+            return render_template("auth/login.html", error=error), 429
 
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")

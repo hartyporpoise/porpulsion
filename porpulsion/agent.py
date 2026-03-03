@@ -174,6 +174,16 @@ def _require_api_auth():
         return
     # HTTP Basic Auth (curl / scripts) — only honoured for /api/ paths
     if request.path.startswith("/api/"):
+        # Return 404 for unknown API routes before revealing auth is required.
+        # before_request runs before route matching, so probe the URL map ourselves.
+        from werkzeug.routing import RequestRedirect, MethodNotAllowed, NotFound
+        try:
+            app.url_map.bind("").match(request.path)
+        except (RequestRedirect, MethodNotAllowed):
+            pass  # path exists (wrong method / redirect) — fall through to auth
+        except NotFound:
+            return jsonify({"error": "not found"}), 404
+
         auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Basic "):
             ip = request.remote_addr or "unknown"
