@@ -54,6 +54,9 @@ spec:
                 appId:
                   type: string
                   description: Internal RemoteApp ID assigned by the agent
+                sourcePeer:
+                  type: string
+                  description: Name of the peer that submitted this app
                 message:
                   type: string
                   description: Human-readable status message

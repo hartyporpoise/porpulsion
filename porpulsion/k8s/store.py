@@ -142,17 +142,16 @@ def _now_iso() -> str:
 def cr_to_dict(cr: dict, side: str) -> dict:
     """Convert a RemoteApp or ExecutingApp CR dict to the API response shape."""
     meta   = cr.get("metadata", {})
-    labels = meta.get("labels", {})
     ann    = meta.get("annotations", {})
     status = cr.get("status", {})
     spec   = dict(cr.get("spec", {}))
-    spec.pop("targetPeer", None)  # internal field, not shown in UI
+    target_peer = spec.pop("targetPeer", "")
     return {
-        "id":          labels.get("porpulsion.io/app-id", ""),
+        "id":          status.get("appId", ""),
         "name":        ann.get("porpulsion.io/app-name", meta.get("name", "")),
         "spec":        spec,
-        "source_peer": labels.get("porpulsion.io/source-peer", ""),
-        "target_peer": labels.get("porpulsion.io/target-peer", ""),
+        "source_peer": status.get("sourcePeer", ""),
+        "target_peer": target_peer,
         "status":      status.get("phase", "Unknown"),
         "cr_name":     meta.get("name", ""),
         "side":        side,
@@ -163,11 +162,13 @@ def cr_to_dict(cr: dict, side: str) -> dict:
 
 def get_cr_by_app_id(namespace: str, app_id: str) -> tuple[dict | None, str]:
     """
-    Find a RemoteApp or ExecutingApp CR by app-id label.
+    Find a RemoteApp or ExecutingApp CR by app-id.
+    Checks status.appId and porpulsion.io/app-id label across both CR types.
     Returns (cr_dict, "submitted"|"executing") or (None, "").
     """
     for plural, side in [(PLURAL, "submitted"), (PLURAL_EA, "executing")]:
         try:
+            # Fast path: label selector
             result = _crd_api.list_namespaced_custom_object(
                 GROUP, VERSION, namespace, plural,
                 label_selector=f"porpulsion.io/app-id={app_id}",
@@ -175,6 +176,14 @@ def get_cr_by_app_id(namespace: str, app_id: str) -> tuple[dict | None, str]:
             items = result.get("items", [])
             if items:
                 return items[0], side
+        except Exception:
+            pass
+        try:
+            # Slow path: scan all CRs and match on status.appId (supports manually-applied CRs)
+            result = _crd_api.list_namespaced_custom_object(GROUP, VERSION, namespace, plural)
+            for item in result.get("items", []):
+                if item.get("status", {}).get("appId") == app_id:
+                    return item, side
         except Exception:
             pass
     return None, ""
@@ -259,10 +268,11 @@ def create_remoteapp_cr(namespace: str, app_id: str, app_name: str, spec_dict: d
         log.info("Created RemoteApp CR %s/%s", namespace, cr_name)
         # Set initial status with timestamps (status subresource requires a separate patch)
         _patch_status(namespace, PLURAL, cr_name, {
-            "phase": "Pending",
-            "appId": app_id,
-            "createdAt": now,
-            "updatedAt": now,
+            "phase":      "Pending",
+            "appId":      app_id,
+            "sourcePeer": source_peer,
+            "createdAt":  now,
+            "updatedAt":  now,
         })
         return cr_name
     except ApiException as e:
@@ -364,9 +374,10 @@ def create_executingapp_cr(namespace: str, app_id: str, app_name: str, spec_dict
         log.info("Created ExecutingApp CR %s/%s", namespace, cr_name)
         _patch_status(namespace, PLURAL_EA, cr_name, {
             "phase":     "Pending",
-            "appId":     app_id,
-            "createdAt": now,
-            "updatedAt": now,
+            "appId":      app_id,
+            "sourcePeer": source_peer,
+            "createdAt":  now,
+            "updatedAt":  now,
         })
         return cr_name
     except ApiException as e:
@@ -434,7 +445,7 @@ def list_executingapp_crs(namespace: str) -> list[dict]:
 
 
 def get_ea_cr_by_app_id(namespace: str, app_id: str) -> dict | None:
-    """Find an ExecutingApp CR by app-id label. Returns the CR dict or None."""
+    """Find an ExecutingApp CR by app-id. Returns the CR dict or None."""
     if not _check_ea_crd_available(namespace):
         return None
     try:
@@ -443,10 +454,18 @@ def get_ea_cr_by_app_id(namespace: str, app_id: str) -> dict | None:
             label_selector=f"porpulsion.io/app-id={app_id}",
         )
         items = result.get("items", [])
-        return items[0] if items else None
+        if items:
+            return items[0]
     except Exception as e:
         log.warning("Failed to get ExecutingApp CR by app-id %s: %s", app_id, e)
-        return None
+    try:
+        result = _crd_api.list_namespaced_custom_object(GROUP, VERSION, namespace, PLURAL_EA)
+        for item in result.get("items", []):
+            if item.get("status", {}).get("appId") == app_id:
+                return item
+    except Exception as e:
+        log.warning("Failed to scan ExecutingApp CRs for app-id %s: %s", app_id, e)
+    return None
 
 
 def patch_cr_volume_data(namespace: str, app_id: str, kind: str, vol_name: str,
@@ -546,10 +565,35 @@ def compare_spec_schemas(local_props: dict, remote_props: dict) -> dict:
 
 # ── CR watcher ────────────────────────────────────────────────────────────────
 
+def _bootstrap_cr_status(namespace: str, cr: dict, plural: str) -> None:
+    """
+    For CRs that have no status.appId (e.g. manually kubectl-applied), generate
+    a fresh app-id UUID and write it to status so the rest of the system can
+    address the CR by a stable ID regardless of metadata.name format.
+    """
+    import uuid as _uuid
+    meta    = cr.get("metadata", {})
+    status  = cr.get("status", {})
+    cr_name = meta.get("name", "")
+
+    if status.get("appId"):
+        return  # already bootstrapped
+
+    app_id = _uuid.uuid4().hex[:8]
+    log.info("Bootstrapping status for CR %s with generated app-id=%s", cr_name, app_id)
+    _patch_status(namespace, plural, cr_name, {
+        "phase":     "Pending",
+        "appId":     app_id,
+        "createdAt": meta.get("creationTimestamp", _now_iso()),
+        "updatedAt": _now_iso(),
+    })
+
+
 def start_cr_watcher(namespace: str, on_modified) -> None:
     """
-    Start a background thread that watches RemoteApp CRs for MODIFIED events.
-    Calls on_modified(cr_obj) for each update.
+    Start a background thread that watches RemoteApp CRs for ADDED/MODIFIED events.
+    Bootstraps status on manually-applied CRs (ADDED without status.appId).
+    Calls on_modified(cr_obj) for MODIFIED events.
     """
     if not _check_crd_available(namespace):
         log.info("CRD not available — CR watcher not started")
@@ -567,7 +611,12 @@ def start_cr_watcher(namespace: str, on_modified) -> None:
                 ):
                     evt_type = event.get("type", "")
                     obj = event.get("object", {})
-                    if evt_type == "MODIFIED":
+                    if evt_type == "ADDED":
+                        try:
+                            _bootstrap_cr_status(namespace, obj, PLURAL)
+                        except Exception as e:
+                            log.warning("CR watcher bootstrap error: %s", e)
+                    elif evt_type == "MODIFIED":
                         try:
                             on_modified(obj)
                         except Exception as e:

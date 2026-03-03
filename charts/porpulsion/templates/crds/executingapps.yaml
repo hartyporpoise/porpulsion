@@ -54,6 +54,9 @@ spec:
                 appId:
                   type: string
                   description: Internal app ID assigned by the submitting agent
+                sourcePeer:
+                  type: string
+                  description: Name of the peer that submitted this app
                 message:
                   type: string
                   description: Human-readable status message
