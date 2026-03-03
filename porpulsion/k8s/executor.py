@@ -101,7 +101,7 @@ def delete_configmap(app_id: str, logical_name: str) -> None:
 # ── Secret management ─────────────────────────────────────────────────────────
 
 def apply_secret(app_id: str, logical_name: str, plaintext_data: dict) -> str:
-    """Create or update a Secret. Values are base64-encoded automatically by k8s client. Returns k8s name."""
+    """Create or update a Secret. plaintext_data values are plain strings; encoding is done here. Returns k8s name."""
     name = _sec_name(app_id, logical_name)
     # kubernetes python client accepts string_data for automatic base64 encoding
     body = client.V1Secret(
@@ -320,6 +320,10 @@ def run_workload(remote_app, callback_url, peer=None):
                 sec_data = sec_spec.data
                 if hasattr(sec_data, "to_dict"):
                     sec_data = sec_data.to_dict()
+                # CR spec stores secret values as base64 — decode to plaintext for apply_secret
+                if sec_data:
+                    sec_data = {k: base64.b64decode(v).decode() if isinstance(v, str) else v
+                                for k, v in sec_data.items()}
                 k8s_name = apply_secret(remote_app.id, sec_spec.name, sec_data)
             except client.ApiException as e:
                 _report_status(remote_app, callback_url, f"Failed: Secret {sec_spec.name}: {e.reason}", peer=peer)

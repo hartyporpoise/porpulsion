@@ -15,6 +15,7 @@ from porpulsion.k8s.store import (
     create_remoteapp_cr, delete_remoteapp_cr,
     list_remoteapp_crs, list_executingapp_crs,
     delete_executingapp_cr, cr_to_dict, get_cr_by_app_id, get_ea_cr_by_app_id,
+    patch_cr_volume_data,
 )
 
 log = logging.getLogger("porpulsion.routes.workloads")
@@ -555,14 +556,12 @@ def get_app_configmap(app_id, name):
         return jsonify({"error": "app not found"}), 404
     d = cr_to_dict(cr, side)
     if side == "submitted":
-        peer = state.peers.get(d["target_peer"]) or next(iter(state.peers.values()), None)
-        if not peer:
-            return jsonify({"error": "peer not connected"}), 503
-        try:
-            result = get_channel(peer.name).call("remoteapp/config-get", {"id": app_id, "kind": "configmap", "name": name})
-            return jsonify(result)
-        except Exception as e:
-            return jsonify({"error": str(e)}), 502
+        # Read from local CR spec — kept in sync by patch_cr_volume_data on every save
+        spec = d.get("spec", {})
+        for cm in (spec.get("configMaps") or []):
+            if cm.get("name") == name:
+                return jsonify({"data": dict(cm.get("data") or {})})
+        return jsonify({"data": {}})
     if side == "executing":
         try:
             data = get_configmap_data(app_id, name)
@@ -595,6 +594,7 @@ def patch_app_configmap(app_id, name):
         )
         try:
             patch_configmap_data(app_id, name, data)
+            patch_cr_volume_data(state.NAMESPACE, app_id, "configmap", name, data)
             rollout_restart(ra)
             return jsonify({"ok": True})
         except Exception as e:
@@ -604,19 +604,25 @@ def patch_app_configmap(app_id, name):
 
 @bp.route("/remoteapp/<app_id>/config/secret/<name>")
 def get_app_secret(app_id, name):
+    import base64 as _b64
     cr, side = get_cr_by_app_id(state.NAMESPACE, app_id)
     if cr is None:
         return jsonify({"error": "app not found"}), 404
     d = cr_to_dict(cr, side)
     if side == "submitted":
-        peer = state.peers.get(d["target_peer"]) or next(iter(state.peers.values()), None)
-        if not peer:
-            return jsonify({"error": "peer not connected"}), 503
-        try:
-            result = get_channel(peer.name).call("remoteapp/config-get", {"id": app_id, "kind": "secret", "name": name})
-            return jsonify(result)
-        except Exception as e:
-            return jsonify({"error": str(e)}), 502
+        # Read from local CR spec — values are base64-encoded, decode for the UI
+        spec = d.get("spec", {})
+        for sec in (spec.get("secrets") or []):
+            if sec.get("name") == name:
+                raw = sec.get("data") or {}
+                decoded = {}
+                for k, v in raw.items():
+                    try:
+                        decoded[k] = _b64.b64decode(v).decode() if isinstance(v, str) else v
+                    except Exception:
+                        decoded[k] = v
+                return jsonify({"data": decoded})
+        return jsonify({"data": {}})
     if side == "executing":
         try:
             data = get_secret_data(app_id, name)
@@ -649,6 +655,7 @@ def patch_app_secret(app_id, name):
         )
         try:
             patch_secret_data(app_id, name, data)
+            patch_cr_volume_data(state.NAMESPACE, app_id, "secret", name, data)
             rollout_restart(ra)
             return jsonify({"ok": True})
         except Exception as e:

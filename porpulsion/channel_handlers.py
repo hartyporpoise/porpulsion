@@ -209,29 +209,12 @@ def handle_remoteapp_logs(payload: dict) -> dict:
     return get_pod_logs(ra, tail=tail, pod_name=pod_name, order_by_time=order_by_time)
 
 
-def handle_remoteapp_config_get(payload: dict) -> dict:
-    """Return the current data for a managed ConfigMap or Secret on the executing side."""
-    from porpulsion import state
-    from porpulsion.k8s.executor import get_configmap_data, get_secret_data
-    from porpulsion.k8s.store import get_ea_cr_by_app_id
-
-    app_id = payload.get("id", "")
-    kind   = payload.get("kind", "")
-    name   = payload.get("name", "")
-    if get_ea_cr_by_app_id(state.NAMESPACE, app_id) is None:
-        raise RuntimeError("app not found")
-    if kind == "configmap":
-        return {"data": get_configmap_data(app_id, name)}
-    if kind == "secret":
-        return {"data": get_secret_data(app_id, name)}
-    raise RuntimeError(f"unknown config kind: {kind!r}")
-
 
 def handle_remoteapp_config_patch(payload: dict) -> dict:
     """Apply a key-value patch to a managed ConfigMap or Secret and trigger a rollout restart."""
     from porpulsion import state
     from porpulsion.k8s.executor import patch_configmap_data, patch_secret_data, rollout_restart
-    from porpulsion.k8s.store import get_ea_cr_by_app_id, cr_to_dict
+    from porpulsion.k8s.store import get_ea_cr_by_app_id, cr_to_dict, patch_cr_volume_data
     from porpulsion.models import RemoteApp, RemoteAppSpec
 
     app_id = payload.get("id", "")
@@ -251,8 +234,10 @@ def handle_remoteapp_config_patch(payload: dict) -> dict:
     )
     if kind == "configmap":
         patch_configmap_data(app_id, name, data)
+        patch_cr_volume_data(state.NAMESPACE, app_id, "configmap", name, data)
     elif kind == "secret":
         patch_secret_data(app_id, name, data)
+        patch_cr_volume_data(state.NAMESPACE, app_id, "secret", name, data)
     else:
         raise RuntimeError(f"unknown config kind: {kind!r}")
     rollout_restart(ra)

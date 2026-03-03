@@ -118,6 +118,25 @@ def _check_ea_crd_available(namespace: str) -> bool:
     return _ea_crd_available
 
 
+def _normalise_spec_secret_data(spec_dict: dict) -> dict:
+    """
+    Return a copy of spec_dict with secret .data values base64-encoded.
+    Idempotent: values that are already valid base64 are left unchanged
+    only if they were explicitly already encoded; we always re-encode from
+    plaintext to ensure consistency. Caller must pass plaintext values.
+    """
+    import base64 as _b64
+    import copy
+    spec = copy.deepcopy(spec_dict)
+    for sec in spec.get("secrets", []) or []:
+        if isinstance(sec, dict) and sec.get("data"):
+            sec["data"] = {
+                k: _b64.b64encode(v.encode()).decode() if isinstance(v, str) else v
+                for k, v in sec["data"].items()
+            }
+    return spec
+
+
 def _cr_name(app_id: str, app_name: str) -> str:
     """Produce a valid k8s name for a RemoteApp CR: ra-{id}-{safe_name}."""
     safe_name = "".join(c if c.isalnum() or c == "-" else "-" for c in app_name.lower()).strip("-")
@@ -230,7 +249,7 @@ def create_remoteapp_cr(namespace: str, app_id: str, app_name: str, spec_dict: d
         return None
 
     cr_name = _cr_name(app_id, app_name)
-    cr_spec = dict(spec_dict)
+    cr_spec = _normalise_spec_secret_data(spec_dict)
     cr_spec["targetPeer"] = target_peer
     now = _now_iso()
 
@@ -354,7 +373,7 @@ def create_executingapp_cr(namespace: str, app_id: str, app_name: str, spec_dict
                 "porpulsion.io/app-name": app_name,
             },
         },
-        "spec": spec_dict,
+        "spec": _normalise_spec_secret_data(spec_dict),
     }
     try:
         _crd_api.create_namespaced_custom_object(GROUP, VERSION, namespace, PLURAL_EA, body)
@@ -444,6 +463,70 @@ def get_ea_cr_by_app_id(namespace: str, app_id: str) -> dict | None:
     except Exception as e:
         log.warning("Failed to get ExecutingApp CR by app-id %s: %s", app_id, e)
         return None
+
+
+def patch_cr_volume_data(namespace: str, app_id: str, kind: str, vol_name: str,
+                          data: dict) -> None:
+    """
+    Update the spec.configMaps[i].data or spec.secrets[i].data for a named
+    volume entry in the CR (RemoteApp or ExecutingApp), keeping the CR in sync
+    with live k8s ConfigMap/Secret state.
+
+    kind: "configmap" or "secret"
+    data: plaintext key→value dict. ConfigMap values stored as-is; secret
+          values are base64-encoded in the CR (decoded by executor on apply).
+    """
+    import base64 as _b64
+
+    # Find the CR — could be either type
+    plural, cr = None, None
+    ea = get_ea_cr_by_app_id(namespace, app_id)
+    if ea is not None:
+        plural, cr = PLURAL_EA, ea
+    else:
+        for item in list_remoteapp_crs(namespace):
+            labels = item.get("metadata", {}).get("labels", {})
+            if labels.get("porpulsion.io/app-id") == app_id:
+                plural, cr = PLURAL, item
+                break
+    if cr is None or plural is None:
+        log.warning("patch_cr_volume_data: CR not found for app_id=%s", app_id)
+        return
+
+    cr_name = cr["metadata"]["name"]
+    spec = dict(cr.get("spec", {}))
+
+    field = "configMaps" if kind == "configmap" else "secrets"
+    entries = list(spec.get(field, []) or [])
+
+    # Base64-encode secret values for storage in the CR spec
+    stored_data = dict(data)
+    if kind == "secret":
+        stored_data = {k: _b64.b64encode(v.encode()).decode() if isinstance(v, str) else v
+                       for k, v in data.items()}
+
+    matched = False
+    for i, entry in enumerate(entries):
+        entry_name = entry.get("name") if isinstance(entry, dict) else getattr(entry, "name", None)
+        if entry_name == vol_name:
+            updated = dict(entry) if isinstance(entry, dict) else entry.to_dict()
+            updated["data"] = stored_data
+            entries[i] = updated
+            matched = True
+            break
+    if not matched:
+        log.warning("patch_cr_volume_data: volume %s not found in CR spec for app_id=%s", vol_name, app_id)
+        return
+
+    spec[field] = entries
+    try:
+        existing = _crd_api.get_namespaced_custom_object(GROUP, VERSION, namespace, plural, cr_name)
+        body = dict(existing)
+        body["spec"] = spec
+        _crd_api.replace_namespaced_custom_object(GROUP, VERSION, namespace, plural, cr_name, body)
+        log.info("Updated CR %s spec.%s[%s].data", cr_name, field, vol_name)
+    except ApiException as e:
+        log.warning("Failed to patch CR spec for %s: %s", cr_name, e)
 
 
 # ── Internal helpers ──────────────────────────────────────────────────────────

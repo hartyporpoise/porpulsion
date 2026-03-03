@@ -550,7 +550,6 @@ def _register_handlers(ch: "PeerChannel"):
         handle_remoteapp_detail,
         handle_remoteapp_logs,
         handle_remoteapp_spec_update,
-        handle_remoteapp_config_get,
         handle_remoteapp_config_patch,
         handle_proxy_request,
         handle_peer_disconnect,
@@ -562,7 +561,6 @@ def _register_handlers(ch: "PeerChannel"):
     ch.register("remoteapp/detail",        handle_remoteapp_detail)
     ch.register("remoteapp/logs",          handle_remoteapp_logs)
     ch.register("remoteapp/spec-update",   handle_remoteapp_spec_update)
-    ch.register("remoteapp/config-get",    handle_remoteapp_config_get)
     ch.register("remoteapp/config-patch",  handle_remoteapp_config_patch)
     # Wrap proxy handler so it can enforce the per-peer tunnel allowlist.
     def _proxy_handler(payload, _peer=ch.peer_name):
