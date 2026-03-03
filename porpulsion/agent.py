@@ -224,13 +224,6 @@ def openapi_yaml():
     return Response(get_openapi_yaml(), mimetype="application/x-yaml")
 
 
-# Catch-all for unknown /api/* paths — return 404 before auth check fires,
-# so attackers can't enumerate valid routes by distinguishing 401 from 404.
-@app.route("/api/", defaults={"path": ""})
-@app.route("/api/<path:path>")
-def api_not_found(path):
-    return jsonify({"error": "not found"}), 404
-
 
 # ── Main ──────────────────────────────────────────────────────
 
@@ -365,4 +358,6 @@ if __name__ == "__main__":
     threading.Thread(target=_start_internal_server, daemon=True, name="internal-server").start()
 
     # Dashboard + API (port 8000): session auth required.
-    app.run(host="0.0.0.0", port=8000, threaded=True)
+    from werkzeug.serving import make_server as _make_server
+    log.info("Starting dashboard server on port 8000")
+    _make_server("0.0.0.0", 8000, app, threaded=True).serve_forever()
