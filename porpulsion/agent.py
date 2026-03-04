@@ -235,118 +235,24 @@ if __name__ == "__main__":
 
     threading.Thread(target=_reconnect_persisted_peers, daemon=True).start()
 
-    # CR watcher: drives workload execution from ExecutingApp CRs.
-    # RemoteApp CRs are also watched: new/updated CRs with a targetPeer are
-    # forwarded to that peer via the WS channel.
-    def _on_cr_added_or_modified(cr: dict, is_new: bool) -> None:
-        from porpulsion.k8s.store import cr_to_dict
-        from porpulsion.models import RemoteApp, RemoteAppSpec
+    # Kopf operator: handles ExecutingApp and RemoteApp CR events.
+    # Runs in a background thread alongside Flask.
+    import asyncio
+    import kopf
+    import porpulsion.k8s.kopf_handlers  # noqa: F401 — registers handlers via decorators
 
-        kind = cr.get("kind", "")
+    def _run_kopf():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(kopf.operator(
+            namespace=state.NAMESPACE,
+            clusterwide=False,
+            standalone=True,
+            liveness_endpoint=None,
+        ))
 
-        if kind == "ExecutingApp":
-            from porpulsion.k8s.executor import run_workload
-            d = cr_to_dict(cr, "executing")
-            if not d["id"]:
-                return  # appId not yet bootstrapped — MODIFIED will follow
-            spec = RemoteAppSpec.from_dict(d.get("spec", {}))
-            ra = RemoteApp(
-                id=d["id"], name=d["name"], spec=spec,
-                source_peer=d["source_peer"],
-                resource_name=d.get("resource_name", ""),
-            )
-            ra.cr_name = d.get("cr_name", "")
-            log.info("CR watcher: %s ExecutingApp %s (%s) → running workload",
-                     "new" if is_new else "updated", d["name"], d["id"])
-            run_workload(ra, d["source_peer"])
-
-        elif kind == "RemoteApp":
-            # A RemoteApp CR was added or modified.
-            # Forward to the target peer via the channel.
-            d = cr_to_dict(cr, "submitted")
-            if not d["id"]:
-                return  # not bootstrapped yet
-            target_peer_name = d.get("target_peer", "")
-            if not target_peer_name:
-                return  # no target — nothing to forward
-            peer = state.peers.get(target_peer_name)
-            if not peer:
-                log.warning("CR watcher: RemoteApp %s targets peer %r which is not connected — skipping forward",
-                            d["name"], target_peer_name)
-                return
-            spec_dict = d.get("spec", {})
-            msg_type = "remoteapp/receive" if is_new else "remoteapp/spec-update"
-            payload = {"id": d["id"], "spec": spec_dict, "source_peer": state.AGENT_NAME}
-            if is_new:
-                payload["name"] = d["name"]
-            try:
-                from porpulsion.channel import get_channel
-                ch = get_channel(peer.name)
-                ch.call(msg_type, payload)
-                log.info("CR watcher: %s RemoteApp %s (%s) to peer %s",
-                         "forwarded new" if is_new else "forwarded updated", d["name"], d["id"], peer.name)
-            except Exception as e:
-                log.warning("CR watcher: failed to forward RemoteApp %s to peer %s: %s",
-                            d["name"], peer.name, e)
-
-    def _on_cr_deleted(cr: dict) -> None:
-        from porpulsion.k8s.store import cr_to_dict
-        from porpulsion.models import RemoteApp, RemoteAppSpec
-
-        kind = cr.get("kind", "")
-
-        if kind == "RemoteApp":
-            # RemoteApp CR deleted on submitted side — tell the executing peer to delete its EA CR.
-            # The peer's EA watcher DELETED will then clean up the workload and notify us back.
-            d = cr_to_dict(cr, "submitted")
-            if not d["id"]:
-                return
-            target_peer_name = d.get("target_peer", "")
-            if not target_peer_name:
-                return
-            peer = state.peers.get(target_peer_name)
-            if not peer:
-                log.warning("CR watcher: RemoteApp %s deleted but peer %r not connected — skipping", d["name"], target_peer_name)
-                return
-            log.info("CR watcher: RemoteApp %s (%s) deleted — notifying peer %s to delete EA", d["name"], d["id"], peer.name)
-            try:
-                from porpulsion.channel import get_channel
-                get_channel(peer.name).call("remoteapp/delete", {"id": d["id"]})
-            except Exception as e:
-                log.warning("CR watcher: failed to notify peer of RA deletion: %s", e)
-
-        elif kind == "ExecutingApp":
-            # ExecutingApp CR deleted — clean up the workload and notify source peer.
-            from porpulsion.k8s.executor import delete_workload
-            d = cr_to_dict(cr, "executing")
-            if not d["id"]:
-                return
-            log.info("CR watcher: ExecutingApp %s (%s) deleted — cleaning up workload", d["name"], d["id"])
-            ra = RemoteApp(
-                id=d["id"], name=d["name"],
-                spec=RemoteAppSpec.from_dict(d.get("spec", {})),
-                source_peer=d["source_peer"],
-                resource_name=d.get("resource_name", ""),
-            )
-            ra.cr_name = d.get("cr_name", "")
-            delete_workload(ra)
-            # Notify the source peer so its RemoteApp CR status updates to "Deleted"
-            if d["source_peer"]:
-                try:
-                    from porpulsion.channel import get_channel
-                    get_channel(d["source_peer"]).push("remoteapp/status", {
-                        "id": d["id"], "status": "Deleted",
-                    })
-                except Exception as e:
-                    log.warning("CR watcher: failed to notify source peer of EA deletion: %s", e)
-
-    from porpulsion.k8s.store import start_cr_watcher as _start_cr_watcher
-    _start_cr_watcher(
-        state.NAMESPACE,
-        on_added=lambda cr: _on_cr_added_or_modified(cr, is_new=True),
-        on_modified=lambda cr: _on_cr_added_or_modified(cr, is_new=False),
-        on_deleted=_on_cr_deleted,
-    )
+    threading.Thread(target=_run_kopf, daemon=True, name="kopf-operator").start()
+    log.info("Kopf operator started for namespace %s", state.NAMESPACE)
 
     # Peer-facing server (port 8001): /peer and /ws only.
     # This is the only port exposed via the Ingress.

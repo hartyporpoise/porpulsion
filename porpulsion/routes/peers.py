@@ -11,7 +11,6 @@ from porpulsion import state, tls
 from porpulsion.models import Peer
 from porpulsion.peering import initiate_peering
 from porpulsion.channel import open_channel_to
-from porpulsion.k8s.executor import delete_workload
 
 log = logging.getLogger("porpulsion.routes.peers")
 
@@ -176,8 +175,6 @@ def remove_peer(peer_name):
         list_remoteapp_crs, list_executingapp_crs, delete_remoteapp_cr,
         delete_executingapp_cr, cr_to_dict,
     )
-    from porpulsion.models import RemoteApp, RemoteAppSpec
-
     # ── 1. Delete RemoteApp CRs we submitted to this peer ────────
     for cr in list_remoteapp_crs(state.NAMESPACE):
         d = cr_to_dict(cr, "submitted")
@@ -193,15 +190,6 @@ def remove_peer(peer_name):
     for cr in list_executingapp_crs(state.NAMESPACE):
         d = cr_to_dict(cr, "executing")
         if d["source_peer"] == peer_name:
-            ra = RemoteApp(
-                id=d["id"], name=d["name"],
-                spec=RemoteAppSpec.from_dict(d.get("spec", {})),
-                source_peer=d["source_peer"],
-            )
-            try:
-                delete_workload(ra)
-            except Exception as exc:
-                log.debug("Could not delete workload for app %s: %s", d["id"], exc)
             delete_executingapp_cr(state.NAMESPACE, d["cr_name"])
             log.info("Deleted ExecutingApp CR %s (peer %s removed)", d["id"], peer_name)
 
