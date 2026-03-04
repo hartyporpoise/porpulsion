@@ -59,7 +59,8 @@ def proxy_remoteapp(app_id, port, subpath):
     except Exception as exc:
         return jsonify({"error": f"failed to reach peer: {exc}"}), 502
 
-    proxy_prefix = request.url_root.rstrip("/") + f"/api/remoteapp/{app_id}/proxy/{port}"
+    scheme = request.headers.get("X-Forwarded-Proto", request.scheme)
+    proxy_prefix = f"{scheme}://{request.host}/api/remoteapp/{app_id}/proxy/{port}"
     resp_headers = {}
     for k, v in result.get("headers", {}).items():
         if k.lower() in _HOP_BY_HOP:
