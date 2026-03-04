@@ -230,6 +230,34 @@ jobs:
             helm push "$pkg" oci://ghcr.io/${{ github.repository_owner }}/charts
           done
 
+  # ── Tag repo with app version when appVersion changes ───────────────────
+  tag-app:
+    needs: check
+    if: needs.check.outputs.app_version_changed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Push app version tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="v${{ needs.check.outputs.app_version }}"
+          git tag "$VERSION"
+          gh release create "$VERSION" \
+            --title "$VERSION" \
+            --notes "App version ${{ needs.check.outputs.app_version }}" \
+            --latest
+
   # ── Build and publish Docker image ───────────────────────────────────────
   # Runs on:
   #   - push to main (always, for :main and :sha tags)
