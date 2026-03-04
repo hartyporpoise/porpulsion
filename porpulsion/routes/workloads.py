@@ -8,7 +8,7 @@ from porpulsion import state, tls
 from porpulsion.models import RemoteApp, RemoteAppSpec
 from porpulsion.channel import get_channel
 from porpulsion.k8s.executor import (
-    delete_workload, scale_workload, get_deployment_status, get_pod_logs,
+    scale_workload, get_deployment_status, get_pod_logs,
     get_configmap_data, patch_configmap_data, patch_secret_data,
     rollout_restart,
 )

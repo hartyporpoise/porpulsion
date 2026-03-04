@@ -13,10 +13,9 @@ import datetime
 import logging
 import pathlib
 import threading
-import time
 
 import yaml
-from kubernetes import client, config, watch
+from kubernetes import client, config
 from kubernetes.client.rest import ApiException
 
 log = logging.getLogger("porpulsion.crd")
@@ -585,51 +584,36 @@ def compare_spec_schemas(local_props: dict, remote_props: dict) -> dict:
     }
 
 
-# ── CR watcher ────────────────────────────────────────────────────────────────
-
-def _bootstrap_cr_status(namespace: str, cr: dict, plural: str) -> None:
+def bootstrap_cr_status(namespace: str, plural: str, cr_name: str, meta: dict,
+                        spec: dict, existing_status: dict) -> str | None:
     """
     For CRs that have no status.appId (e.g. manually kubectl-applied), generate
-    a fresh app-id UUID and write it to status so the rest of the system can
-    address the CR by a stable ID regardless of metadata.name format.
+    a fresh app-id and write it to status. Returns the app_id if bootstrapped,
+    or None if already bootstrapped or skipped.
 
-    CRs created by porpulsion code always carry the porpulsion.io/app-id label
-    and handle their own status patch — skip bootstrap for those.
+    CRs created by porpulsion code carry the porpulsion.io/app-id label and
+    patch their own status — this function skips those to avoid races.
+    Called from kopf on.create handlers.
     """
     import uuid as _uuid
-    meta   = cr.get("metadata", {})
-    labels = meta.get("labels", {})
 
-    # CRs created by our code always have this label; skip bootstrap for them
-    # to avoid a race between create_*_cr's status patch and our bootstrap.
+    labels = meta.get("labels") or {}
     if labels.get("porpulsion.io/app-id"):
-        return
+        return None  # created by our code — skip
 
-    cr_name  = meta.get("name", "")
-    app_name = cr_name  # metadata.name IS the app name
-
-    # Re-fetch to get the latest status (in case a concurrent writer beat us)
-    try:
-        cr = _crd_api.get_namespaced_custom_object(GROUP, VERSION, namespace, plural, cr_name)
-    except Exception:
-        pass
-    status = cr.get("status", {})
-
-    if status.get("appId"):
-        return  # already bootstrapped
+    if existing_status.get("appId"):
+        return None  # already bootstrapped
 
     app_id = _uuid.uuid4().hex[:8]
-    spec = cr.get("spec", {})
     target_peer = spec.get("targetPeer", "")
     log.info("Bootstrapping status for CR %s with generated app-id=%s", cr_name, app_id)
     _patch_status(namespace, plural, cr_name, {
         "phase":        "Pending",
         "appId":        app_id,
-        "resourceName": safe_resource_name(app_id, app_name),
+        "resourceName": safe_resource_name(app_id, cr_name),
         "createdAt":    meta.get("creationTimestamp", _now_iso()),
         "updatedAt":    _now_iso(),
     })
-    # Stamp all lookup labels so label-selector queries work after bootstrap
     stamp_labels: dict = {"porpulsion.io/app-id": app_id}
     if target_peer:
         stamp_labels["porpulsion.io/target-peer"] = target_peer
@@ -638,87 +622,6 @@ def _bootstrap_cr_status(namespace: str, cr: dict, plural: str) -> None:
             GROUP, VERSION, namespace, plural, cr_name,
             {"metadata": {"labels": stamp_labels}},
         )
-        log.debug("Stamped labels %s on CR %s", stamp_labels, cr_name)
     except Exception as e:
         log.warning("Failed to stamp labels on CR %s: %s", cr_name, e)
-
-
-def start_cr_watcher(namespace: str, on_added=None, on_modified=None, on_deleted=None) -> None:
-    """
-    Start background threads that watch ExecutingApp and RemoteApp CRs.
-    - ADDED: bootstraps status.appId if missing, then calls on_added(cr_obj).
-    - MODIFIED: calls on_modified(cr_obj) when spec generation advances.
-    - DELETED: calls on_deleted(cr_obj) with the last-known CR snapshot.
-    ExecutingApp CRs drive workload execution (the executing-side source of truth).
-    RemoteApp CRs are also watched so manually kubectl-applied ones get bootstrapped.
-    """
-    def _watch_loop(plural: str):
-        # Track the last spec-generation we acted on per CR name.
-        # metadata.generation only increments when spec changes (not on status patches)
-        # because the CRD has subresources.status defined.
-        _last_gen: dict[str, int] = {}
-        while True:
-            try:
-                w = watch.Watch()
-                log.info("CR watcher started for %s/%s in ns=%s", GROUP, plural, namespace)
-                for event in w.stream(
-                    _crd_api.list_namespaced_custom_object,
-                    GROUP, VERSION, namespace, plural,
-                    timeout_seconds=3600,
-                ):
-                    evt_type = event.get("type", "")
-                    obj = event.get("object", {})
-                    meta = obj.get("metadata", {})
-                    cr_name = meta.get("name", "")
-                    generation = meta.get("generation", 0)
-                    if evt_type == "ADDED":
-                        try:
-                            _bootstrap_cr_status(namespace, obj, plural)
-                            # Re-fetch so the callback sees the freshly-written appId.
-                            # Retry briefly in case the status patch from the creator
-                            # is still in-flight (labeled CRs bootstrap their own status).
-                            for _attempt in range(5):
-                                try:
-                                    obj = _crd_api.get_namespaced_custom_object(
-                                        GROUP, VERSION, namespace, plural, cr_name)
-                                    generation = obj.get("metadata", {}).get("generation", generation)
-                                except Exception:
-                                    break
-                                if obj.get("status", {}).get("appId"):
-                                    break
-                                time.sleep(0.3)
-                            _last_gen[cr_name] = generation
-                            if on_added:
-                                on_added(obj)
-                        except Exception as e:
-                            log.warning("CR watcher ADDED error (%s): %s", plural, e)
-                    elif evt_type == "MODIFIED":
-                        try:
-                            # Only fire if spec actually changed (generation advanced)
-                            if generation <= _last_gen.get(cr_name, 0):
-                                continue
-                            _last_gen[cr_name] = generation
-                            if on_modified:
-                                on_modified(obj)
-                        except Exception as e:
-                            log.warning("CR watcher MODIFIED error (%s): %s", plural, e)
-                    elif evt_type == "DELETED":
-                        _last_gen.pop(cr_name, None)
-                        try:
-                            if on_deleted:
-                                on_deleted(obj)
-                        except Exception as e:
-                            log.warning("CR watcher DELETED error (%s): %s", plural, e)
-            except ApiException as e:
-                log.warning("CR watch stream error (%s): %s — retrying in 10s", plural, e)
-                time.sleep(10)
-            except Exception as e:
-                log.warning("CR watcher unexpected error (%s): %s — retrying in 10s", plural, e)
-                time.sleep(10)
-
-    if _check_ea_crd_available(namespace):
-        threading.Thread(target=_watch_loop, args=(PLURAL_EA,),
-                         daemon=True, name="cr-watcher-ea").start()
-    if _check_crd_available(namespace):
-        threading.Thread(target=_watch_loop, args=(PLURAL,),
-                         daemon=True, name="cr-watcher-ra").start()
+    return app_id

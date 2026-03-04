@@ -8,3 +8,4 @@ cryptography==42.0.5
 certifi
 apispec==6.3.1
 PyYAML==6.0.2
+kopf==1.37.2

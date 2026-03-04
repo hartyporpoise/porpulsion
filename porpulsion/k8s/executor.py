@@ -4,6 +4,7 @@ import threading
 import time
 from datetime import datetime, timezone
 from kubernetes import client, config
+import kopf
 from porpulsion import state
 
 log = logging.getLogger("porpulsion.executor")
@@ -62,14 +63,24 @@ def _owner_labels(remote_app) -> dict:
     }
 
 
+# ── Owner reference helper ────────────────────────────────────────────────────
+
+def _adopt(k8s_body, cr_body):
+    """Stamp owner references from the ExecutingApp CR onto a child k8s object."""
+    if cr_body is None:
+        return
+    kopf.adopt(k8s_body, owner=cr_body)
+
+
 # ── ConfigMap management ──────────────────────────────────────────────────────
 
-def _apply_configmap_by_name(name: str, data: dict) -> None:
+def _apply_configmap_by_name(name: str, data: dict, cr_body=None) -> None:
     """Create or update a ConfigMap by its exact k8s name."""
     body = client.V1ConfigMap(
         metadata=client.V1ObjectMeta(name=name, namespace=NAMESPACE),
         data=data or {},
     )
+    _adopt(body, cr_body)
     try:
         core_v1.create_namespaced_config_map(namespace=NAMESPACE, body=body)
         log.info("Created ConfigMap %s", name)
@@ -107,25 +118,17 @@ def get_configmap_data(app_id: str, logical_name: str) -> dict:
     return dict(cm.data or {})
 
 
-def delete_configmap(app_id: str, logical_name: str) -> None:
-    name = _cm_name(_resource_name_for(app_id), logical_name)
-    try:
-        core_v1.delete_namespaced_config_map(name=name, namespace=NAMESPACE)
-        log.info("Deleted ConfigMap %s", name)
-    except client.ApiException as e:
-        if e.status != 404:
-            log.warning("Error deleting ConfigMap %s: %s", name, e.reason)
-
 
 # ── Secret management ─────────────────────────────────────────────────────────
 
-def _apply_secret_by_name(name: str, plaintext_data: dict) -> None:
+def _apply_secret_by_name(name: str, plaintext_data: dict, cr_body=None) -> None:
     """Create or update a Secret by its exact k8s name. plaintext_data values are plain strings."""
     body = client.V1Secret(
         metadata=client.V1ObjectMeta(name=name, namespace=NAMESPACE),
         string_data=plaintext_data or {},
         type="Opaque",
     )
+    _adopt(body, cr_body)
     try:
         core_v1.create_namespaced_secret(namespace=NAMESPACE, body=body)
         log.info("Created Secret %s", name)
@@ -170,15 +173,6 @@ def get_secret_data(app_id: str, logical_name: str) -> dict:
     return result
 
 
-def delete_secret(app_id: str, logical_name: str) -> None:
-    name = _sec_name(_resource_name_for(app_id), logical_name)
-    try:
-        core_v1.delete_namespaced_secret(name=name, namespace=NAMESPACE)
-        log.info("Deleted Secret %s", name)
-    except client.ApiException as e:
-        if e.status != 404:
-            log.warning("Error deleting Secret %s: %s", name, e.reason)
-
 
 # ── PVC quota helpers ─────────────────────────────────────────────────────────
 
@@ -205,7 +199,7 @@ def _parse_storage_gb(storage: str) -> float:
 
 # ── PVC management ────────────────────────────────────────────────────────────
 
-def _apply_pvc_by_name(name: str, storage: str, access_mode: str) -> None:
+def _apply_pvc_by_name(name: str, storage: str, access_mode: str, cr_body=None) -> None:
     """Create a PVC by its exact k8s name if it doesn't exist yet."""
     body = client.V1PersistentVolumeClaim(
         metadata=client.V1ObjectMeta(name=name, namespace=NAMESPACE),
@@ -214,6 +208,7 @@ def _apply_pvc_by_name(name: str, storage: str, access_mode: str) -> None:
             resources=client.V1ResourceRequirements(requests={"storage": storage}),
         ),
     )
+    _adopt(body, cr_body)
     try:
         core_v1.create_namespaced_persistent_volume_claim(namespace=NAMESPACE, body=body)
         log.info("Created PVC %s (%s %s)", name, storage, access_mode)
@@ -230,15 +225,6 @@ def apply_pvc(app_id: str, logical_name: str, storage: str, access_mode: str) ->
     _apply_pvc_by_name(name, storage, access_mode)
     return name
 
-
-def delete_pvc(app_id: str, logical_name: str) -> None:
-    name = _pvc_name(_resource_name_for(app_id), logical_name)
-    try:
-        core_v1.delete_namespaced_persistent_volume_claim(name=name, namespace=NAMESPACE)
-        log.info("Deleted PVC %s", name)
-    except client.ApiException as e:
-        if e.status != 404:
-            log.warning("Error deleting PVC %s: %s", name, e.reason)
 
 
 # ── Rollout restart ───────────────────────────────────────────────────────────
@@ -299,7 +285,7 @@ def _report_status(remote_app, callback_url, status, peer=None, retries=3):
 
 # ── Main workload deploy ──────────────────────────────────────────────────────
 
-def run_workload(remote_app, callback_url, peer=None):
+def run_workload(remote_app, callback_url, peer=None, cr_body=None):
     """Create/update Kubernetes resources for the RemoteApp (Deployment, Service, ConfigMaps, Secrets, PVCs)."""
     existing = _stop_events.get(remote_app.id)
     if existing:
@@ -337,7 +323,7 @@ def run_workload(remote_app, callback_url, peer=None):
                 if hasattr(cm_data, "to_dict"):
                     cm_data = cm_data.to_dict()
                 k8s_name = _cm_name(deploy_name, cm_spec.name)
-                _apply_configmap_by_name(k8s_name, cm_data)
+                _apply_configmap_by_name(k8s_name, cm_data, cr_body)
             except client.ApiException as e:
                 _report_status(remote_app, callback_url, f"Failed: ConfigMap {cm_spec.name}: {e.reason}", peer=peer)
                 return
@@ -361,7 +347,7 @@ def run_workload(remote_app, callback_url, peer=None):
                     sec_data = {k: base64.b64decode(v).decode() if isinstance(v, str) else v
                                 for k, v in sec_data.items()}
                 k8s_name = _sec_name(deploy_name, sec_spec.name)
-                _apply_secret_by_name(k8s_name, sec_data)
+                _apply_secret_by_name(k8s_name, sec_data, cr_body)
             except client.ApiException as e:
                 _report_status(remote_app, callback_url, f"Failed: Secret {sec_spec.name}: {e.reason}", peer=peer)
                 return
@@ -395,7 +381,7 @@ def run_workload(remote_app, callback_url, peer=None):
                     return
             try:
                 k8s_name = _pvc_name(deploy_name, pvc_spec.name)
-                _apply_pvc_by_name(k8s_name, pvc_spec.storage, pvc_spec.accessMode)
+                _apply_pvc_by_name(k8s_name, pvc_spec.storage, pvc_spec.accessMode, cr_body)
             except client.ApiException as e:
                 _report_status(remote_app, callback_url, f"Failed: PVC {pvc_spec.name}: {e.reason}", peer=peer)
                 return
@@ -561,6 +547,7 @@ def run_workload(remote_app, callback_url, peer=None):
             ),
         )
 
+        _adopt(deployment, cr_body)
         try:
             apps_v1.create_namespaced_deployment(namespace=NAMESPACE, body=deployment)
             log.info("Created deployment %s in %s", deploy_name, NAMESPACE)
@@ -596,6 +583,7 @@ def run_workload(remote_app, callback_url, peer=None):
                 ports=service_ports,
             ),
         )
+        _adopt(service, cr_body)
         try:
             core_v1.create_namespaced_service(namespace=NAMESPACE, body=service)
             log.info("Created service %s in %s", deploy_name, NAMESPACE)
@@ -630,65 +618,6 @@ def run_workload(remote_app, callback_url, peer=None):
     t = threading.Thread(target=_execute, daemon=True)
     t.start()
 
-
-def delete_workload(remote_app) -> None:
-    """Delete all Kubernetes resources for a RemoteApp (Deployment, Service, ConfigMaps, Secrets, PVCs)."""
-    deploy_name = _deploy_name(remote_app)
-    spec = remote_app.spec
-
-    # Cancel any watcher
-    ev = _stop_events.pop(remote_app.id, None)
-    if ev:
-        ev.set()
-
-    # Deployment
-    try:
-        apps_v1.delete_namespaced_deployment(
-            name=deploy_name, namespace=NAMESPACE,
-            body=client.V1DeleteOptions(propagation_policy="Foreground"),
-        )
-        log.info("Deleted deployment %s", deploy_name)
-    except client.ApiException as e:
-        if e.status != 404:
-            log.warning("Error deleting deployment %s: %s", deploy_name, e.reason)
-
-    # Service
-    try:
-        core_v1.delete_namespaced_service(name=deploy_name, namespace=NAMESPACE)
-        log.info("Deleted service %s", deploy_name)
-    except client.ApiException as e:
-        if e.status != 404:
-            log.warning("Error deleting service %s: %s", deploy_name, e.reason)
-
-    # ConfigMaps
-    for cm_spec in (spec.configMaps if spec else []):
-        name = _cm_name(deploy_name, cm_spec.name)
-        try:
-            core_v1.delete_namespaced_config_map(name=name, namespace=NAMESPACE)
-            log.info("Deleted ConfigMap %s", name)
-        except client.ApiException as e:
-            if e.status != 404:
-                log.warning("Error deleting ConfigMap %s: %s", name, e.reason)
-
-    # Secrets
-    for sec_spec in (spec.secrets if spec else []):
-        name = _sec_name(deploy_name, sec_spec.name)
-        try:
-            core_v1.delete_namespaced_secret(name=name, namespace=NAMESPACE)
-            log.info("Deleted Secret %s", name)
-        except client.ApiException as e:
-            if e.status != 404:
-                log.warning("Error deleting Secret %s: %s", name, e.reason)
-
-    # PVCs (not deleted by default — data retention)
-    # Un-comment the loop below if you want PVCs deleted with the workload
-    # for pvc_spec in (spec.pvcs if spec else []):
-    #     name = _pvc_name(deploy_name, pvc_spec.name)
-    #     try:
-    #         core_v1.delete_namespaced_persistent_volume_claim(name=name, namespace=NAMESPACE)
-    #     except client.ApiException as e:
-    #         if e.status != 404:
-    #             log.warning("Error deleting PVC %s: %s", name, e.reason)
 
 
 def scale_workload(remote_app, replicas: int) -> None:
