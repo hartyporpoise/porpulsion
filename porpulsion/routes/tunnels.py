@@ -68,6 +68,10 @@ def proxy_remoteapp(app_id, port, subpath):
             v = re.sub(r'^https?://[^/]*', proxy_prefix, v)
         resp_headers[k] = v
     body = base64.b64decode(result.get("body", ""))
+    content_type = resp_headers.get("Content-Type", "")
+    if "text/html" in content_type and b"<head" in body:
+        base_tag = f'<base href="{proxy_prefix}/">'.encode()
+        body = re.sub(rb"<head([^>]*)>", rb"<head\1>" + base_tag, body, count=1)
     return Response(body, status=result.get("status", 502), headers=resp_headers)
 
 
