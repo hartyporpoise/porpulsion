@@ -253,9 +253,10 @@ jobs:
         run: |
           VERSION="v${{ needs.check.outputs.app_version }}"
           git tag "$VERSION"
+          git push origin "$VERSION"
           gh release create "$VERSION" \
             --title "$VERSION" \
-            --notes "App version ${{ needs.check.outputs.app_version }}" \
+            --generate-notes \
             --latest
 
   # ── Build and publish Docker image ───────────────────────────────────────
