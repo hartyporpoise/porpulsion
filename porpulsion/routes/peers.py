@@ -24,6 +24,8 @@ def list_peers():
         d = p.to_dict()
         ch = state.peer_channels.get(p.name)
         d["channel"] = "connected" if (ch and ch.is_connected()) else "disconnected"
+        if ch and ch.latency_ms is not None:
+            d["latency_ms"] = round(ch.latency_ms, 1)
         result.append(d)
     for url, info in state.pending_peers.items():
         entry = {

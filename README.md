@@ -5,7 +5,7 @@
 <h1 align="center">Porpulsion</h1>
 
 <p align="center">
-  Peer-to-peer Kubernetes connector. Deploy workloads across clusters over mutual TLS — no VPN, no service mesh, no central control plane.
+  Peer-to-peer Kubernetes connector. Deploy workloads across clusters over mutual TLS - no VPN, no service mesh, no central control plane.
 </p>
 
 ---
@@ -26,7 +26,7 @@
 
 Each cluster runs one porpulsion agent. Agents exchange self-signed CA certificates during a one-time peering handshake, authenticated by a single-use invite token.
 
-After peering, each agent opens a **persistent WebSocket channel** to its peer on port 8001. All subsequent inter-agent traffic — RemoteApp submissions, status callbacks, HTTP proxy tunnels — flows over this single long-lived connection. No new outbound connections are made per request. If the channel drops, both sides reconnect automatically with exponential backoff.
+After peering, each agent opens a **persistent WebSocket channel** to its peer on port 8001. All subsequent inter-agent traffic - RemoteApp submissions, status callbacks, HTTP proxy tunnels - flows over this single long-lived connection. No new outbound connections are made per request. If the channel drops, both sides reconnect automatically with exponential backoff.
 
 State (peers, submitted apps, settings) is persisted to a Kubernetes Secret and ConfigMap so restarts are transparent.
 
@@ -36,7 +36,7 @@ State (peers, submitted apps, settings) is persisted to a Kubernetes Secret and 
 
 - Docker + Docker Compose (local dev)
 - Kubernetes + Helm 3 (production)
-- No local `kubectl` needed for local dev — all commands run via `docker exec`
+- No local `kubectl` needed for local dev - all commands run via `docker exec`
 
 ---
 
@@ -88,9 +88,9 @@ The agent runs three servers on separate ports:
 
 | Port | Purpose | Exposure |
 |------|---------|----------|
-| **8000** | Dashboard UI + management API (session auth) | Internal only — `kubectl port-forward` |
+| **8000** | Dashboard UI + management API (session auth) | Internal only - `kubectl port-forward` |
 | **8001** | Peer handshake (`/peer`) + WebSocket channel (`/ws`) | Expose via Ingress |
-| **8002** | Health probes (`/status`) — no auth | Internal only — kubelet only |
+| **8002** | Health probes (`/status`) - no auth | Internal only - kubelet only |
 
 ```sh
 # Access the dashboard locally
@@ -103,8 +103,8 @@ Only port 8001 (the peer-facing server) is exposed. The dashboard stays internal
 
 Two annotations are required:
 
-- **`websocket-services`** — tells the ingress controller to proxy the WebSocket upgrade correctly (sets `proxy_http_version 1.1` and the `Upgrade`/`Connection` headers)
-- **`proxy-read-timeout` / `proxy-send-timeout`** — must be longer than the agent's ping interval (20s); the default 60s will cause the persistent channel to drop during quiet periods
+- **`websocket-services`** - tells the ingress controller to proxy the WebSocket upgrade correctly (sets `proxy_http_version 1.1` and the `Upgrade`/`Connection` headers)
+- **`proxy-read-timeout` / `proxy-send-timeout`** - must be longer than the agent's ping interval (20s); the default 60s will cause the persistent channel to drop during quiet periods
 
 ```yaml
 apiVersion: networking.k8s.io/v1
@@ -144,7 +144,7 @@ spec:
                   number: 8001
 ```
 
-> **Encryption**: set `agent.selfUrl` to `https://porpulsion.example.com` and all peer WebSocket channels will use `wss://` (TLS via nginx). If `selfUrl` is `http://` the channel falls back to unencrypted `ws://` — the dashboard shows a yellow **live** badge as a warning.
+> **Encryption**: set `agent.selfUrl` to `https://porpulsion.example.com` and all peer WebSocket channels will use `wss://` (TLS via nginx). If `selfUrl` is `http://` the channel falls back to unencrypted `ws://` - the dashboard shows a yellow **live** badge as a warning.
 
 Set `agent.selfUrl` to `https://porpulsion.example.com` in your Helm values.
 
@@ -157,12 +157,12 @@ Set `agent.selfUrl` to `https://porpulsion.example.com` in your Helm values.
 | `agent.image` | `porpulsion-agent:latest` | Container image |
 | `agent.pullPolicy` | `IfNotPresent` | Image pull policy |
 | `namespace` | `porpulsion` | Namespace for the agent and all RemoteApp workloads |
-| `service.type` | `ClusterIP` | Service type — use `NodePort` for local dev |
-| `service.port` | `8000` | Dashboard UI and management API — session auth required (internal only) |
+| `service.type` | `ClusterIP` | Service type - use `NodePort` for local dev |
+| `service.port` | `8000` | Dashboard UI and management API - session auth required (internal only) |
 | `service.uiNodePort` | `""` | NodePort for dashboard (only when `type=NodePort`) |
 | `service.peerPort` | `8001` | Peer handshake + WebSocket channel (expose via Ingress) |
 | `service.peerNodePort` | `""` | NodePort for peer server (only when `type=NodePort`) |
-| `service.internalPort` | `8002` | Health/readiness probes — no auth (internal only) |
+| `service.internalPort` | `8002` | Health/readiness probes - no auth (internal only) |
 | `service.internalNodePort` | `""` | NodePort for internal server (only when `type=NodePort`) |
 
 ---
@@ -207,7 +207,7 @@ Enforced on **inbound** workloads at receive time. All CPU/memory values are k8s
 
 Open the dashboard on Cluster A and navigate to **Peers**. Copy the invite token and CA fingerprint. On Cluster B, paste them into the **Connect a New Peer** form. Both sides will show the peer as connected within a few seconds.
 
-Peers persist across restarts — the CA cert is stored in the `porpulsion-credentials` Secret. The WebSocket channel reconnects automatically on restart with exponential backoff starting at 2s.
+Peers persist across restarts - the CA cert is stored in the `porpulsion-credentials` Secret. The WebSocket channel reconnects automatically on restart with exponential backoff starting at 2s.
 
 ### 2 · Deploy a RemoteApp
 
@@ -232,7 +232,7 @@ The spec is forwarded to the peer cluster over the WebSocket channel, which crea
 
 ### 3 · Access via HTTP proxy
 
-Navigate to the **Proxy** page to see all submitted apps with per-port proxy URLs. Click a URL to open the app through the WebSocket tunnel — no additional ports need to be exposed on the executing cluster.
+Navigate to the **Proxy** page to see all submitted apps with per-port proxy URLs. Click a URL to open the app through the WebSocket tunnel - no additional ports need to be exposed on the executing cluster.
 
 Proxy URL format: `http://<dashboard>/remoteapp/<id>/proxy/<port>/`
 
@@ -245,14 +245,14 @@ Proxy URL format: `http://<dashboard>/remoteapp/<id>/proxy/<port>/`
 | `image` | string | **required** | Container image, e.g. `nginx:latest` |
 | `replicas` | integer | `1` | Pod replica count |
 | `ports` | list | `[]` | Ports to expose via HTTP proxy. Each entry: `port` (required), `name` (optional) |
-| `resources` | object | — | Kubernetes resource requests and limits. Contains `requests` and/or `limits` with `cpu` (e.g. `250m`, `1`) and `memory` (e.g. `128Mi`, `2Gi`) quantity strings |
-| `command` | list | — | Override container ENTRYPOINT, e.g. `["/bin/sh", "-c"]` |
-| `args` | list | — | Override container CMD / arguments |
-| `env` | list | — | Environment variables. Each entry: `name` + `value`, or `valueFrom.secretKeyRef` / `valueFrom.configMapKeyRef` |
+| `resources` | object | - | Kubernetes resource requests and limits. Contains `requests` and/or `limits` with `cpu` (e.g. `250m`, `1`) and `memory` (e.g. `128Mi`, `2Gi`) quantity strings |
+| `command` | list | - | Override container ENTRYPOINT, e.g. `["/bin/sh", "-c"]` |
+| `args` | list | - | Override container CMD / arguments |
+| `env` | list | - | Environment variables. Each entry: `name` + `value`, or `valueFrom.secretKeyRef` / `valueFrom.configMapKeyRef` |
 | `imagePullPolicy` | string | `IfNotPresent` | `Always`, `IfNotPresent`, or `Never` |
-| `imagePullSecrets` | list | — | Names of k8s Secrets containing registry credentials |
-| `readinessProbe` | object | — | `httpGet` (`path`, `port`) or `exec` (`command`), plus `initialDelaySeconds`, `periodSeconds`, `failureThreshold` |
-| `securityContext` | object | — | `runAsNonRoot`, `runAsUser`, `runAsGroup`, `fsGroup`, `readOnlyRootFilesystem` |
+| `imagePullSecrets` | list | - | Names of k8s Secrets containing registry credentials |
+| `readinessProbe` | object | - | `httpGet` (`path`, `port`) or `exec` (`command`), plus `initialDelaySeconds`, `periodSeconds`, `failureThreshold` |
+| `securityContext` | object | - | `runAsNonRoot`, `runAsUser`, `runAsGroup`, `fsGroup`, `readOnlyRootFilesystem` |
 
 ---
 
@@ -265,7 +265,7 @@ All API endpoints are on port 8000 and require a valid session (log in via the d
 API endpoints accept either a session cookie (browser) or HTTP Basic Auth (scripts/curl).
 
 ```sh
-# Basic Auth — simplest for scripting
+# Basic Auth - simplest for scripting
 curl -u admin:yourpassword http://localhost:8000/api/peers
 
 # Or save a session cookie and reuse it
@@ -420,7 +420,7 @@ curl -u admin:yourpassword -X PUT http://localhost:8000/api/remoteapp/75cf6eef/s
 
 ### HTTP Proxy / Tunnels
 
-Access a port on a remote app through the WebSocket tunnel — no extra ports needed on the executing cluster.
+Access a port on a remote app through the WebSocket tunnel - no extra ports needed on the executing cluster.
 
 ```
 GET /api/remoteapp/<id>/proxy/<port>/
@@ -428,7 +428,7 @@ GET /api/remoteapp/<id>/proxy/<port>/<path>
 ```
 
 ```sh
-# Open in a browser or curl — proxied through the WS channel to the executing cluster
+# Open in a browser or curl - proxied through the WS channel to the executing cluster
 curl -u admin:yourpassword http://localhost:8000/api/remoteapp/75cf6eef/proxy/80/
 ```
 
@@ -457,7 +457,7 @@ curl -u admin:yourpassword -X POST http://localhost:8000/api/settings \
 ### Internal (port 8002, no auth)
 
 #### `GET /status`
-Health and readiness probe — used by the kubelet. Returns agent name, peer count, and app counts.
+Health and readiness probe - used by the kubelet. Returns agent name, peer count, and app counts.
 
 ```sh
 curl http://localhost:8002/status
@@ -479,8 +479,8 @@ curl http://localhost:8002/status
 porpulsion/
 ├── porpulsion/
 │   ├── agent.py              # Flask app entry point, blueprint registration, session config
-│   ├── peer_server.py        # Port 8001 — peer handshake (/peer) + WebSocket (/ws)
-│   ├── internal_server.py    # Port 8002 — health probes (/status), no auth
+│   ├── peer_server.py        # Port 8001 - peer handshake (/peer) + WebSocket (/ws)
+│   ├── internal_server.py    # Port 8002 - health probes (/status), no auth
 │   ├── state.py              # Shared in-memory state (peers, settings, channels)
 │   ├── models.py             # Peer, RemoteApp, RemoteAppSpec, AgentSettings
 │   ├── peering.py            # Peering handshake, CA cert exchange
@@ -531,7 +531,7 @@ porpulsion/
 
 ### WebSocket channel
 
-After peering completes, each agent opens a persistent WebSocket connection to its peer's `/ws` endpoint. Authentication uses the CA fingerprint sent in the `X-Agent-Ca` header (base64-encoded PEM) — no client certificate is needed for the WS upgrade, which avoids nginx client-cert-forwarding complexity.
+After peering completes, each agent opens a persistent WebSocket connection to its peer's `/ws` endpoint. Authentication uses the CA fingerprint sent in the `X-Agent-Ca` header (base64-encoded PEM) - no client certificate is needed for the WS upgrade, which avoids nginx client-cert-forwarding complexity.
 
 Both sides attempt to connect outbound on startup. Whichever side connects first becomes the active channel; the other side's outbound attempt arrives as an inbound connection and replaces it cleanly. The channel reconnects automatically with exponential backoff (2s → 4s → 8s → 16s → 30s); backoff resets to 2s after each successful connection.
 
@@ -556,11 +556,11 @@ All peer-to-peer messages are framed as JSON:
 
 ### Security model
 
-- Every agent generates a private CA on first boot. The CA cert is what peers exchange — never the private key.
+- Every agent generates a private CA on first boot. The CA cert is what peers exchange - never the private key.
 - The peering handshake is bootstrapped over plain HTTPS (verify=False) with a single-use invite token. The CA fingerprint is pinned by the connecting operator before peering completes, preventing MITM.
-- WebSocket connections authenticate by CA fingerprint — the connecting peer sends its CA PEM (base64-encoded) in the `X-Agent-Ca` header, verified against all known peer CAs.
+- WebSocket connections authenticate by CA fingerprint - the connecting peer sends its CA PEM (base64-encoded) in the `X-Agent-Ca` header, verified against all known peer CAs.
 - Invite tokens are single-use and rotated after every successful peering handshake.
-- The HTTP proxy only routes to pods labelled `porpulsion.io/remote-app-id` — it cannot reach arbitrary pods.
+- The HTTP proxy only routes to pods labelled `porpulsion.io/remote-app-id` - it cannot reach arbitrary pods.
 - RBAC is scoped to the `porpulsion` namespace with only the permissions needed (Deployments, Services, the credentials Secret, the state ConfigMap).
 
 ---

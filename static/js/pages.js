@@ -89,8 +89,9 @@
       var statusCls = status === 'connected' ? 'badge-mtls' : status === 'connecting' ? 'badge-connecting' : status === 'awaiting_confirmation' ? 'badge-handshake' : 'badge-failed';
       var statusHtml = '<span class="badge ' + statusCls + '">' + (status === 'connected' ? '<span class="badge-dot"></span>' : '') + status + '</span>';
       var chEncrypted = (p.url || '').indexOf('https://') === 0;
+      var latency = (p.latency_ms != null) ? '<span class="peer-latency">' + p.latency_ms + ' ms</span>' : '';
       var chanHtml = (p.channel === 'connected')
-        ? (chEncrypted ? '<span class="badge badge-mtls"><span class="badge-dot"></span>live</span>' : '<span class="badge badge-warn"><span class="badge-dot"></span>live</span>')
+        ? (chEncrypted ? '<span class="badge badge-mtls"><span class="badge-dot"></span>live</span>' : '<span class="badge badge-warn"><span class="badge-dot"></span>live</span>') + latency
         : '<span class="badge badge-pending">—</span>';
       var actions = '';
       if (status === 'connecting') actions = '<button class="btn-sm peer-cancel-btn">Cancel</button>';

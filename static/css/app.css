@@ -761,6 +761,11 @@ td a.app-open-link:hover {
   background: var(--md-primary-container);
   color: var(--md-on-primary-container);
 }
+.peer-latency {
+  font-size: 0.72rem;
+  color: var(--md-outline);
+  margin-left: 0.4rem;
+}
 /* Neutral (pending, deleted) */
 .badge-pending {
   background: var(--md-surface-container-high);

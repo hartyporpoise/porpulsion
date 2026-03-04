@@ -163,6 +163,7 @@ class PeerChannel:
         self.peer_url  = peer_url   # peer's public URL — WS connects here
         self.ca_pem    = ca_pem
         self.peer_version_hash: str = ""   # set when peer announces its version
+        self.latency_ms: float | None = None   # round-trip time from last ping/pong
         self._ws: websocket.WebSocket | None = None
         self._lock     = threading.Lock()
         self._pending: dict[str, dict] = {}   # id -> {"event": Event, "result": dict|None}
@@ -170,6 +171,7 @@ class PeerChannel:
         self._handlers: dict[str, "callable"] = {}
         self._recv_thread: threading.Thread | None = None
         self.connected_event = threading.Event()   # set once the channel is ready to use
+        self._ping_sent_at: float | None = None   # time.monotonic() when last ping was sent
 
     # ── Public API ────────────────────────────────────────────
 
@@ -434,6 +436,12 @@ class PeerChannel:
 
         # Fire-and-forget push
         if msg_type == "ping":
+            self.push("pong", {})
+            return
+        if msg_type == "pong":
+            if self._ping_sent_at is not None:
+                self.latency_ms = (time.monotonic() - self._ping_sent_at) * 1000
+                self._ping_sent_at = None
             return
         if msg_type == "version/announce":
             peer_ver = payload.get("version", "")
@@ -469,6 +477,7 @@ class PeerChannel:
         while self._running and self._ws is not None:
             time.sleep(_PING_INTERVAL)
             try:
+                self._ping_sent_at = time.monotonic()
                 self.push("ping", {})
             except Exception:
                 break
