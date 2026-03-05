@@ -12,34 +12,61 @@
       <div class="card">
         <div class="card-header"><h2>Connect Credentials</h2></div>
         <div class="card-body">
-          <p class="text-sm text-muted" style="margin-bottom:1rem;">
+          <p class="text-sm text-muted" style="margin-bottom:1.25rem;">
             Share these with the peer who wants to connect to you.
           </p>
-          <div class="section-label">Endpoint URL</div>
-          <div class="code-box code-box-wrap" style="margin-bottom:1rem;">
-            <span class="code-val" id="settings-token-url">loading…</span>
-            <button type="button" class="btn-sm" onclick="window.Porpulsion.copyText('settings-token-url', this)">Copy</button>
+
+          <div class="cred-row">
+            <div class="cred-label">Endpoint URL</div>
+            <div class="cred-val-wrap">
+              <span class="cred-val mono" id="settings-token-url">loading…</span>
+              <button type="button" class="btn-icon cred-copy-btn" title="Copy" aria-label="Copy URL"
+                onclick="window.Porpulsion.copyText('settings-token-url', this)">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              </button>
+            </div>
           </div>
 
-          <div class="section-label">Invite token <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:0.6875rem;color:var(--muted2);">(single-use)</span></div>
-          <div class="secret-box" style="margin-bottom:1rem;">
-            <span class="secret-val masked" id="settings-token-key" data-value="">••••••••••••••••••••••••••••••••</span>
-            <button type="button" class="eye-btn" onclick="window.Porpulsion.toggleSecret('settings-token-key', this)" title="Show/hide" aria-label="Toggle visibility"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M1 10s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6z"/><circle cx="10" cy="10" r="2.5"/></svg></button>
-            <button type="button" class="btn-sm" onclick="window.Porpulsion.copySecret('settings-token-key', this)">Copy</button>
+          <div class="cred-row">
+            <div class="cred-label">Invite token <span class="cred-label-sub">(single-use)</span></div>
+            <div class="cred-val-wrap">
+              <span class="secret-val masked cred-val mono" id="settings-token-key" data-value="">••••••••••••••••••••</span>
+              <button type="button" class="eye-btn" onclick="window.Porpulsion.toggleSecret('settings-token-key', this)" title="Show/hide" aria-label="Toggle visibility">
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M1 10s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6z"/><circle cx="10" cy="10" r="2.5"/></svg>
+              </button>
+              <button type="button" class="btn-icon cred-copy-btn" title="Copy" aria-label="Copy token"
+                onclick="window.Porpulsion.copySecret('settings-token-key', this)">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              </button>
+            </div>
           </div>
 
-          <div class="section-label">CA fingerprint</div>
-          <div class="secret-box" style="margin-bottom:1rem;">
-            <span class="secret-val masked" id="token-fp" data-value="" style="font-size:0.68rem;">••••••••••••••••••••••••••••••••••••••••••••••••</span>
-            <button type="button" class="eye-btn" onclick="window.Porpulsion.toggleSecret('token-fp', this)" title="Show/hide" aria-label="Toggle visibility"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M1 10s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6z"/><circle cx="10" cy="10" r="2.5"/></svg></button>
-            <button type="button" class="btn-sm" onclick="window.Porpulsion.copySecret('token-fp', this)">Copy</button>
+          <div class="cred-row">
+            <div class="cred-label">CA fingerprint</div>
+            <div class="cred-val-wrap">
+              <span class="secret-val masked cred-val mono" id="token-fp" data-value="" style="font-size:0.68rem;">••••••••••••••••••••••••••••••••••••••••</span>
+              <button type="button" class="eye-btn" onclick="window.Porpulsion.toggleSecret('token-fp', this)" title="Show/hide" aria-label="Toggle visibility">
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M1 10s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6z"/><circle cx="10" cy="10" r="2.5"/></svg>
+              </button>
+              <button type="button" class="btn-icon cred-copy-btn" title="Copy" aria-label="Copy fingerprint"
+                onclick="window.Porpulsion.copySecret('token-fp', this)">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              </button>
+            </div>
           </div>
 
-          <div class="section-label">CA certificate (PEM)</div>
-          <div class="secret-box secret-box-block">
-            <span class="secret-val masked" id="token-pem" data-value="" style="font-size:0.68rem;font-family:'SF Mono','Menlo','Monaco','Consolas',monospace;white-space:pre-wrap;word-break:break-all;flex:1;line-height:1.5;">••••••••••••••••••••••••••••••••••••••••••••••••</span>
-            <button type="button" class="eye-btn" onclick="window.Porpulsion.toggleSecret('token-pem', this)" title="Show/hide" aria-label="Toggle visibility"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M1 10s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6z"/><circle cx="10" cy="10" r="2.5"/></svg></button>
-            <button type="button" class="btn-sm btn-outline" onclick="window.Porpulsion.copySecret('token-pem', this)">Copy</button>
+          <div class="cred-row" style="border-bottom:none;align-items:flex-start;">
+            <div class="cred-label" style="padding-top:0.1rem;">CA certificate (PEM)</div>
+            <div class="cred-val-wrap" style="align-items:flex-start;">
+              <span class="secret-val masked cred-val mono" id="token-pem" data-value="" style="font-size:0.68rem;white-space:pre-wrap;word-break:break-all;flex:1;line-height:1.5;">••••••••••••••••••••••••••••••••••••••••</span>
+              <button type="button" class="eye-btn" style="margin-top:0.1rem;" onclick="window.Porpulsion.toggleSecret('token-pem', this)" title="Show/hide" aria-label="Toggle visibility">
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M1 10s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6z"/><circle cx="10" cy="10" r="2.5"/></svg>
+              </button>
+              <button type="button" class="btn-icon cred-copy-btn" style="margin-top:0.1rem;" title="Copy" aria-label="Copy certificate"
+                onclick="window.Porpulsion.copySecret('token-pem', this)">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              </button>
+            </div>
           </div>
         </div>
       </div>
