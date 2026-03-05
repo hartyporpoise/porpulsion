@@ -208,11 +208,16 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install pip-upgrader
-        run: pip install pip-upgrader
+      - name: Install and upgrade all dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install --upgrade $(grep -v '^\s*#' requirements.txt | sed 's/[>=<!=].*//' | tr '\n' ' ')
 
-      - name: Run pip-upgrader (non-interactive)
-        run: pip-upgrade requirements.txt --skip-package-installation -p all || true
+      - name: Regenerate pinned requirements
+        run: |
+          pip freeze | grep -F -f <(grep -v '^\s*#' requirements.txt | sed 's/[>=<!=].*//') > requirements.txt.new
+          mv requirements.txt.new requirements.txt
 
       - name: Commit upgraded requirements if changed
         run: |
@@ -405,7 +410,7 @@ jobs:
       - name: Trivy image scan
         if: github.event_name == 'pull_request'
         continue-on-error: true
-        uses: aquasecurity/trivy-action@v0.34.2
+        uses: aquasecurity/trivy-action@0.34.2
         with:
           image-ref: porpulsion:pr-scan
           format: table
