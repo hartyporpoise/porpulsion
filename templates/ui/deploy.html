@@ -140,16 +140,16 @@
 
 <!-- All Peers confirm modal -->
 <div id="all-peers-confirm-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="all-peers-confirm-title">
-  <div class="modal-inner" style="max-width:420px;width:min(420px,90vw);">
+  <div class="modal-inner">
     <div class="modal-header">
       <span class="modal-title" id="all-peers-confirm-title">Deploy to All Peers?</span>
       <button type="button" class="modal-close" id="all-peers-confirm-close" aria-label="Close">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M1 1l12 12M13 1L1 13"/></svg>
       </button>
     </div>
     <div class="modal-body">
-      <p style="margin:0 0 1.25rem;font-size:0.9rem;color:var(--text);">This will deploy <strong id="all-peers-confirm-name"></strong> to <strong>every connected peer</strong>. Are you sure?</p>
-      <div class="flex-end" style="gap:0.5rem;">
+      <p style="margin:0 0 1.25rem;font-size:0.9375rem;color:var(--text);">This will deploy <strong id="all-peers-confirm-name"></strong> to <strong>every connected peer</strong>. Are you sure?</p>
+      <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
         <button type="button" class="btn-sm btn-outline" id="all-peers-confirm-cancel">Cancel</button>
         <button type="button" id="all-peers-confirm-ok">Deploy to All Peers</button>
       </div>
@@ -159,69 +159,20 @@
 
 <!-- YAML preview modal -->
 <div id="yaml-preview-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="yaml-preview-title">
-  <div class="modal-inner" style="max-width:640px;width:min(640px,90vw);">
+  <div class="modal-inner">
     <div class="modal-header">
       <span class="modal-title" id="yaml-preview-title">Spec Preview</span>
       <button type="button" class="modal-close" id="yaml-preview-close" aria-label="Close">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M1 1l12 12M13 1L1 13"/></svg>
       </button>
     </div>
     <div class="modal-body" style="padding:0;">
-      <pre id="deploy-yaml-pre" class="spec-pre" style="margin:0;border-radius:0 0 28px 28px;font-size:0.78rem;line-height:1.5;overflow:auto;max-height:65vh;padding:1rem;"></pre>
+      <pre id="deploy-yaml-pre" class="spec-pre" style="margin:0;border-radius:0;max-height:65vh;overflow:auto;"></pre>
     </div>
   </div>
 </div>
 
 </section>
-
-<style>
-  #deploy-form-wrap { max-width: 780px; }
-  .form-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
-  .form-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.75rem; }
-  .section-label-sm { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted2); margin-bottom: 0.4rem; }
-  .req { color: var(--red); font-weight: 700; }
-
-  /* Repeating row items (ports, env, etc.) */
-  .list-row {
-    display: flex;
-    gap: 0.5rem;
-    align-items: center;
-    margin-bottom: 0.4rem;
-  }
-  .list-row input, .list-row select { flex: 1; min-width: 0; }
-  .list-row .btn-icon { flex-shrink: 0; }
-
-  /* ConfigMap / Secret block */
-  .vol-block {
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    margin-bottom: 0.75rem;
-    overflow: hidden;
-  }
-  .vol-block-header {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.5rem 0.75rem;
-    background: var(--surface2);
-    border-bottom: 1px solid var(--border);
-    font-size: 0.82rem;
-    font-weight: 600;
-  }
-  .vol-block-header input { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 0.2rem 0.5rem; font-size: 0.85rem; font-weight: 600; color: var(--text); flex: 1; }
-  .vol-block-header input:focus { outline: none; border-color: var(--accent); }
-  .vol-block-body { padding: 0.6rem 0.75rem; }
-  .vol-block-mount { display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.5rem; font-size: 0.78rem; }
-  .vol-block-mount span { color: var(--muted2); flex-shrink: 0; }
-  .vol-block-mount input { flex: 1; font-size: 0.78rem; }
-  .kv-row { display: flex; gap: 0.4rem; align-items: center; margin-bottom: 0.35rem; }
-  .kv-row input { flex: 1; font-size: 0.78rem; min-width: 0; }
-  .kv-row .kv-val { flex: 2; }
-  .kv-add { font-size: 0.75rem; color: var(--accent); background: none; border: none; cursor: pointer; padding: 0; }
-  .kv-add:hover { text-decoration: underline; }
-
-  .spec-pre { background: var(--surface); padding: 1rem; white-space: pre; }
-</style>
 {% endblock %}
 
 {% block scripts %}

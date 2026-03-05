@@ -3,36 +3,36 @@
 {% block topbar_title %}Docs{% endblock %}
 {% block content %}
 <!-- PAGE: Docs (route: /docs) -->
-<section id="docs-page" data-page="docs" class="docs-layout">
+<section id="docs-page" data-page="docs">
+  <div class="docs-layout">
 
-  <!-- SECTION: RemoteApp Spec -->
-  <section id="docs-spec" class="page-section" aria-label="RemoteApp spec reference">
-    <div class="card">
-      <div class="card-header">
-        <h2>RemoteApp Spec</h2>
-      </div>
-      <div class="card-body">
-        <p class="docs-intro">The spec is submitted via the <a href="/deploy">Deploy</a> form or as raw JSON/YAML. All fields except <code>image</code> are optional.</p>
+    <!-- SECTION: RemoteApp Spec -->
+    <section id="docs-spec" class="page-section" aria-label="RemoteApp spec reference">
+      <div class="card">
+        <div class="card-header">
+          <h2>RemoteApp Spec</h2>
+          <span class="card-header-sub">— all fields except <code style="font-size:0.75rem;background:var(--surface3);padding:1px 5px;border-radius:4px;">image</code> are optional</span>
+        </div>
         <div id="spec-table-wrap">
           <div class="loading-placeholder">Loading spec reference…</div>
         </div>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <!-- SECTION: HTTP API -->
-  <section id="docs-api" class="page-section" aria-label="HTTP API reference">
-    <div class="card">
-      <div class="card-header">
-        <h2>HTTP API</h2>
-        <a href="/api/openapi.json" target="_blank" rel="noopener" class="btn btn-sm btn-outline">openapi.json</a>
+    <!-- SECTION: HTTP API -->
+    <section id="docs-api" class="page-section" aria-label="HTTP API reference">
+      <div class="card">
+        <div class="card-header">
+          <h2>HTTP API</h2>
+          <a href="/api/openapi.json" target="_blank" rel="noopener" class="btn-sm btn-outline">openapi.json ↗</a>
+        </div>
+        <div class="card-body" id="api-ref-body">
+          <div class="loading-placeholder">Loading API reference…</div>
+        </div>
       </div>
-      <div class="card-body" id="api-ref-body">
-        <div class="loading-placeholder">Loading API reference…</div>
-      </div>
-    </div>
-  </section>
+    </section>
 
+  </div>
 </section>
 {% endblock %}
 {% block scripts %}
@@ -54,18 +54,19 @@
     if (!wrap) return;
     var rows = (data.fields || []).map(function (f) {
       var isReq = f.default === 'required';
-      return '<tr>' +
-        '<td><code>' + esc(f.field) + '</code></td>' +
-        '<td>' + esc(f.type) + '</td>' +
-        '<td>' + (isReq ? '<em>required</em>' : esc(f.default)) + '</td>' +
-        '<td>' + esc(f.description) + '</td>' +
-        '</tr>';
+      var defaultHtml = isReq
+        ? '<span class="spec-required">required</span>'
+        : (f.default ? '<span class="spec-default">' + esc(f.default) + '</span>' : '<span class="spec-none">—</span>');
+      return '<div class="spec-field-row">' +
+        '<div class="spec-field-left">' +
+          '<code class="spec-field-name">' + esc(f.field) + '</code>' +
+          '<span class="spec-field-type">' + esc(f.type) + '</span>' +
+          defaultHtml +
+        '</div>' +
+        '<div class="spec-field-desc">' + esc(f.description) + '</div>' +
+      '</div>';
     });
-    wrap.innerHTML =
-      '<div class="table-wrap"><table class="docs-table"><thead><tr>' +
-      '<th>Field</th><th>Type</th><th>Default</th><th>Description</th>' +
-      '</tr></thead><tbody>' + rows.join('') + '</tbody></table></div>';
-
+    wrap.innerHTML = '<div class="spec-field-list">' + rows.join('') + '</div>';
   }
 
   fetch('/api/remoteapp-spec')

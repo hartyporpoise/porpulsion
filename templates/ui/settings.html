@@ -5,229 +5,257 @@
 <!-- PAGE: Settings (route: /settings) -->
 <section id="settings-page" data-page="settings">
 
-  <!-- SECTION: Connect credentials -->
-  <section id="settings-credentials" class="grid2 page-section" aria-label="Connect credentials">
-    <div class="card">
-      <div class="card-header"><h2>Connect Credentials</h2></div>
-      <div class="card-body">
-        <div class="section-label">Endpoint URL</div>
-        <div class="code-box">
-          <span class="code-val" id="settings-token-url">loading…</span>
-          <button type="button" class="btn-sm" onclick="window.Porpulsion.copyText('settings-token-url', this)">Copy</button>
-        </div>
-        <div class="section-label" style="margin-top:1rem;">Invite token (single-use)</div>
-        <div class="secret-box">
-          <span class="secret-val masked" id="settings-token-key" data-value="">••••••••••••••••••••••••••••••••</span>
-          <button type="button" class="eye-btn" onclick="window.Porpulsion.toggleSecret('settings-token-key', this)" title="Show/hide" aria-label="Toggle visibility"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M1 10s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6z"/><circle cx="10" cy="10" r="2.5"/></svg></button>
-          <button type="button" class="btn-sm" onclick="window.Porpulsion.copySecret('settings-token-key', this)">Copy</button>
-        </div>
-        <div class="section-label" style="margin-top:1rem;">CA fingerprint</div>
-        <div class="secret-box">
-          <span class="secret-val masked" id="token-fp" data-value="" style="font-size:0.68rem;">••••••••••••••••••••••••••••••••••••••••••••••••</span>
-          <button type="button" class="eye-btn" onclick="window.Porpulsion.toggleSecret('token-fp', this)" title="Show/hide" aria-label="Toggle visibility"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M1 10s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6z"/><circle cx="10" cy="10" r="2.5"/></svg></button>
-          <button type="button" class="btn-sm" onclick="window.Porpulsion.copySecret('token-fp', this)">Copy</button>
-        </div>
-        <div class="section-label" style="margin-top:1rem;">CA certificate (PEM)</div>
-        <div class="secret-box secret-box-block">
-          <span class="secret-val masked" id="token-pem" data-value="" style="font-size:0.68rem; font-family:'Roboto Mono','SF Mono','Consolas',monospace; white-space:pre-wrap; word-break:break-all; flex:1; line-height:1.5;">••••••••••••••••••••••••••••••••••••••••••••••••</span>
-          <button type="button" class="eye-btn" onclick="window.Porpulsion.toggleSecret('token-pem', this)" title="Show/hide" aria-label="Toggle visibility"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M1 10s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6z"/><circle cx="10" cy="10" r="2.5"/></svg></button>
-          <button type="button" class="btn-sm btn-outline" onclick="window.Porpulsion.copySecret('token-pem', this)">Copy</button>
+  <div style="max-width:940px;">
+    <div class="settings-grid">
+
+      <!-- ── Connect Credentials ──────────────────────────────── -->
+      <div class="card">
+        <div class="card-header"><h2>Connect Credentials</h2></div>
+        <div class="card-body">
+          <p class="text-sm text-muted" style="margin-bottom:1rem;">
+            Share these with the peer who wants to connect to you.
+          </p>
+          <div class="section-label">Endpoint URL</div>
+          <div class="code-box code-box-wrap" style="margin-bottom:1rem;">
+            <span class="code-val" id="settings-token-url">loading…</span>
+            <button type="button" class="btn-sm" onclick="window.Porpulsion.copyText('settings-token-url', this)">Copy</button>
+          </div>
+
+          <div class="section-label">Invite token <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:0.6875rem;color:var(--muted2);">(single-use)</span></div>
+          <div class="secret-box" style="margin-bottom:1rem;">
+            <span class="secret-val masked" id="settings-token-key" data-value="">••••••••••••••••••••••••••••••••</span>
+            <button type="button" class="eye-btn" onclick="window.Porpulsion.toggleSecret('settings-token-key', this)" title="Show/hide" aria-label="Toggle visibility"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M1 10s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6z"/><circle cx="10" cy="10" r="2.5"/></svg></button>
+            <button type="button" class="btn-sm" onclick="window.Porpulsion.copySecret('settings-token-key', this)">Copy</button>
+          </div>
+
+          <div class="section-label">CA fingerprint</div>
+          <div class="secret-box" style="margin-bottom:1rem;">
+            <span class="secret-val masked" id="token-fp" data-value="" style="font-size:0.68rem;">••••••••••••••••••••••••••••••••••••••••••••••••</span>
+            <button type="button" class="eye-btn" onclick="window.Porpulsion.toggleSecret('token-fp', this)" title="Show/hide" aria-label="Toggle visibility"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M1 10s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6z"/><circle cx="10" cy="10" r="2.5"/></svg></button>
+            <button type="button" class="btn-sm" onclick="window.Porpulsion.copySecret('token-fp', this)">Copy</button>
+          </div>
+
+          <div class="section-label">CA certificate (PEM)</div>
+          <div class="secret-box secret-box-block">
+            <span class="secret-val masked" id="token-pem" data-value="" style="font-size:0.68rem;font-family:'SF Mono','Menlo','Monaco','Consolas',monospace;white-space:pre-wrap;word-break:break-all;flex:1;line-height:1.5;">••••••••••••••••••••••••••••••••••••••••••••••••</span>
+            <button type="button" class="eye-btn" onclick="window.Porpulsion.toggleSecret('token-pem', this)" title="Show/hide" aria-label="Toggle visibility"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M1 10s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6z"/><circle cx="10" cy="10" r="2.5"/></svg></button>
+            <button type="button" class="btn-sm btn-outline" onclick="window.Porpulsion.copySecret('token-pem', this)">Copy</button>
+          </div>
         </div>
       </div>
-    </div>
 
-    <!-- SECTION: Agent -->
-    <div class="card">
-      <div class="card-header"><h2>Agent</h2></div>
-      <div class="card-body">
-        <div class="toggle-row">
-          <div class="toggle-info"><div class="toggle-label">Name</div></div>
-          <span class="mono">{{ agent_name }}</span>
-        </div>
-        <div class="toggle-row">
-          <div class="toggle-info"><div class="toggle-label">mTLS endpoint</div></div>
-          <span class="mono text-sm" id="about-url">—</span>
-        </div>
-        <hr class="settings-divider">
-        <div class="section-label">Log level</div>
-        <div class="seg-ctrl" id="setting-log-level" role="group" aria-label="Log level">
-          <button type="button" data-val="DEBUG">Debug</button>
-          <button type="button" data-val="INFO" class="active">Info</button>
-          <button type="button" data-val="WARNING">Warn</button>
-          <button type="button" data-val="ERROR">Error</button>
+      <!-- ── Agent ─────────────────────────────────────────────── -->
+      <div class="card">
+        <div class="card-header"><h2>Agent</h2></div>
+        <div class="card-body" style="padding:0;">
+          <div class="health-grid">
+            <div class="health-row">
+              <span class="health-label">Name</span>
+              <span class="mono">{{ agent_name }}</span>
+            </div>
+            <div class="health-row">
+              <span class="health-label">mTLS endpoint</span>
+              <span class="mono text-sm" id="about-url" style="word-break:break-all;">—</span>
+            </div>
+          </div>
+          <div style="padding:1rem;">
+            <div class="section-label">Log level</div>
+            <div class="seg-ctrl" id="setting-log-level" role="group" aria-label="Log level">
+              <button type="button" data-val="DEBUG">Debug</button>
+              <button type="button" data-val="INFO" class="active">Info</button>
+              <button type="button" data-val="WARNING">Warn</button>
+              <button type="button" data-val="ERROR">Error</button>
+            </div>
+          </div>
         </div>
       </div>
-    </div>
 
-    <!-- SECTION: Access control -->
-    <div class="card full">
-      <div class="card-header"><h2>Access Control</h2></div>
-      <div class="card-body">
-        <div class="section-label">Inbound workloads</div>
-        <div class="toggle-row">
-          <div class="toggle-info">
-            <div class="toggle-label">Accept inbound workloads</div>
-            <div class="toggle-desc">Allow peers to deploy RemoteApps on this cluster</div>
+      <!-- ── Inbound Workloads ──────────────────────────────────── -->
+      <div class="card settings-card-full">
+        <div class="card-header"><h2>Inbound Workloads</h2></div>
+        <div style="padding:0 1rem;">
+          <div class="toggle-row">
+            <div class="toggle-info">
+              <div class="toggle-label">Accept inbound workloads</div>
+              <div class="toggle-desc">Allow peers to deploy RemoteApps on this cluster</div>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" id="setting-inbound-apps" aria-label="Accept inbound workloads">
+              <span class="toggle-slider"></span>
+            </label>
           </div>
-          <label class="toggle">
-            <input type="checkbox" id="setting-inbound-apps" aria-label="Accept inbound workloads">
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
-        <div class="toggle-row">
-          <div class="toggle-info">
-            <div class="toggle-label">Require manual approval</div>
-            <div class="toggle-desc">Queue inbound apps for approval before they are executed</div>
+          <div class="toggle-row">
+            <div class="toggle-info">
+              <div class="toggle-label">Require manual approval</div>
+              <div class="toggle-desc">Queue inbound apps for approval before they are executed</div>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" id="setting-require-approval" aria-label="Require manual approval">
+              <span class="toggle-slider"></span>
+            </label>
           </div>
-          <label class="toggle">
-            <input type="checkbox" id="setting-require-approval" aria-label="Require manual approval">
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
-        <div class="toggle-row">
-          <div class="toggle-info">
-            <div class="toggle-label">Require resource requests</div>
-            <div class="toggle-desc">Reject apps that don't specify <span class="mono">resources.requests.cpu</span> and <span class="mono">resources.requests.memory</span></div>
+          <div class="toggle-row">
+            <div class="toggle-info">
+              <div class="toggle-label">Require resource requests</div>
+              <div class="toggle-desc">Reject apps that don't specify <span class="mono">resources.requests</span></div>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" id="setting-require-res-requests" aria-label="Require resource requests">
+              <span class="toggle-slider"></span>
+            </label>
           </div>
-          <label class="toggle">
-            <input type="checkbox" id="setting-require-res-requests" aria-label="Require resource requests">
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
-        <div class="toggle-row">
-          <div class="toggle-info">
-            <div class="toggle-label">Require resource limits</div>
-            <div class="toggle-desc">Reject apps that don't specify <span class="mono">resources.limits.cpu</span> and <span class="mono">resources.limits.memory</span></div>
+          <div class="toggle-row">
+            <div class="toggle-info">
+              <div class="toggle-label">Require resource limits</div>
+              <div class="toggle-desc">Reject apps that don't specify <span class="mono">resources.limits</span></div>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" id="setting-require-res-limits" aria-label="Require resource limits">
+              <span class="toggle-slider"></span>
+            </label>
           </div>
-          <label class="toggle">
-            <input type="checkbox" id="setting-require-res-limits" aria-label="Require resource limits">
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
-        <div class="toggle-row" style="border-bottom:none;">
-          <div class="toggle-info">
-            <div class="toggle-label">Allow persistent volumes (PVCs)</div>
-            <div class="toggle-desc">Allow inbound workloads to request PersistentVolumeClaims from the cluster's default StorageClass. Requires the Helm chart to be installed with <span class="mono">agent.allowPvcs=true</span> for RBAC.</div>
-          </div>
-          <label class="toggle">
-            <input type="checkbox" id="setting-allow-pvcs" aria-label="Allow persistent volumes">
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
-
-        <hr class="settings-divider">
-        <div class="section-label">Peer &amp; image filtering</div>
-        <div class="form-group" style="margin-bottom:0.75rem;">
-          <label class="form-label" for="setting-allowed-peers">Allowed source peers</label>
-          <input type="text" id="setting-allowed-peers" placeholder="peer-a, peer-b  (empty = all connected peers)" autocomplete="off">
-          <span class="form-hint">Comma-separated peer names. Empty = all connected peers can submit workloads.</span>
-        </div>
-        <div class="form-group" style="margin-bottom:0.75rem;">
-          <label class="form-label" for="setting-allowed-images">Allowed image prefixes</label>
-          <input type="text" id="setting-allowed-images" placeholder="docker.io/, gcr.io/  (empty = allow all)" autocomplete="off">
-          <span class="form-hint">Comma-separated prefixes. Empty = allow all images.</span>
-        </div>
-        <div class="form-group" style="margin-bottom:0;">
-          <label class="form-label" for="setting-blocked-images">Blocked image prefixes</label>
-          <input type="text" id="setting-blocked-images" placeholder="e.g. untrusted.registry.io/" autocomplete="off">
-          <span class="form-hint">Always denied even if in the allowed list.</span>
-        </div>
-        <div class="flex-end mt1">
-          <button type="button" id="setting-filters-save" class="btn-sm">Save filters</button>
-        </div>
-
-        <hr class="settings-divider">
-        <div class="section-label">Resource quotas (per pod)</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:0.75rem;">
-          <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="setting-max-cpu-req">Max CPU request</label>
-            <input type="text" id="setting-max-cpu-req" placeholder="e.g. 500m  (empty = unlimited)" autocomplete="off">
-          </div>
-          <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="setting-max-cpu-lim">Max CPU limit</label>
-            <input type="text" id="setting-max-cpu-lim" placeholder="e.g. 2  (empty = unlimited)" autocomplete="off">
-          </div>
-          <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="setting-max-mem-req">Max memory request</label>
-            <input type="text" id="setting-max-mem-req" placeholder="e.g. 256Mi  (empty = unlimited)" autocomplete="off">
-          </div>
-          <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="setting-max-mem-lim">Max memory limit</label>
-            <input type="text" id="setting-max-mem-lim" placeholder="e.g. 1Gi  (empty = unlimited)" autocomplete="off">
+          <div class="toggle-row" style="border-bottom:none;">
+            <div class="toggle-info">
+              <div class="toggle-label">Allow persistent volumes (PVCs)</div>
+              <div class="toggle-desc">Allow inbound workloads to request PVCs. Requires <span class="mono">agent.allowPvcs=true</span> in the Helm chart.</div>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" id="setting-allow-pvcs" aria-label="Allow persistent volumes">
+              <span class="toggle-slider"></span>
+            </label>
           </div>
         </div>
-        <div class="form-group" style="margin-bottom:0;">
-          <label class="form-label" for="setting-max-replicas">Max replicas per app</label>
-          <input type="number" id="setting-max-replicas" min="0" placeholder="0 = unlimited" autocomplete="off" style="width:10rem;">
-        </div>
-
-        <hr class="settings-divider">
-        <div class="section-label">Resource quotas (aggregate)</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:0.75rem;">
-          <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="setting-max-total-deploys">Max total deployments</label>
-            <input type="number" id="setting-max-total-deploys" min="0" placeholder="0 = unlimited" autocomplete="off">
+        <!-- Peer & image filtering -->
+        <hr class="settings-divider" style="margin:0;">
+        <div class="card-body">
+          <div class="section-label" style="margin-bottom:0.75rem;">Peer &amp; image filtering</div>
+          <div class="form-group">
+            <label class="form-label" for="setting-allowed-peers">Allowed source peers</label>
+            <input type="text" id="setting-allowed-peers" placeholder="peer-a, peer-b  (empty = all connected peers)" autocomplete="off">
+            <span class="form-hint">Comma-separated peer names. Empty = all connected peers can submit workloads.</span>
           </div>
-          <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="setting-max-total-pods">Max total pods</label>
-            <input type="number" id="setting-max-total-pods" min="0" placeholder="0 = unlimited" autocomplete="off">
+          <div class="form-group">
+            <label class="form-label" for="setting-allowed-images">Allowed image prefixes</label>
+            <input type="text" id="setting-allowed-images" placeholder="docker.io/, gcr.io/  (empty = allow all)" autocomplete="off">
+            <span class="form-hint">Comma-separated prefixes. Empty = allow all images.</span>
           </div>
-          <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="setting-max-total-cpu">Max total CPU requests</label>
-            <input type="text" id="setting-max-total-cpu" placeholder="e.g. 4  (empty = unlimited)" autocomplete="off">
+          <div class="form-group" style="margin-bottom:0.75rem;">
+            <label class="form-label" for="setting-blocked-images">Blocked image prefixes</label>
+            <input type="text" id="setting-blocked-images" placeholder="e.g. untrusted.registry.io/" autocomplete="off">
+            <span class="form-hint">Always denied even if in the allowed list.</span>
           </div>
-          <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="setting-max-total-mem">Max total memory requests</label>
-            <input type="text" id="setting-max-total-mem" placeholder="e.g. 8Gi  (empty = unlimited)" autocomplete="off">
+          <div class="flex-end">
+            <button type="button" id="setting-filters-save" class="btn-sm">Save filters</button>
           </div>
-        </div>
-        <div class="flex-end">
-          <button type="button" id="setting-quotas-save" class="btn-sm">Save quotas</button>
-        </div>
-
-        <hr class="settings-divider">
-        <div class="section-label">PVC storage quotas</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:0.75rem;">
-          <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="setting-max-pvc-per">Max storage per PVC (GB)</label>
-            <input type="number" id="setting-max-pvc-per" min="0" placeholder="0 = unlimited" autocomplete="off">
-            <span class="form-hint">Maximum storage a single PVC may request.</span>
-          </div>
-          <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="setting-max-pvc-total">Max total PVC storage (GB)</label>
-            <input type="number" id="setting-max-pvc-total" min="0" placeholder="0 = unlimited" autocomplete="off">
-            <span class="form-hint">Maximum combined PVC storage per app submission.</span>
-          </div>
-        </div>
-        <div class="flex-end" style="margin-bottom:0;">
-          <button type="button" id="setting-pvc-quotas-save" class="btn-sm">Save PVC quotas</button>
-        </div>
-
-        <hr class="settings-divider">
-        <div class="section-label">Tunnels</div>
-        <div class="toggle-row">
-          <div class="toggle-info">
-            <div class="toggle-label">Accept inbound tunnels</div>
-            <div class="toggle-desc">Allow peers to open HTTP proxy tunnels to pods on this cluster</div>
-          </div>
-          <label class="toggle">
-            <input type="checkbox" id="setting-inbound-tunnels" aria-label="Accept inbound tunnels">
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
-        <div class="form-group" style="margin-top:0.75rem;margin-bottom:0;">
-          <label class="form-label">Allowed tunnel peers</label>
-          <div class="tunnel-peers-hint">Select which peers (and specific apps) can open tunnels on this cluster. All enabled by default.</div>
-          <div class="tunnel-peer-list" id="tunnel-peer-list">
-            <div class="tunnel-peer-empty" id="tunnel-peer-empty">No peers connected — tunnels allowed from all peers by default</div>
-          </div>
-        </div>
-        <div class="flex-end mt1">
-          <button type="button" id="setting-tunnels-save" class="btn-sm">Save tunnel settings</button>
         </div>
       </div>
-    </div>
-  </section>
+
+      <!-- ── Resource Quotas ────────────────────────────────────── -->
+      <div class="card">
+        <div class="card-header">
+          <h2>Resource Quotas</h2>
+          <span class="card-header-sub">per pod</span>
+        </div>
+        <div class="card-body">
+          <div class="form-row-2" style="margin-bottom:0.75rem;">
+            <div class="form-group" style="margin-bottom:0;">
+              <label class="form-label" for="setting-max-cpu-req">Max CPU request</label>
+              <input type="text" id="setting-max-cpu-req" placeholder="e.g. 500m  (empty = unlimited)" autocomplete="off">
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+              <label class="form-label" for="setting-max-cpu-lim">Max CPU limit</label>
+              <input type="text" id="setting-max-cpu-lim" placeholder="e.g. 2  (empty = unlimited)" autocomplete="off">
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+              <label class="form-label" for="setting-max-mem-req">Max memory request</label>
+              <input type="text" id="setting-max-mem-req" placeholder="e.g. 256Mi  (empty = unlimited)" autocomplete="off">
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+              <label class="form-label" for="setting-max-mem-lim">Max memory limit</label>
+              <input type="text" id="setting-max-mem-lim" placeholder="e.g. 1Gi  (empty = unlimited)" autocomplete="off">
+            </div>
+          </div>
+          <div class="form-group" style="margin-bottom:0.75rem;">
+            <label class="form-label" for="setting-max-replicas">Max replicas per app</label>
+            <input type="number" id="setting-max-replicas" min="0" placeholder="0 = unlimited" autocomplete="off" style="width:10rem;">
+          </div>
+
+          <div class="section-label" style="margin-top:0.75rem;margin-bottom:0.75rem;">Aggregate quotas</div>
+          <div class="form-row-2" style="margin-bottom:0.75rem;">
+            <div class="form-group" style="margin-bottom:0;">
+              <label class="form-label" for="setting-max-total-deploys">Max total deployments</label>
+              <input type="number" id="setting-max-total-deploys" min="0" placeholder="0 = unlimited" autocomplete="off">
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+              <label class="form-label" for="setting-max-total-pods">Max total pods</label>
+              <input type="number" id="setting-max-total-pods" min="0" placeholder="0 = unlimited" autocomplete="off">
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+              <label class="form-label" for="setting-max-total-cpu">Max total CPU requests</label>
+              <input type="text" id="setting-max-total-cpu" placeholder="e.g. 4  (empty = unlimited)" autocomplete="off">
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+              <label class="form-label" for="setting-max-total-mem">Max total memory requests</label>
+              <input type="text" id="setting-max-total-mem" placeholder="e.g. 8Gi  (empty = unlimited)" autocomplete="off">
+            </div>
+          </div>
+          <div class="flex-end">
+            <button type="button" id="setting-quotas-save" class="btn-sm">Save quotas</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── PVC Storage Quotas ─────────────────────────────────── -->
+      <div class="card">
+        <div class="card-header"><h2>PVC Storage Quotas</h2></div>
+        <div class="card-body">
+          <div class="form-row-2" style="margin-bottom:0.75rem;">
+            <div class="form-group" style="margin-bottom:0;">
+              <label class="form-label" for="setting-max-pvc-per">Max storage per PVC (GB)</label>
+              <input type="number" id="setting-max-pvc-per" min="0" placeholder="0 = unlimited" autocomplete="off">
+              <span class="form-hint">Maximum a single PVC may request.</span>
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+              <label class="form-label" for="setting-max-pvc-total">Max total PVC storage (GB)</label>
+              <input type="number" id="setting-max-pvc-total" min="0" placeholder="0 = unlimited" autocomplete="off">
+              <span class="form-hint">Maximum combined PVC storage per submission.</span>
+            </div>
+          </div>
+          <div class="flex-end">
+            <button type="button" id="setting-pvc-quotas-save" class="btn-sm">Save PVC quotas</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Tunnels ────────────────────────────────────────────── -->
+      <div class="card settings-card-full">
+        <div class="card-header"><h2>Tunnels</h2></div>
+        <div class="card-body">
+          <div class="toggle-row" style="padding-left:0;padding-right:0;margin-bottom:0.75rem;">
+            <div class="toggle-info">
+              <div class="toggle-label">Accept inbound tunnels</div>
+              <div class="toggle-desc">Allow peers to open HTTP proxy tunnels to pods on this cluster</div>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" id="setting-inbound-tunnels" aria-label="Accept inbound tunnels">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="form-group" style="margin-bottom:0.5rem;">
+            <label class="form-label">Allowed tunnel peers</label>
+            <div class="form-hint" style="margin-bottom:0.5rem;">Select which peers can open tunnels. All enabled by default.</div>
+            <div class="tunnel-peer-list" id="tunnel-peer-list">
+              <div class="tunnel-peer-empty" id="tunnel-peer-empty">No peers connected — tunnels allowed from all peers by default</div>
+            </div>
+          </div>
+          <div class="flex-end mt1">
+            <button type="button" id="setting-tunnels-save" class="btn-sm">Save tunnel settings</button>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /settings-grid -->
+  </div>
 
 </section>
 {% endblock %}

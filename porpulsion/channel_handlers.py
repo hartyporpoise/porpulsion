@@ -312,13 +312,16 @@ def handle_proxy_request(payload: dict, peer_name: str = "") -> dict:
 
 def handle_peer_disconnect(payload: dict):
     """Peer is telling us it's disconnecting cleanly."""
-    from porpulsion import state, tls
+    from porpulsion import state
     from porpulsion.notifications import add_notification
     from porpulsion.k8s.store import list_remoteapp_crs, cr_to_dict, update_remoteapp_cr_status
 
     peer_name = payload.get("name", "")
     if peer_name and peer_name in state.peers:
-        state.peers.pop(peer_name)
+        # Keep the peer in state.peers (persisted to Secret) so it auto-reconnects
+        # after a restart. The WS channel's connect_and_maintain loop will handle
+        # reconnection automatically once the remote comes back up.
+        # Intentional "forget this peer" goes through DELETE /peers/<name>.
         state.peer_channels.pop(peer_name, None)
 
         # Mark all RemoteApp CRs targeting this peer as Failed
@@ -333,8 +336,7 @@ def handle_peer_disconnect(payload: dict):
                     log.debug("Could not update CR status for %s: %s", d["id"], e)
                 affected.append(d["name"])
 
-        tls.save_peers(state.NAMESPACE, state.peers)
-        log.info("Peer %s disconnected (via channel)", peer_name)
+        log.info("Peer %s disconnected (via channel) — kept in peer list for reconnect", peer_name)
         msg = f"Peer {peer_name!r} disconnected."
         if affected:
             msg += f" {len(affected)} workload(s) marked Failed: {', '.join(affected[:3])}{'…' if len(affected) > 3 else ''}."

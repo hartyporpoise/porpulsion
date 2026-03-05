@@ -15,62 +15,96 @@
     </div>
   </section>
 
-  <!-- SECTION: Connect new peer + Credentials + All peers -->
-  <section id="peers-connect-grid" class="grid2 page-section" aria-label="Connect peer and credentials">
-    <div class="card">
-      <div class="card-header"><h2>Connect a New Peer</h2></div>
-      <div class="card-body">
-        <form id="connect-peer-form"
-              hx-post="/api/peers/connect"
-              hx-ext="json-enc"
-              hx-target="body"
-              hx-swap="none"
-              hx-trigger="submit">
-          <div class="form-group">
-            <label class="form-label" for="new-peer-url">Peer URL</label>
-            <input type="url" id="new-peer-url" name="url" placeholder="https://porpulsion.example.com" required>
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="new-peer-token">Their invite token</label>
-            <input type="text" id="new-peer-token" name="invite_token" placeholder="paste their invite token here" autocomplete="off" required>
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="new-peer-fp">Their CA fingerprint</label>
-            <input type="text" id="new-peer-fp" name="ca_fingerprint" placeholder="paste their CA fingerprint here" autocomplete="off" style="font-family:monospace;font-size:0.75rem;" required>
-            <span class="form-hint">Prevents MITM during bootstrap. Get this from their Settings.</span>
-          </div>
-          <div class="flex-end mt1">
-            <button type="submit">Initiate Peering</button>
-          </div>
-        </form>
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-header"><h2>Connect Credentials</h2></div>
-      <div class="card-body">
-        <p class="text-sm text-muted" style="margin-bottom:1rem;">
-          Share your endpoint URL, invite token, and CA fingerprint with the peer who wants to connect to you.
-        </p>
-        <div class="section-label">Endpoint URL</div>
-        <div class="code-box">
-          <span class="code-val" id="token-url">loading…</span>
-          <button type="button" class="btn-sm" onclick="window.Porpulsion.copyText('token-url', this)">Copy</button>
+  <!-- SECTION: Connect + Credentials (top row) -->
+  <section id="peers-connect-grid" class="page-section" aria-label="Connect peer and credentials">
+    <div class="peers-top-grid">
+
+      <!-- Connect a new peer -->
+      <div class="card">
+        <div class="card-header">
+          <h2>Connect a Peer</h2>
         </div>
-        <div class="section-label" style="margin-top:1rem;">Invite token (single-use)</div>
-        <div class="secret-box">
-          <span class="secret-val masked" id="token-key" data-value="">••••••••••••••••••••••••••••••••</span>
-          <button type="button" class="eye-btn" onclick="window.Porpulsion.toggleSecret('token-key', this)" title="Show/hide" aria-label="Toggle visibility"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M1 10s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6z"/><circle cx="10" cy="10" r="2.5"/></svg></button>
-          <button type="button" class="btn-sm" onclick="window.Porpulsion.copySecret('token-key', this)">Copy</button>
-        </div>
-        <div class="section-label" style="margin-top:1rem;">CA fingerprint</div>
-        <div class="secret-box">
-          <span class="secret-val masked" id="token-fp-peers" data-value="" style="font-size:0.68rem;">••••••••••••••••••••••••••••••••••••••••••••••••</span>
-          <button type="button" class="eye-btn" onclick="window.Porpulsion.toggleSecret('token-fp-peers', this)" title="Show/hide" aria-label="Toggle visibility"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M1 10s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6z"/><circle cx="10" cy="10" r="2.5"/></svg></button>
-          <button type="button" class="btn-sm" onclick="window.Porpulsion.copySecret('token-fp-peers', this)">Copy</button>
+        <div class="card-body">
+          <form id="connect-peer-form"
+                hx-post="/api/peers/connect"
+                hx-ext="json-enc"
+                hx-target="body"
+                hx-swap="none"
+                hx-trigger="submit">
+            <div class="form-group">
+              <label class="form-label" for="new-peer-url">Peer URL</label>
+              <input type="url" id="new-peer-url" name="url" placeholder="https://porpulsion.example.com" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="new-peer-token">Invite token</label>
+              <input type="text" id="new-peer-token" name="invite_token" placeholder="Paste their invite token" autocomplete="off" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="new-peer-fp">CA fingerprint</label>
+              <input type="text" id="new-peer-fp" name="ca_fingerprint" placeholder="Paste their CA fingerprint" autocomplete="off" style="font-family:monospace;font-size:0.75rem;" required>
+              <span class="form-hint">Prevents MITM during bootstrap. Get this from their Settings.</span>
+            </div>
+            <div class="flex-end mt1">
+              <button type="submit">Initiate Peering</button>
+            </div>
+          </form>
         </div>
       </div>
+
+      <!-- Your credentials -->
+      <div class="card">
+        <div class="card-header">
+          <h2>Your Credentials</h2>
+        </div>
+        <div class="card-body">
+          <p class="text-sm text-muted" style="margin-bottom:1.25rem;">
+            Share these with the peer who wants to connect to you.
+          </p>
+
+          <div class="cred-row">
+            <div class="cred-label">Endpoint URL</div>
+            <div class="cred-val-wrap">
+              <span class="cred-val mono" id="token-url">loading…</span>
+              <button type="button" class="btn-icon cred-copy-btn" title="Copy" aria-label="Copy URL"
+                onclick="window.Porpulsion.copyText('token-url', this)">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="cred-row">
+            <div class="cred-label">Invite token <span class="cred-label-sub">(single-use)</span></div>
+            <div class="cred-val-wrap">
+              <span class="secret-val masked cred-val mono" id="token-key" data-value="">••••••••••••••••••••</span>
+              <button type="button" class="eye-btn" onclick="window.Porpulsion.toggleSecret('token-key', this)" title="Show/hide" aria-label="Toggle visibility">
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M1 10s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6z"/><circle cx="10" cy="10" r="2.5"/></svg>
+              </button>
+              <button type="button" class="btn-icon cred-copy-btn" title="Copy" aria-label="Copy token"
+                onclick="window.Porpulsion.copySecret('token-key', this)">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="cred-row" style="border-bottom:none;">
+            <div class="cred-label">CA fingerprint</div>
+            <div class="cred-val-wrap">
+              <span class="secret-val masked cred-val mono" id="token-fp-peers" data-value="" style="font-size:0.68rem;">••••••••••••••••••••••••••••••••••••••••</span>
+              <button type="button" class="eye-btn" onclick="window.Porpulsion.toggleSecret('token-fp-peers', this)" title="Show/hide" aria-label="Toggle visibility">
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M1 10s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6z"/><circle cx="10" cy="10" r="2.5"/></svg>
+              </button>
+              <button type="button" class="btn-icon cred-copy-btn" title="Copy" aria-label="Copy fingerprint"
+                onclick="window.Porpulsion.copySecret('token-fp-peers', this)">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
-    <div class="card full">
+
+    <!-- All peers table -->
+    <div class="card" style="margin-top:1rem;">
       <div class="card-header">
         <h2>All Peers</h2>
         <span class="badge badge-pending" id="all-peers-count">0</span>

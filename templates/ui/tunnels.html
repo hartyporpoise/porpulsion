@@ -5,29 +5,34 @@
 <!-- PAGE: Proxy / Tunnels (route: /tunnels) -->
 <section id="tunnels-page" data-page="tunnels">
 
-  <!-- SECTION: Proxy info -->
+  <!-- SECTION: Proxy info + app list -->
   <section id="tunnels-proxy-info" class="page-section" aria-label="HTTP proxy information">
-    <div class="card">
-      <div class="card-header"><h2>HTTP Proxy</h2></div>
-      <div class="card-body">
-        <p class="text-sm text-muted" style="margin-bottom:1rem;">
-          Each RemoteApp port is accessible via a built-in HTTP proxy route — no tunnel setup required.
-        </p>
-        <div class="section-label">Proxy URL format</div>
-        <div class="code-box code-box-wrap" style="margin-bottom:1rem;">
-          <span class="code-val" style="color:var(--muted);">{this-agent-url}<strong style="color:var(--accent2);">/api/remoteapp/&lt;app-id&gt;/proxy/&lt;port&gt;/&lt;path&gt;</strong></span>
+
+    <!-- Info banner -->
+    <div class="proxy-info-banner">
+      <div class="proxy-info-icon">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h18"/><path d="M15 6l6 6-6 6"/><path d="M9 6L3 12l6 6"/></svg>
+      </div>
+      <div class="proxy-info-body">
+        <div class="proxy-info-title">HTTP Proxy</div>
+        <div class="proxy-info-desc">Each RemoteApp port is accessible via a built-in proxy route — no tunnel setup required. Open the <strong>Detail</strong> view on any submitted app to get ready-to-use URLs.</div>
+        <div class="proxy-url-format">
+          <span class="proxy-url-muted">{agent-url}</span><span class="proxy-url-accent">/api/remoteapp/&lt;app-id&gt;/proxy/&lt;port&gt;/&lt;path&gt;</span>
         </div>
-        <p class="text-sm text-muted" style="margin-bottom:1.25rem;">
-          Open the <strong style="color:var(--text);">Detail</strong> view for any submitted app to get ready-to-use proxy URLs.
-        </p>
-        <div class="card card-nested">
-          <div class="card-body">
-            <div class="section-label" style="margin-top:0;">Submitted Apps with Proxy Access</div>
-            <div id="proxy-apps-list" style="margin-top:0.75rem;">
-              <div class="empty-state" style="padding:1.5rem 0.5rem;">
-                <div class="empty-icon">&#8658;</div>No submitted apps yet
-              </div>
-            </div>
+      </div>
+      <a href="/settings" class="btn-sm proxy-settings-link">Tunnel settings</a>
+    </div>
+
+    <!-- Apps list -->
+    <div class="card">
+      <div class="card-header">
+        <h2>Submitted Apps</h2>
+        <span class="card-header-sub">— with proxy access</span>
+      </div>
+      <div class="card-body no-pad">
+        <div id="proxy-apps-list">
+          <div class="empty-state" style="padding:2.5rem 1rem;">
+            <div class="empty-icon">&#8658;</div>No submitted apps yet — <a href="/deploy">deploy a workload</a>
           </div>
         </div>
       </div>
