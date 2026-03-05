@@ -405,7 +405,7 @@ jobs:
       - name: Trivy image scan
         if: github.event_name == 'pull_request'
         continue-on-error: true
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.34.2
         with:
           image-ref: porpulsion:pr-scan
           format: table
