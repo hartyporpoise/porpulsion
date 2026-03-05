@@ -226,7 +226,7 @@ jobs:
 
       - name: Regenerate pinned requirements
         run: |
-          pip freeze | grep -F -f <(grep -v '^\s*#' requirements.txt | sed 's/[>=<!=].*//') > requirements.txt.new
+          pip freeze | grep -F -i -f <(grep -v '^\s*#' requirements.txt | sed 's/[>=<!=].*//') > requirements.txt.new
           mv requirements.txt.new requirements.txt
 
       - name: Commit upgraded requirements if changed
