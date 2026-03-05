@@ -222,9 +222,11 @@ def peer_disconnect():
     peer_name = data.get("name", "")
     removed = False
     if peer_name and peer_name in state.peers:
-        state.peers.pop(peer_name)
+        # Keep peer in state.peers (persisted) so it auto-reconnects.
+        # The channel's connect_and_maintain loop retries automatically.
+        state.peer_channels.pop(peer_name, None)
         removed = True
-        log.info("Peer %s disconnected us — removed from peer list", peer_name)
+        log.info("Peer %s disconnected us — peer kept for reconnect", peer_name)
         # Mark all RemoteApp CRs targeting this peer as Failed
         from porpulsion.k8s.store import list_remoteapp_crs, cr_to_dict, update_remoteapp_cr_status
         for cr in list_remoteapp_crs(state.NAMESPACE):
@@ -236,7 +238,6 @@ def peer_disconnect():
                 except Exception as e:
                     log.debug("Could not update CR status for %s: %s", d["id"], e)
                 log.info("Marked app %s as Failed (peer %s disconnected)", d["id"], peer_name)
-        tls.save_peers(state.NAMESPACE, state.peers)
     return jsonify({"ok": True, "removed": removed})
 
 
