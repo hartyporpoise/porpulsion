@@ -154,6 +154,74 @@ jobs:
             git push origin "${{ github.head_ref }}"
           fi
 
+  # ── PR only: dependency security scan (non-blocking) ─────────────────────
+  security-scan:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pip-audit
+        run: pip install pip-audit
+
+      - name: Run pip-audit
+        run: pip-audit -r requirements.txt 2>&1 | tee pip-audit-report.txt || true
+
+      - name: Upload audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pip-audit-report
+          path: pip-audit-report.txt
+          if-no-files-found: ignore
+
+  # ── PR only: auto-upgrade pinned dependencies ─────────────────────────────
+  deps-upgrade:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pip-upgrader
+        run: pip install pip-upgrader
+
+      - name: Run pip-upgrader (non-interactive)
+        run: pip-upgrade requirements.txt --skip-package-installation -p all || true
+
+      - name: Commit upgraded requirements if changed
+        run: |
+          git diff --exit-code requirements.txt && echo "No dependency updates." || (
+            git add requirements.txt
+            git commit -m "chore: auto-upgrade pinned dependencies [skip ci]"
+            git push origin "${{ github.head_ref }}"
+          )
+
   # ── Main push: detect chart/appVersion changes ───────────────────────────
   check:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -310,12 +378,38 @@ jobs:
             type=raw,value=${{ needs.check.outputs.app_version }},enable=${{ needs.check.outputs.app_version_changed == 'true' }}
 
       - name: Build and push Docker image
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name != 'pull_request' }}
+          load: false
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # PR only: build a local amd64 image for Trivy to scan (can't load multi-platform)
+      - name: Build local image for Trivy scan
+        if: github.event_name == 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: porpulsion:pr-scan
+          cache-from: type=gha
+
+      - name: Trivy image scan
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: porpulsion:pr-scan
+          format: table
+          exit-code: '0'
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
