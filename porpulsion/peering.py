@@ -129,7 +129,7 @@ def _extract_client_cert(request) -> str:
     if cert:
         return cert
 
-    # nginx URL-encodes the PEM (spaces → +/%, newlines → %0A etc.)
+    # nginx URL-encodes the PEM (spaces -> +/%, newlines -> %0A etc.)
     header = request.headers.get("X-SSL-Client-Cert", "")
     if header:
         return urllib.parse.unquote(header)

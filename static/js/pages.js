@@ -1085,7 +1085,7 @@
         html += '<div style="margin-bottom:0.85rem;">' +
           '<div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.3rem;">' +
             '<span style="font-size:0.82rem;font-weight:600;">' + _esc(cm.name) + '</span>' +
-            '<span class="mono" style="color:var(--muted2);font-size:0.72rem;flex:1;">→ ' + _esc(cm.mountPath || '') + '</span>' +
+            '<span class="mono" style="color:var(--muted2);font-size:0.72rem;flex:1;">-> ' + _esc(cm.mountPath || '') + '</span>' +
             (isSubmitted ? DEL_BTN.replace('cfg-obj-delete', 'cfg-obj-delete cfg-cm-del-' + i) : '') +
           '</div>' +
           '<div id="' + cid + '"></div></div>';
@@ -1100,7 +1100,7 @@
         html += '<div style="margin-bottom:0.85rem;">' +
           '<div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.3rem;">' +
             '<span style="font-size:0.82rem;font-weight:600;">' + _esc(sec.name) + '</span>' +
-            '<span class="mono" style="color:var(--muted2);font-size:0.72rem;flex:1;">→ ' + _esc(sec.mountPath || '') + '</span>' +
+            '<span class="mono" style="color:var(--muted2);font-size:0.72rem;flex:1;">-> ' + _esc(sec.mountPath || '') + '</span>' +
             (isSubmitted ? DEL_BTN.replace('cfg-obj-delete', 'cfg-obj-delete cfg-sec-del-' + i) : '') +
           '</div>' +
           '<div id="' + sid + '"></div></div>';
