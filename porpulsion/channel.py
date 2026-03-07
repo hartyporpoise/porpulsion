@@ -7,10 +7,30 @@ subsequent peer-to-peer communication (workload submission, status callbacks,
 proxy tunnelling) flows over this single persistent connection instead of
 making new outbound HTTPS requests for each call.
 
-This sidesteps the nginx client-cert-forwarding problem entirely: the WS
-upgrade is a plain HTTPS request (nginx handles it fine), and once the
-connection is established both sides authenticate via the CA cert check on
-the first frame. No client cert needs to reach the Flask app.
+Authentication happens entirely within the WS channel via the peer/hello
+frame — no HTTP headers or separate handshake endpoint required.
+
+Connect sequence
+----------------
+Outbound (initiator):
+  1. Resolve the pinned CA PEM for the target peer.
+  2. Write it to a temp file and connect with sslopt ca_certs= (pinned TLS).
+     Plain ws:// connections skip TLS verification.
+  3. Send peer/hello as the very first frame:
+       {"name": AGENT_NAME, "ca_pem": <our CA PEM>,
+        "nonce": <random hex>, "challenge_sig": <ECDSA sig of nonce>}
+  4. Wait for peer/hello-ack from the acceptor (contains their hello so we
+     can verify their key possession too).
+
+Inbound (acceptor, attach_inbound):
+  1. Receive the first frame — must be peer/hello.
+  2. Verify challenge_sig against the presented ca_pem.
+  3. If peer is already known: ensure CA fingerprint matches stored value.
+     If peer is unknown: auto-register (they connected using our invite bundle,
+     so their bundle was already verified on their side; we verify key possession
+     here before trusting them).
+  4. Send peer/hello-ack (our own hello payload so initiator can verify us).
+  5. Mark connected and enter the normal recv loop.
 
 Message framing (JSON):
 
@@ -20,6 +40,8 @@ Message framing (JSON):
   Push     {"type": "<event>",   "payload": {...}}     # no id — fire-and-forget
 
 Types:
+  peer/hello              first frame — identity + challenge sig
+  peer/hello-ack          acceptor's hello in response to initiator's hello
   remoteapp/receive       submit a RemoteApp to the peer for execution
   remoteapp/status        status update from executor back to submitter
   remoteapp/delete        delete a running RemoteApp
@@ -31,7 +53,6 @@ Types:
   peer/disconnect         graceful disconnect notification
   ping                    keepalive
 """
-import base64
 import json
 import logging
 import threading
@@ -216,35 +237,129 @@ class PeerChannel:
 
     # ── Inbound (server side) ─────────────────────────────────
 
-    def attach_inbound(self, sock):
+    def attach_inbound(self, sock) -> bool:
         """
-        Called by the WS server handler (routes/ws.py) to hand off the
-        already-authenticated server socket. Runs the recv loop in the CALLING
-        thread (the flask-sock handler thread) — this is required because
-        simple_websocket does not support recv() from a different thread.
-        Blocks until the connection closes.
+        Called by the WS server handler (routes/ws.py) to hand off an
+        incoming connection. Authenticates via the peer/hello first frame,
+        then enters the normal recv loop in the CALLING thread (flask-sock
+        requires recv() to stay on its handler thread).
+
+        Returns True if the connection was accepted, False if rejected.
+        Blocks until the connection closes on success.
         """
-        # Store the socket using a private attribute that _send_raw can reach.
-        # We wrap it in a thin adapter so _send_raw / _ping_loop work unchanged.
+        from porpulsion import state as _state, tls
+
+        # ── Receive and validate peer/hello ──────────────────────────────
+        try:
+            raw = sock.receive()
+        except Exception as exc:
+            log.warning("Inbound WS: failed to receive hello frame: %s", exc)
+            return False
+
+        if not raw:
+            log.warning("Inbound WS: empty first frame — closing")
+            return False
+
+        if isinstance(raw, bytes):
+            raw = raw.decode("utf-8", errors="replace")
+
+        try:
+            hello = json.loads(raw)
+        except Exception:
+            log.warning("Inbound WS: malformed hello frame — closing")
+            return False
+
+        if hello.get("type") != "peer/hello":
+            log.warning("Inbound WS: first frame type %r is not peer/hello — closing",
+                        hello.get("type"))
+            return False
+
+        payload       = hello.get("payload", {})
+        peer_name     = payload.get("name", "")
+        peer_ca_pem   = payload.get("ca_pem", "")
+        nonce         = payload.get("nonce", "")
+        challenge_sig = payload.get("challenge_sig", "")
+
+        if not all([peer_name, peer_ca_pem, nonce, challenge_sig]):
+            log.warning("Inbound WS: peer/hello missing required fields")
+            return False
+
+        # Verify challenge: proves the connector holds the CA private key
+        if not tls.verify_challenge(nonce, challenge_sig, peer_ca_pem):
+            log.warning("Inbound WS: challenge verification failed for %r — closing", peer_name)
+            return False
+
+        # Check against known peers or auto-register from hello CA
+        existing = _state.peers.get(peer_name)
+        if existing:
+            stored_fp    = tls.cert_fingerprint(existing.ca_pem) if existing.ca_pem else ""
+            presented_fp = tls.cert_fingerprint(peer_ca_pem)
+            if stored_fp and stored_fp != presented_fp:
+                log.warning("Inbound WS: CA fingerprint mismatch for known peer %r — closing",
+                            peer_name)
+                return False
+            # Mark that we've now received an inbound connection from this peer
+            if not existing.has_inbound:
+                existing.has_inbound = True
+                tls.save_peers(_state.NAMESPACE, _state.peers)
+        else:
+            # Unknown peer — they used our invite bundle (verified on their side).
+            # Key-possession check above is sufficient to trust them.
+            from porpulsion.models import Peer
+            tls.write_temp_pem(
+                peer_ca_pem.encode() if isinstance(peer_ca_pem, str) else peer_ca_pem,
+                f"peer-ca-{peer_name}",
+            )
+            _state.peers[peer_name] = Peer(name=peer_name, url=self.peer_url or "",
+                                           ca_pem=peer_ca_pem, initiator=False, has_inbound=True)
+            tls.save_peers(_state.NAMESPACE, _state.peers)
+            log.info("Inbound WS: auto-registered new peer %r from hello frame", peer_name)
+
+        # Update channel metadata in case accept_channel used a placeholder
+        self.peer_name = peer_name
+        self.ca_pem    = peer_ca_pem
+
+        # ── Send peer/hello-ack — proves our key possession back ──────────
+        ack_nonce = uuid.uuid4().hex
+        ack_sig   = tls.sign_challenge(ack_nonce, _state.AGENT_CA_KEY_PEM)
+        try:
+            sock.send(json.dumps({
+                "type": "peer/hello-ack",
+                "payload": {
+                    "name":          _state.AGENT_NAME,
+                    "ca_pem":        _state.AGENT_CA_PEM.decode(),
+                    "nonce":         ack_nonce,
+                    "challenge_sig": ack_sig,
+                },
+            }))
+        except Exception as exc:
+            log.warning("Inbound WS: failed to send hello-ack to %r: %s", peer_name, exc)
+            return False
+
+        log.info("Inbound WS: peer/hello exchange complete with %r", peer_name)
+
+        # ── Register in peer_channels now (before blocking recv loop) ─────
+        # Must happen here so is_connected() returns True while the connection
+        # is live. accept_channel() runs after attach_inbound returns (too late).
+        old = _state.peer_channels.get(peer_name)
+        if old and old is not self:
+            old.close()
+        _state.peer_channels[peer_name] = self
+
+        # ── Hand off to normal channel operation ──────────────────────────
         with self._lock:
             self._ws = _SimpleWsSendAdapter(sock)
         self.connected_event.set()
 
-        # Announce our version so the peer can detect mismatches
         try:
-            from porpulsion import state as _state
             self.push("version/announce", {"version": _state.VERSION_HASH})
         except Exception:
             pass
 
-        # Share our CRD spec properties so the peer can flag schema mismatches
         _push_crd_schema(self)
-
-        # Start keepalive ping thread (same as outbound side)
         threading.Thread(target=self._ping_loop, daemon=True).start()
-
-        # Run the recv loop directly in this (handler) thread.
         self._inbound_recv_loop(sock)
+        return True
 
     # ── Outbound (client side) ────────────────────────────────
 
@@ -285,38 +400,93 @@ class PeerChannel:
             time.sleep(delay)
 
     def _connect(self):
+        import os
+        import tempfile
         from porpulsion import tls, state
 
         # WS goes to the peer's public URL (nginx in production, UI NodePort in dev).
         ws_url = self.peer_url.replace("https://", "wss://").replace("http://", "ws://")
         ws_url = ws_url.rstrip("/") + "/ws"
 
-        # For WSS connections nginx (or the LB) presents a real TLS cert — let
-        # websocket-client verify it using the system CA bundle (certifi).
-        # For plain WS there's nothing to verify.
+        # Pin TLS to the peer's CA cert for WSS connections.
+        # Write the peer's CA to a temp file so websocket-client can use it.
         ssl_opts: dict = {}
+        _ca_tmp = None
+        if ws_url.startswith("wss://") and self.ca_pem:
+            ca_bytes = self.ca_pem.encode() if isinstance(self.ca_pem, str) else self.ca_pem
+            fd, _ca_tmp = tempfile.mkstemp(prefix="porpulsion-peer-ca-", suffix=".pem")
+            try:
+                os.write(fd, ca_bytes)
+            finally:
+                os.close(fd)
+            ssl_opts = {"ca_certs": _ca_tmp, "cert_reqs": 2}  # ssl.CERT_REQUIRED
 
-        # Send our CA PEM base64-encoded — PEM contains newlines which would
-        # break HTTP header framing if sent raw.
-        ca_b64 = base64.b64encode(state.AGENT_CA_PEM).decode()
-        ws = websocket.WebSocket(sslopt=ssl_opts)
-        ws.connect(ws_url, timeout=_CONNECT_TIMEOUT, header={
-            "X-Agent-Name": state.AGENT_NAME,
-            "X-Agent-Ca":   ca_b64,
-        })
-        # Reset timeout to None after handshake — the connect() timeout would
-        # otherwise persist and cause recv() to raise WebSocketTimeoutException
-        # after _CONNECT_TIMEOUT seconds of inactivity, dropping the channel.
+        try:
+            ws = websocket.WebSocket(sslopt=ssl_opts)
+            ws.connect(ws_url, timeout=_CONNECT_TIMEOUT, header={
+                "X-Agent-Name": state.AGENT_NAME,
+            })
+            # Reset timeout to None after handshake — the connect() timeout would
+            # otherwise persist and cause recv() to raise WebSocketTimeoutException
+            # after _CONNECT_TIMEOUT seconds of inactivity, dropping the channel.
+            ws.settimeout(None)
+        finally:
+            if _ca_tmp:
+                try:
+                    os.unlink(_ca_tmp)
+                except Exception:
+                    pass
+
+        # ── Send peer/hello — proves identity and key possession ──────────
+        nonce = uuid.uuid4().hex
+        challenge_sig = tls.sign_challenge(nonce, state.AGENT_CA_KEY_PEM)
+        ws.send(json.dumps({
+            "type": "peer/hello",
+            "payload": {
+                "name":          state.AGENT_NAME,
+                "ca_pem":        state.AGENT_CA_PEM.decode(),
+                "nonce":         nonce,
+                "challenge_sig": challenge_sig,
+            },
+        }))
+
+        # ── Wait for peer/hello-ack ───────────────────────────────────────
+        ws.settimeout(_CONNECT_TIMEOUT)
+        try:
+            raw_ack = ws.recv()
+        except Exception as exc:
+            ws.close()
+            raise RuntimeError(f"no hello-ack from {self.peer_name}: {exc}") from exc
         ws.settimeout(None)
+
+        try:
+            ack = json.loads(raw_ack)
+        except Exception:
+            ws.close()
+            raise RuntimeError(f"malformed hello-ack from {self.peer_name}")
+
+        if ack.get("type") not in ("peer/hello-ack", "peer/hello"):
+            ws.close()
+            raise RuntimeError(f"unexpected first frame type from {self.peer_name}: {ack.get('type')!r}")
+
+        # Verify the acceptor's key possession
+        ack_payload = ack.get("payload", {})
+        peer_ca_pem = ack_payload.get("ca_pem", self.ca_pem)
+        peer_nonce  = ack_payload.get("nonce", "")
+        peer_sig    = ack_payload.get("challenge_sig", "")
+        if peer_nonce and peer_sig and peer_ca_pem:
+            if not tls.verify_challenge(peer_nonce, peer_sig, peer_ca_pem):
+                ws.close()
+                raise RuntimeError(f"hello-ack challenge verification failed for {self.peer_name}")
+
         with self._lock:
             self._ws = ws
         self.connected_event.set()
-        log.info("WebSocket channel connected to %s", self.peer_name)
+        log.info("WebSocket channel connected to %s (hello verified)", self.peer_name)
 
         # Announce our version so the peer can detect mismatches
         try:
-            from porpulsion import state as _state
-            self.push("version/announce", {"version": _state.VERSION_HASH})
+            self.push("version/announce", {"version": state.VERSION_HASH})
         except Exception:
             pass
 
@@ -523,29 +693,36 @@ def open_channel_to(peer_name: str, peer_url: str, ca_pem: str = "") -> "PeerCha
     return ch
 
 
-def accept_channel(peer_name: str, sock) -> "PeerChannel":
+def accept_channel(sock) -> "PeerChannel | None":
     """
     Called by the WS server endpoint when a peer connects to us.
 
-    If we already have an active outbound channel to this peer (we are the
-    designated initiator), close it — the peer has reconnected inbound, so
-    we switch to serving their connection. This avoids both sides trying to
-    own the channel simultaneously.
+    Authentication and peer registration happen inside attach_inbound via the
+    peer/hello first frame — peer_name is not known until that frame arrives.
+
+    If an existing channel to this peer is already open, it is replaced cleanly.
+    Returns the PeerChannel on success, None if the hello frame was rejected.
     """
     from porpulsion import state
-    peer = state.peers.get(peer_name)
-    peer_url = peer.url if peer else ""
-    ca_pem   = peer.ca_pem if peer else ""
 
-    old = state.peer_channels.get(peer_name)
-    if old:
-        # Stop the old channel (outbound loop or previous inbound).
-        old.close()
-
-    ch = PeerChannel(peer_name, peer_url, ca_pem)
+    # Use a temporary placeholder channel — attach_inbound will set the real
+    # peer_name once the hello frame is received and verified.
+    ch = PeerChannel("_pending_", "", "")
     _register_handlers(ch)
-    state.peer_channels[peer_name] = ch
-    ch.attach_inbound(sock)   # blocks until the connection closes
+
+    accepted = ch.attach_inbound(sock)  # blocks until the connection closes (or rejects)
+    if not accepted:
+        return None
+
+    # After attach_inbound, ch.peer_name is the verified peer name.
+    # attach_inbound already registered itself in peer_channels while live.
+    # Now that the inbound connection has closed, only overwrite peer_channels
+    # if it still points to this (now-dead) channel — don't clobber a live
+    # outbound channel that open_channel_to may have registered in the meantime.
+    peer_name = ch.peer_name
+    current = state.peer_channels.get(peer_name)
+    if current is ch:
+        state.peer_channels.pop(peer_name, None)
     return ch
 
 

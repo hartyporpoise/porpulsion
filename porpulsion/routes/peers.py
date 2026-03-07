@@ -1,15 +1,9 @@
 import logging
-import secrets
-import uuid
-from datetime import datetime, timezone
 
-import requests as _req
-import urllib3 as _urllib3
 from flask import Blueprint, request, jsonify
 
 from porpulsion import state, tls
 from porpulsion.models import Peer
-from porpulsion.peering import initiate_peering
 from porpulsion.channel import open_channel_to
 
 log = logging.getLogger("porpulsion.routes.peers")
@@ -27,144 +21,98 @@ def list_peers():
         if ch and ch.latency_ms is not None:
             d["latency_ms"] = round(ch.latency_ms, 1)
         result.append(d)
-    for url, info in state.pending_peers.items():
-        entry = {
-            "name": info.get("name", url),
-            "url": url,
-            "connected_at": info["since"],
-            "status": info.get("status", "connecting"),
-            "attempts": info["attempts"],
-        }
-        if "error" in info:
-            entry["error"] = info["error"]
-        result.append(entry)
     return jsonify(result)
 
 
-@bp.route("/peer", methods=["POST"])
-def accept_peer():
+@bp.route("/invite")
+def get_invite():
     """
-    Peering endpoint — two steps:
+    Generate and return a signed invite bundle for this agent.
 
-    Step 1 (invite): initiator sends our invite token + their cert.
-    Step 2 (confirm): called by accept_inbound() when operator clicks Accept.
+    The bundle is a compact base64url blob containing the agent name, URL,
+    CA cert, and an ECDSA signature over those fields using the CA private
+    key.  The connecting peer verifies the signature before making any
+    network call — no separate fingerprint or token needed.
+    """
+    bundle = tls.sign_bundle(
+        agent_name=state.AGENT_NAME,
+        url=state.SELF_URL,
+        ca_pem=state.AGENT_CA_PEM,
+        ca_key_pem=state.AGENT_CA_KEY_PEM,
+    )
+    fp = tls.cert_fingerprint(state.AGENT_CA_PEM)
+    return jsonify({
+        "agent": state.AGENT_NAME,
+        "self_url": state.SELF_URL,
+        "bundle": bundle,
+        "cert_fingerprint": fp,   # human-readable only — not required for connect
+    })
+
+
+@bp.route("/peers/connect", methods=["POST"])
+def connect_peer():
+    """
+    Initiate peering with a remote agent using their signed invite bundle.
+
+    Body: {"bundle": "<base64url blob from their /api/invite>"}
+
+    The bundle is verified locally (signature check) before any network call.
+    The WS connect then uses the pinned CA from the bundle for TLS verification.
+    Authentication completes via the peer/hello frame on the WS channel itself.
     """
     data = request.json
     if not isinstance(data, dict):
         return jsonify({"error": "request body must be a JSON object"}), 400
-    peer_name = data.get("name", "unknown")
-    peer_url  = data.get("url", "")
-    peer_ca   = data.get("ca", "")
 
-    presented_token = request.headers.get("X-Invite-Token", "")
+    bundle_b64 = (data.get("bundle") or "").strip()
+    if not bundle_b64:
+        return jsonify({"error": "bundle is required"}), 400
 
-    # ── Confirmation path (no token, ca in body) ─────────────
-    if peer_ca and not presented_token:
-        presented_fp = tls.cert_fingerprint(peer_ca)
-        log.info("Confirmation from %s (url=%r), presented_fp=%s, pending keys=%s",
-                 peer_name, peer_url, presented_fp[:16], list(state.pending_peers.keys()))
-        awaiting = state.pending_peers.get(peer_url)
-        if not awaiting:
-            for _url, _info in state.pending_peers.items():
-                if _info.get("status") == "awaiting_confirmation":
-                    stored = _info.get("ca_pem", "")
-                    stored_fp = tls.cert_fingerprint(stored) if stored else "(empty)"
-                    if stored and stored_fp == presented_fp:
-                        awaiting = _info
-                        peer_url = _url
-                        break
-        if awaiting and awaiting.get("status") == "awaiting_confirmation":
-            tls.write_temp_pem(peer_ca.encode(), f"peer-ca-{peer_name}")
-            state.peers[peer_name] = Peer(name=peer_name, url=peer_url, ca_pem=peer_ca)
-            state.pending_peers.pop(peer_url, None)
-            tls.save_peers(state.NAMESPACE, state.peers)
-            log.info("Peering confirmed by %s — fully connected", peer_name)
-            # We are the initiator — open outbound WS channel to the accepting peer
-            open_channel_to(peer_name, peer_url, ca_pem=peer_ca)
-            return jsonify({"name": state.AGENT_NAME, "status": "peered",
-                            "ca": state.AGENT_CA_PEM.decode()})
-        log.warning("accept_peer: unexpected ca-only request from %s (no matching pending)", peer_name)
-        return jsonify({"error": "no pending outbound connection for this peer"}), 403
-
-    # ── Invite path ───────────────────────────────────────────
-    if not presented_token or not secrets.compare_digest(presented_token, state.invite_token):
-        log.warning("accept_peer: bad or missing invite token from %s", request.remote_addr)
-        return jsonify({"error": "invalid token"}), 403
-
-    state.invite_token = secrets.token_hex(32)
-    tls.persist_token(state.NAMESPACE, state.invite_token)
-    log.info("Invite token consumed — queuing inbound request from %s", peer_name)
-
-    req_id = uuid.uuid4().hex[:12]
-    state.pending_inbound[req_id] = {
-        "id": req_id,
-        "name": peer_name,
-        "url": peer_url,
-        "ca_pem": peer_ca,
-        "since": datetime.now(timezone.utc).isoformat(),
-    }
-    if peer_ca:
-        tls.write_temp_pem(peer_ca.encode(), f"peer-ca-{peer_name}")
-
-    return jsonify({"name": state.AGENT_NAME, "status": "pending",
-                    "ca": state.AGENT_CA_PEM.decode()})
-
-
-@bp.route("/peers/inbound", methods=["GET"])
-def list_inbound():
-    _hide = {"ca_pem"}
-    return jsonify([{"id": req_id, **{k: v for k, v in r.items() if k not in _hide}}
-                    for req_id, r in state.pending_inbound.items()])
-
-
-@bp.route("/peers/inbound/<req_id>/accept", methods=["POST"])
-def accept_inbound(req_id):
-    if req_id not in state.pending_inbound:
-        return jsonify({"error": "request not found"}), 404
-
-    info = state.pending_inbound.pop(req_id)
-    peer_name = info["name"]
-    peer_url  = info["url"]
-    peer_ca   = info.get("ca_pem", "")
-
-    _urllib3.disable_warnings(_urllib3.exceptions.InsecureRequestWarning)
-    session = _req.Session()
-    session.verify = False  # no CA pinned yet at this stage — bootstrap trust
-
+    # Verify signature before touching the network
     try:
-        resp = session.post(
-            f"{peer_url}/peer",
-            json={"name": state.AGENT_NAME, "url": state.SELF_URL,
-                  "ca": state.AGENT_CA_PEM.decode()},
-            timeout=5,
-        )
-        if resp.status_code == 200:
-            resp_data = resp.json()
-            their_ca = resp_data.get("ca", peer_ca)
-            tls.write_temp_pem(their_ca.encode() if isinstance(their_ca, str) else their_ca,
-                               f"peer-ca-{peer_name}")
-            state.peers[peer_name] = Peer(name=peer_name, url=peer_url, ca_pem=their_ca)
+        parsed = tls.verify_bundle(bundle_b64)
+    except ValueError as exc:
+        return jsonify({"error": f"invalid bundle: {exc}"}), 400
+
+    peer_name = parsed["agent_name"]
+    peer_url  = parsed["url"].rstrip("/")
+    peer_ca   = parsed["ca_pem"]
+
+    # Check for existing peer entries
+    for existing in state.peers.values():
+        url_match = existing.url.rstrip("/") == peer_url
+        ca_match = False
+        if existing.ca_pem:
+            try:
+                ca_match = tls.cert_fingerprint(existing.ca_pem) == tls.cert_fingerprint(peer_ca)
+            except Exception:
+                pass
+        if url_match or ca_match or existing.name == peer_name:
+            # Already bidirectional — block
+            if existing.initiator and existing.has_inbound:
+                return jsonify({"error": f"Already fully peered with \"{existing.name}\""}), 409
+            # We are the initiator — already have outbound, block re-connect
+            if existing.initiator:
+                return jsonify({"error": f"Already peered with \"{existing.name}\""}), 409
+            # They connected inbound first; we are now upgrading to bidirectional.
+            # Update URL and CA from the bundle (inbound auto-register had no URL).
+            existing.initiator = True
+            existing.url = peer_url
+            existing.ca_pem = peer_ca
             tls.save_peers(state.NAMESPACE, state.peers)
-            log.info("Accepted and confirmed peering with %s", peer_name)
-            # We are the acceptor — the initiator will open the WS channel to us,
-            # so we don't need to connect outbound here.
-            return jsonify({"ok": True, "peer": peer_name})
-        log.warning("accept_inbound: initiator returned %s: %s", resp.status_code, resp.text[:200])
-        state.pending_inbound[req_id] = info
-        return jsonify({"error": f"initiator returned {resp.status_code}"}), 502
-    except Exception as exc:
-        log.warning("accept_inbound: could not reach %s: %s", peer_url, exc)
-        state.pending_inbound[req_id] = info
-        return jsonify({"error": str(exc)}), 502
+            log.info("Upgrading peer %s to bidirectional — opening outbound channel to %s", existing.name, peer_url)
+            open_channel_to(existing.name, peer_url, ca_pem=peer_ca)
+            return jsonify({"ok": True, "message": f"Connecting outbound to {existing.name} at {peer_url}"})
 
+    tls.write_temp_pem(peer_ca.encode() if isinstance(peer_ca, str) else peer_ca,
+                       f"peer-ca-{peer_name}")
+    state.peers[peer_name] = Peer(name=peer_name, url=peer_url, ca_pem=peer_ca)
+    tls.save_peers(state.NAMESPACE, state.peers)
+    log.info("Bundle verified for %s — opening WS channel", peer_name)
 
-@bp.route("/peers/inbound/<req_id>", methods=["DELETE"])
-def reject_inbound(req_id):
-    if req_id not in state.pending_inbound:
-        return jsonify({"error": "request not found"}), 404
-    info = state.pending_inbound.pop(req_id)
-    log.info("Rejected inbound peering request from %s", info["name"])
-    return jsonify({"ok": True})
+    # Open outbound WS — hello frame inside the channel proves key possession
+    open_channel_to(peer_name, peer_url, ca_pem=peer_ca)
+    return jsonify({"ok": True, "message": f"Connecting to {peer_name} at {peer_url}"})
 
 
 @bp.route("/peers/<peer_name>", methods=["DELETE"])
@@ -202,7 +150,8 @@ def remove_peer(peer_name):
     log.info("Removed peer %s", peer_name)
 
     try:
-        get_channel(peer_name, wait=2.0).push("peer/disconnect", {"name": state.AGENT_NAME})
+        get_channel(peer_name, wait=2.0).push("peer/disconnect",
+                                              {"name": state.AGENT_NAME, "reason": "removed"})
     except Exception as exc:
         log.debug("Could not notify %s of disconnection: %s", peer_name, exc)
 
@@ -212,125 +161,3 @@ def remove_peer(peer_name):
 
     tls.save_peers(state.NAMESPACE, state.peers)
     return jsonify({"ok": True, "removed": peer_name})
-
-
-@bp.route("/peer/disconnect", methods=["POST"])
-def peer_disconnect():
-    data = request.json
-    if not isinstance(data, dict):
-        data = {}
-    peer_name = data.get("name", "")
-    removed = False
-    if peer_name and peer_name in state.peers:
-        # Keep peer in state.peers (persisted) so it auto-reconnects.
-        # The channel's connect_and_maintain loop retries automatically.
-        state.peer_channels.pop(peer_name, None)
-        removed = True
-        log.info("Peer %s disconnected us — peer kept for reconnect", peer_name)
-        # Mark all RemoteApp CRs targeting this peer as Failed
-        from porpulsion.k8s.store import list_remoteapp_crs, cr_to_dict, update_remoteapp_cr_status
-        for cr in list_remoteapp_crs(state.NAMESPACE):
-            d = cr_to_dict(cr, "submitted")
-            if d["target_peer"] == peer_name:
-                try:
-                    update_remoteapp_cr_status(state.NAMESPACE, d["cr_name"], "Failed", d["id"],
-                                               message=f"Peer {peer_name!r} disconnected")
-                except Exception as e:
-                    log.debug("Could not update CR status for %s: %s", d["id"], e)
-                log.info("Marked app %s as Failed (peer %s disconnected)", d["id"], peer_name)
-    return jsonify({"ok": True, "removed": removed})
-
-
-@bp.route("/peers/retry", methods=["POST"])
-def retry_connecting_peer():
-    data = request.json
-    if not isinstance(data, dict):
-        return jsonify({"error": "request body must be a JSON object"}), 400
-    peer_url       = data.get("url", "")
-    token          = data.get("invite_token", "")
-    ca_fingerprint = data.get("ca_fingerprint", "")
-    if not peer_url:
-        return jsonify({"error": "url is required"}), 400
-    if not token:
-        return jsonify({"error": "invite_token is required to retry"}), 400
-    if not ca_fingerprint:
-        return jsonify({"error": "ca_fingerprint is required to retry"}), 400
-
-    state.pending_peers[peer_url] = {
-        "name": peer_url, "url": peer_url,
-        "since": datetime.now(timezone.utc).isoformat(), "attempts": 0,
-    }
-    initiate_peering(state.AGENT_NAME, state.SELF_URL, peer_url, token,
-                     state.peers, state.pending_peers,
-                     ca_pem_str=state.AGENT_CA_PEM.decode(), expected_ca_fp=ca_fingerprint)
-    log.info("Retrying peering with %s", peer_url)
-    return jsonify({"ok": True, "message": f"Retrying connection to {peer_url}"})
-
-
-@bp.route("/peers/connecting", methods=["DELETE"])
-def cancel_connecting_peer():
-    peer_url = request.args.get("url", "")
-    if not peer_url:
-        return jsonify({"error": "url query parameter required"}), 400
-    if peer_url in state.pending_peers:
-        del state.pending_peers[peer_url]
-        log.info("Cancelled pending connection to %s", peer_url)
-        return jsonify({"ok": True, "cancelled": peer_url})
-    return jsonify({"error": "no pending connection to that URL"}), 404
-
-
-@bp.route("/peers/connect", methods=["POST"])
-def connect_peer():
-    data = request.json
-    if not isinstance(data, dict):
-        return jsonify({"error": "request body must be a JSON object"}), 400
-    url            = data.get("url", "").rstrip("/")
-    token          = data.get("invite_token", "")
-    ca_fingerprint = data.get("ca_fingerprint", "")
-    if not url:
-        return jsonify({"error": "url is required"}), 400
-    if not token:
-        return jsonify({"error": "invite_token is required"}), 400
-    if not ca_fingerprint:
-        return jsonify({"error": "ca_fingerprint is required"}), 400
-
-    # Reject if already peered with a peer at this URL
-    for existing in state.peers.values():
-        if existing.url.rstrip("/") == url:
-            return jsonify({"error": f"Already peered with \"{existing.name}\" at this URL"}), 409
-
-    # Reject if the CA fingerprint matches an already-connected peer (same cluster, different URL)
-    for existing in state.peers.values():
-        if existing.ca_pem:
-            try:
-                existing_fp = tls.cert_fingerprint(existing.ca_pem)
-                if existing_fp == ca_fingerprint:
-                    return jsonify({"error": f"Already peered with this cluster as \"{existing.name}\""}), 409
-            except Exception:
-                pass
-
-    # Reject if already attempting to connect to this URL
-    if url in state.pending_peers:
-        return jsonify({"error": f"Already connecting to {url} — cancel it first if you want to retry"}), 409
-
-    state.pending_peers[url] = {
-        "name": url, "url": url,
-        "since": datetime.now(timezone.utc).isoformat(), "attempts": 0,
-    }
-    initiate_peering(state.AGENT_NAME, state.SELF_URL, url, token,
-                     state.peers, state.pending_peers,
-                     ca_pem_str=state.AGENT_CA_PEM.decode(), expected_ca_fp=ca_fingerprint)
-    return jsonify({"ok": True, "message": f"Peering initiated with {url}"})
-
-
-@bp.route("/token")
-def get_token():
-    fp = tls.cert_fingerprint(state.AGENT_CA_PEM)
-    return jsonify({
-        "agent": state.AGENT_NAME,
-        "namespace": state.NAMESPACE,
-        "invite_token": state.invite_token,
-        "self_url": state.SELF_URL,
-        "cert_fingerprint": fp,
-        "ca_pem": state.AGENT_CA_PEM.decode(),
-    })

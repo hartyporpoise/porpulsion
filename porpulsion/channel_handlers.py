@@ -311,20 +311,50 @@ def handle_proxy_request(payload: dict, peer_name: str = "") -> dict:
 # ── Peer lifecycle ────────────────────────────────────────────
 
 def handle_peer_disconnect(payload: dict):
-    """Peer is telling us it's disconnecting cleanly."""
-    from porpulsion import state
+    """Peer is telling us it's disconnecting. If reason='removed', they intentionally
+    removed us — wipe them from our state too. Otherwise keep them for reconnect."""
+    from porpulsion import state, tls
     from porpulsion.notifications import add_notification
-    from porpulsion.k8s.store import list_remoteapp_crs, cr_to_dict, update_remoteapp_cr_status
+    from porpulsion.k8s.store import (
+        list_remoteapp_crs, list_executingapp_crs, cr_to_dict,
+        update_remoteapp_cr_status, delete_remoteapp_cr, delete_executingapp_cr,
+    )
 
     peer_name = payload.get("name", "")
-    if peer_name and peer_name in state.peers:
-        # Keep the peer in state.peers (persisted to Secret) so it auto-reconnects
-        # after a restart. The WS channel's connect_and_maintain loop will handle
-        # reconnection automatically once the remote comes back up.
-        # Intentional "forget this peer" goes through DELETE /peers/<name>.
-        state.peer_channels.pop(peer_name, None)
+    reason    = payload.get("reason", "")
+    if not peer_name or peer_name not in state.peers:
+        return
 
-        # Mark all RemoteApp CRs targeting this peer as Failed
+    intentional_removal = (reason == "removed")
+
+    if intentional_removal:
+        # They deleted us — remove completely from both sides
+        state.peers.pop(peer_name, None)
+        tls.save_peers(state.NAMESPACE, state.peers)
+
+        # Delete RemoteApp CRs we submitted to them
+        for cr in list_remoteapp_crs(state.NAMESPACE):
+            d = cr_to_dict(cr, "submitted")
+            if d["target_peer"] == peer_name:
+                try:
+                    delete_remoteapp_cr(state.NAMESPACE, d["cr_name"])
+                except Exception as e:
+                    log.debug("Could not delete RemoteApp CR %s: %s", d["cr_name"], e)
+
+        # Delete ExecutingApp CRs we're running for them
+        for cr in list_executingapp_crs(state.NAMESPACE):
+            d = cr_to_dict(cr, "executing")
+            if d["source_peer"] == peer_name:
+                try:
+                    delete_executingapp_cr(state.NAMESPACE, d["cr_name"])
+                except Exception as e:
+                    log.debug("Could not delete ExecutingApp CR %s: %s", d["cr_name"], e)
+
+        log.info("Peer %s removed us — wiped from state and storage", peer_name)
+        add_notification(level="warn", title=f"Peer removed: {peer_name}",
+                         message=f"Peer {peer_name!r} removed this agent. The peering has been torn down on both sides.")
+    else:
+        # Transient disconnect — keep for reconnect
         affected = []
         for cr in list_remoteapp_crs(state.NAMESPACE):
             d = cr_to_dict(cr, "submitted")
@@ -341,3 +371,8 @@ def handle_peer_disconnect(payload: dict):
         if affected:
             msg += f" {len(affected)} workload(s) marked Failed: {', '.join(affected[:3])}{'…' if len(affected) > 3 else ''}."
         add_notification(level="warn", title=f"Peer disconnected: {peer_name}", message=msg)
+
+    # Always close and remove the channel entry
+    ch = state.peer_channels.pop(peer_name, None)
+    if ch:
+        ch.close()

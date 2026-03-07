@@ -6,8 +6,29 @@ porpulsion-credentials Kubernetes Secret. During peering the CA cert is
 exchanged — peers store each other's CA and use it as the trust anchor
 for the WebSocket channel (authenticated by CA fingerprint). This gives
 full mutual authentication with no external dependencies.
+
+Invite bundles
+--------------
+Instead of a bare token + separate fingerprint, this agent generates a
+signed invite bundle — a compact base64 blob containing:
+
+  {v, agent_name, url, ca_pem, sig}
+
+The sig is an ECDSA-SHA256 signature over the canonical fields using the
+agent's CA private key. The connecting peer verifies the signature against
+the embedded ca_pem before making any network call, making MITM impossible
+regardless of TLS trust.
+
+Challenge/response
+------------------
+On WS connect the initiator sends a peer/hello frame containing a
+challenge_sig — an ECDSA-SHA256 signature over a short nonce using its CA
+private key. The acceptor verifies this against the peer's stored (or
+bundle-provided) CA cert, proving the connector holds the private key and
+is not just replaying a captured CA cert.
 """
 import base64
+import json
 import os
 import datetime
 import ipaddress
@@ -116,6 +137,116 @@ def cert_fingerprint(cert_pem: str | bytes) -> str:
     from cryptography.x509 import load_pem_x509_certificate
     cert = load_pem_x509_certificate(cert_pem)
     return cert.fingerprint(hashes.SHA256()).hex()
+
+
+# ── Invite bundle ─────────────────────────────────────────────────────────────
+
+_BUNDLE_VERSION = 1
+
+
+def _bundle_signing_data(agent_name: str, url: str, ca_pem: str) -> bytes:
+    """Canonical byte string that is signed in an invite bundle."""
+    return f"v={_BUNDLE_VERSION}\nagent_name={agent_name}\nurl={url}\nca_pem={ca_pem}".encode()
+
+
+def sign_bundle(agent_name: str, url: str, ca_pem: str | bytes,
+                ca_key_pem: bytes) -> str:
+    """
+    Build and sign an invite bundle.
+
+    Returns a compact base64url string that the operator copies once and
+    pastes into the connecting peer's dashboard.  The bundle contains
+    everything needed to establish trust — no separate fingerprint required.
+    """
+    if isinstance(ca_pem, bytes):
+        ca_pem = ca_pem.decode()
+
+    ca_key = serialization.load_pem_private_key(ca_key_pem, password=None)
+    data = _bundle_signing_data(agent_name, url, ca_pem)
+    sig_bytes = ca_key.sign(data, ec.ECDSA(hashes.SHA256()))
+
+    bundle = {
+        "v": _BUNDLE_VERSION,
+        "agent_name": agent_name,
+        "url": url,
+        "ca_pem": ca_pem,
+        "sig": base64.b64encode(sig_bytes).decode(),
+    }
+    return base64.urlsafe_b64encode(json.dumps(bundle, separators=(",", ":")).encode()).decode()
+
+
+def verify_bundle(bundle_b64: str) -> dict:
+    """
+    Decode and verify a signed invite bundle.
+
+    Returns {"agent_name", "url", "ca_pem"} on success.
+    Raises ValueError with a descriptive message on any failure.
+    """
+    try:
+        raw = base64.urlsafe_b64decode(bundle_b64 + "==")
+        bundle = json.loads(raw)
+    except Exception as exc:
+        raise ValueError(f"bundle decode failed: {exc}") from exc
+
+    if bundle.get("v") != _BUNDLE_VERSION:
+        raise ValueError(f"unsupported bundle version: {bundle.get('v')!r}")
+
+    agent_name = bundle.get("agent_name", "")
+    url        = bundle.get("url", "")
+    ca_pem     = bundle.get("ca_pem", "")
+    sig_b64    = bundle.get("sig", "")
+
+    if not all([agent_name, url, ca_pem, sig_b64]):
+        raise ValueError("bundle missing required fields")
+
+    try:
+        sig_bytes = base64.b64decode(sig_b64)
+    except Exception as exc:
+        raise ValueError(f"bundle sig decode failed: {exc}") from exc
+
+    try:
+        from cryptography.x509 import load_pem_x509_certificate
+        ca_cert = load_pem_x509_certificate(ca_pem.encode() if isinstance(ca_pem, str) else ca_pem)
+        pub_key = ca_cert.public_key()
+        data = _bundle_signing_data(agent_name, url, ca_pem)
+        pub_key.verify(sig_bytes, data, ec.ECDSA(hashes.SHA256()))
+    except ValueError:
+        raise
+    except Exception as exc:
+        raise ValueError(f"bundle signature invalid: {exc}") from exc
+
+    return {"agent_name": agent_name, "url": url, "ca_pem": ca_pem}
+
+
+# ── Challenge / response (WS hello frame key-possession proof) ────────────────
+
+def sign_challenge(nonce: str, ca_key_pem: bytes) -> str:
+    """
+    Sign a nonce with the CA private key.  Used in the peer/hello frame so
+    the acceptor can verify the connecting peer actually holds the CA private
+    key (not just a copied CA cert).
+
+    Returns base64-encoded DER signature.
+    """
+    ca_key = serialization.load_pem_private_key(ca_key_pem, password=None)
+    sig = ca_key.sign(nonce.encode(), ec.ECDSA(hashes.SHA256()))
+    return base64.b64encode(sig).decode()
+
+
+def verify_challenge(nonce: str, sig_b64: str, ca_pem: str | bytes) -> bool:
+    """
+    Verify a challenge signature against the peer's CA cert public key.
+    Returns True if valid, False otherwise.
+    """
+    try:
+        sig = base64.b64decode(sig_b64)
+        from cryptography.x509 import load_pem_x509_certificate
+        ca_cert = load_pem_x509_certificate(
+            ca_pem.encode() if isinstance(ca_pem, str) else ca_pem)
+        ca_cert.public_key().verify(sig, nonce.encode(), ec.ECDSA(hashes.SHA256()))
+        return True
+    except Exception:
+        return False
 
 
 _CREDENTIALS_SECRET = "porpulsion-credentials"
@@ -264,7 +395,8 @@ def save_peers(namespace: str, peers: dict) -> None:
     _log = logging.getLogger("porpulsion.tls")
 
     peer_list = [
-        {"name": p.name, "url": p.url, "ca_pem": p.ca_pem}
+        {"name": p.name, "url": p.url, "ca_pem": p.ca_pem,
+         "initiator": p.initiator, "has_inbound": p.has_inbound}
         for p in peers.values()
     ]
     json_str = json.dumps(peer_list)

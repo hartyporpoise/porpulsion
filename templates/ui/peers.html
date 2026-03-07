@@ -5,16 +5,6 @@
 <!-- PAGE: Peers (route: /peers) -->
 <section id="peers-page" data-page="peers">
 
-  <!-- SECTION: Inbound banner -->
-  <section id="peers-inbound-banner" class="page-section" aria-label="Incoming connection requests">
-    <div class="inbound-banner" id="inbound-banner">
-      <div class="inbound-banner-title">
-        <span class="pulse"></span> Incoming Connection Requests
-      </div>
-      <div class="inbound-list" id="inbound-list"></div>
-    </div>
-  </section>
-
   <!-- SECTION: Connect + Credentials (top row) -->
   <section id="peers-connect-grid" class="page-section" aria-label="Connect peer and credentials">
     <div class="peers-top-grid">
@@ -25,76 +15,61 @@
           <h2>Connect a Peer</h2>
         </div>
         <div class="card-body">
-          <form id="connect-peer-form"
-                hx-post="/api/peers/connect"
-                hx-ext="json-enc"
-                hx-target="body"
-                hx-swap="none"
-                hx-trigger="submit">
+          <p class="text-sm text-muted" style="margin-bottom:1.25rem;">
+            Paste their invite bundle below. The bundle is cryptographically
+            signed — no separate fingerprint needed.
+          </p>
+          <form id="connect-peer-form">
             <div class="form-group">
-              <label class="form-label" for="new-peer-url">Peer URL</label>
-              <input type="url" id="new-peer-url" name="url" placeholder="https://porpulsion.example.com" required>
-            </div>
-            <div class="form-group">
-              <label class="form-label" for="new-peer-token">Invite token</label>
-              <input type="text" id="new-peer-token" name="invite_token" placeholder="Paste their invite token" autocomplete="off" required>
-            </div>
-            <div class="form-group">
-              <label class="form-label" for="new-peer-fp">CA fingerprint</label>
-              <input type="text" id="new-peer-fp" name="ca_fingerprint" placeholder="Paste their CA fingerprint" autocomplete="off" style="font-family:monospace;font-size:0.75rem;" required>
-              <span class="form-hint">Prevents MITM during bootstrap. Get this from their Settings.</span>
+              <label class="form-label" for="new-peer-bundle">Invite bundle</label>
+              <textarea id="new-peer-bundle" name="bundle" rows="4"
+                placeholder="Paste their invite bundle here…"
+                autocomplete="off"
+                style="font-family:monospace;font-size:0.72rem;resize:vertical;"
+                required></textarea>
             </div>
             <div class="flex-end mt1">
-              <button type="submit">Initiate Peering</button>
+              <button type="submit">Connect</button>
             </div>
           </form>
         </div>
       </div>
 
-      <!-- Your credentials -->
+      <!-- Your invite bundle -->
       <div class="card">
         <div class="card-header">
-          <h2>Your Credentials</h2>
+          <h2>Your Invite Bundle</h2>
         </div>
         <div class="card-body">
-          <p class="text-sm text-muted" style="margin-bottom:1.25rem;">
-            Share these with the peer who wants to connect to you.
+          <p class="text-sm text-muted" style="margin-bottom:1rem;">
+            Share this bundle with the peer who wants to connect to you.
+            It is self-contained and cryptographically signed.
           </p>
 
           <div class="cred-row">
-            <div class="cred-label">Endpoint URL</div>
+            <div class="cred-label">Endpoint</div>
             <div class="cred-val-wrap">
               <span class="cred-val mono" id="token-url">loading…</span>
-              <button type="button" class="btn-icon cred-copy-btn" title="Copy" aria-label="Copy URL"
+              <button type="button" class="btn-icon cred-copy-btn" title="Copy URL" aria-label="Copy URL"
                 onclick="window.Porpulsion.copyText('token-url', this)">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
               </button>
             </div>
           </div>
 
-          <div class="cred-row">
-            <div class="cred-label">Invite token <span class="cred-label-sub">(single-use)</span></div>
-            <div class="cred-val-wrap">
-              <span class="secret-val masked cred-val mono" id="token-key" data-value="">••••••••••••••••••••</span>
-              <button type="button" class="eye-btn" onclick="window.Porpulsion.toggleSecret('token-key', this)" title="Show/hide" aria-label="Toggle visibility">
+          <div class="cred-row" style="border-bottom:none;align-items:flex-start;">
+            <div class="cred-label" style="padding-top:0.15rem;">Bundle</div>
+            <div class="cred-val-wrap" style="align-items:flex-start;">
+              <span class="secret-val masked cred-val mono" id="invite-bundle" data-value=""
+                style="font-size:0.68rem;white-space:pre-wrap;word-break:break-all;flex:1;line-height:1.5;">••••••••••••••••••••••••••••••••••••••••</span>
+              <button type="button" class="eye-btn" style="margin-top:0.1rem;"
+                onclick="window.Porpulsion.toggleSecret('invite-bundle', this)"
+                title="Show/hide" aria-label="Toggle visibility">
                 <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M1 10s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6z"/><circle cx="10" cy="10" r="2.5"/></svg>
               </button>
-              <button type="button" class="btn-icon cred-copy-btn" title="Copy" aria-label="Copy token"
-                onclick="window.Porpulsion.copySecret('token-key', this)">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-              </button>
-            </div>
-          </div>
-
-          <div class="cred-row" style="border-bottom:none;">
-            <div class="cred-label">CA fingerprint</div>
-            <div class="cred-val-wrap">
-              <span class="secret-val masked cred-val mono" id="token-fp-peers" data-value="" style="font-size:0.68rem;">••••••••••••••••••••••••••••••••••••••••</span>
-              <button type="button" class="eye-btn" onclick="window.Porpulsion.toggleSecret('token-fp-peers', this)" title="Show/hide" aria-label="Toggle visibility">
-                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M1 10s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6z"/><circle cx="10" cy="10" r="2.5"/></svg>
-              </button>
-              <button type="button" class="btn-icon cred-copy-btn" title="Copy" aria-label="Copy fingerprint"
-                onclick="window.Porpulsion.copySecret('token-fp-peers', this)">
+              <button type="button" class="btn-icon cred-copy-btn" style="margin-top:0.1rem;"
+                title="Copy bundle" aria-label="Copy bundle"
+                onclick="window.Porpulsion.copySecret('invite-bundle', this)">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
               </button>
             </div>
@@ -112,7 +87,7 @@
       <div class="card-body no-pad">
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Name</th><th>URL</th><th>Peering</th><th>Channel</th><th>Connected</th><th></th></tr></thead>
+            <thead><tr><th>Name</th><th>URL</th><th>Direction</th><th>Channel</th><th>Connected</th><th></th></tr></thead>
             <tbody id="all-peers-body"></tbody>
           </table>
         </div>

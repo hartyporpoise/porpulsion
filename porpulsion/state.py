@@ -22,21 +22,20 @@ def _detect_namespace() -> str:
         return "default"
 
 NAMESPACE: str = _detect_namespace()
-SELF_URL:   str = ""
-AGENT_CA_PEM: bytes = b""
+SELF_URL:      str   = ""
+AGENT_CA_PEM:     bytes = b""
+AGENT_CA_KEY_PEM: bytes = b""   # CA private key — used to sign invite bundles and hello challenges
 VERSION_HASH: str = ""          # SHA-256 of key protocol files, first 16 hex chars
 
 # ── In-memory state ───────────────────────────────────────────
 peers:          dict[str, Peer]          = {}
 pending_peers:  dict[str, dict]          = {}   # url  -> {name, url, since, attempts, status, ca_pem}
-pending_inbound: dict[str, dict]         = {}   # id   -> {name, url, ca_pem, since}
 # NOTE: local_apps and remote_apps have been removed.
 #       App state is now stored in k8s CRs (RemoteApp / ExecutingApp).
 #       Use porpulsion.k8s.store.list_remoteapp_crs() and list_executingapp_crs() instead.
 pending_approval: dict[str, dict]        = {}   # id -> {id, name, spec, source_peer, callback_url, since}
 tunnel_requests: dict[str, TunnelRequest] = {}  # pending/approved/rejected tunnel requests
 settings: AgentSettings = AgentSettings()
-invite_token: str = ""
 
 # peer_name -> PeerChannel (live WebSocket connection to that peer)
 peer_channels: "dict[str, PeerChannel]" = {}
