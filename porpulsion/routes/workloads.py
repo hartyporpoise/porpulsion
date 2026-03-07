@@ -42,7 +42,7 @@ def _encode_spec_secrets(spec: dict) -> dict:
     return {**spec, "secrets": encoded}
 
 
-# ── k8s quantity parser ────────────────────────────────────────
+# -- k8s quantity parser
 _MEMORY_SUFFIXES = {
     "ki": 2**10, "mi": 2**20, "gi": 2**30, "ti": 2**40,
     "k":  1e3,               "g":  1e9,   "t":  1e12,
@@ -52,8 +52,8 @@ _MEMORY_SUFFIXES = {
 def _parse_quantity(q: str) -> float:
     """
     Parse a Kubernetes quantity string into a normalised float.
-    CPU: returns cores (e.g. "250m" → 0.25, "1" → 1.0).
-    Memory: returns bytes (e.g. "64Mi" → 67108864, "1Gi" → 1073741824).
+    CPU: returns cores (e.g. "250m" �� 0.25, "1" �� 1.0).
+    Memory: returns bytes (e.g. "64Mi" �� 67108864, "1Gi" �� 1073741824).
     Returns 0.0 for empty/None.
     """
     if not q:
@@ -165,7 +165,7 @@ def _check_resource_quota(spec: RemoteAppSpec, source_peer: str = "") -> str | N
         return (f"Requested {req_replicas} replicas exceeds this cluster's per-app limit "
                 f"of {s.max_replicas_per_app}")
 
-    # Aggregate quota checks — query ExecutingApp CRs for current usage
+    # Aggregate quota checks - query ExecutingApp CRs for current usage
     active_crs = [
         cr for cr in list_executingapp_crs(state.NAMESPACE)
         if (cr.get("status") or {}).get("phase") not in ("Failed", "Timeout", "Deleted")
@@ -220,7 +220,7 @@ def remoteapp_spec_schema():
         if field_name in _INTERNAL:
             continue
         typ = _TYPE_NAMES.get(prop.get("type", ""), prop.get("type", ""))
-        default_val = str(prop["default"]) if "default" in prop else ("required" if field_name == "image" else "—")
+        default_val = str(prop["default"]) if "default" in prop else ("required" if field_name == "image" else "")
         fields.append({
             "field": field_name,
             "type": typ,
@@ -281,7 +281,7 @@ def create_remoteapp():
         if cr_name:
             ra.cr_name = cr_name
         # The CR watcher (agent.py) will forward to the peer once the CR is ready
-        log.info("Created RemoteApp CR %s for app %s (%s) → peer %s",
+        log.info("Created RemoteApp CR %s for app %s (%s) �� peer %s",
                  cr_name or "?", ra.name, ra.id, peer.name)
         return ra
 
@@ -316,7 +316,7 @@ def approve_remoteapp(app_id):
     entry = state.pending_approval.pop(app_id)
     tls.save_state_configmap(state.NAMESPACE, state.settings, state.pending_approval)
     log.info("Approved app %s (%s) from %s", entry["name"], app_id, entry["source_peer"])
-    # Create the ExecutingApp CR — the CR watcher drives workload execution
+    # Create the ExecutingApp CR - the CR watcher drives workload execution
     from porpulsion.k8s.store import create_executingapp_cr
     create_executingapp_cr(
         state.NAMESPACE, app_id, entry["name"], entry["spec"], entry["source_peer"],
@@ -359,13 +359,13 @@ def delete_remoteapp(app_id):
     cr_name = d["cr_name"]
 
     if side == "submitted":
-        # Delete the CR — the CR watcher (DELETED) notifies the peer to delete its EA CR,
+        # Delete the CR - the CR watcher (DELETED) notifies the peer to delete its EA CR,
         # which then triggers workload cleanup on the executing side
         delete_remoteapp_cr(state.NAMESPACE, cr_name)
         return jsonify({"ok": True})
 
     if side == "executing":
-        # Delete the CR — the CR watcher (DELETED) handles workload cleanup and peer notification
+        # Delete the CR - the CR watcher (DELETED) handles workload cleanup and peer notification
         delete_executingapp_cr(state.NAMESPACE, cr_name)
         return jsonify({"ok": True})
 
@@ -390,7 +390,7 @@ def scale_remoteapp(app_id):
     d = cr_to_dict(cr, side)
 
     if side == "submitted":
-        # Update replicas in the RemoteApp CR — the CR watcher (MODIFIED) forwards to the peer
+        # Update replicas in the RemoteApp CR - the CR watcher (MODIFIED) forwards to the peer
         spec = dict(d.get("spec") or {})
         spec["replicas"] = replicas
         spec["targetPeer"] = d["target_peer"]
@@ -515,7 +515,7 @@ def update_remoteapp_spec(app_id):
     if compat_err:
         return jsonify({"error": compat_err}), 422
 
-    # Update the RemoteApp CR — the CR watcher (MODIFIED) forwards to the peer
+    # Update the RemoteApp CR - the CR watcher (MODIFIED) forwards to the peer
     create_remoteapp_cr(
         state.NAMESPACE, app_id, d["name"],
         {**new_spec, "targetPeer": d["target_peer"]},
@@ -524,7 +524,7 @@ def update_remoteapp_spec(app_id):
     return jsonify(d)
 
 
-# ── Config management routes ──────────────────────────────────────────────────
+# -- Config management routes
 
 def _forward_config_patch(app_id, kind, name, data):
     """Forward a config patch to the peer that is executing the app."""
@@ -547,7 +547,7 @@ def get_app_configmap(app_id, name):
         return jsonify({"error": "app not found"}), 404
     d = cr_to_dict(cr, side)
     if side == "submitted":
-        # Read from local CR spec — kept in sync by patch_cr_volume_data on every save
+        # Read from local CR spec - kept in sync by patch_cr_volume_data on every save
         spec = d.get("spec", {})
         for cm in (spec.get("configMaps") or []):
             if cm.get("name") == name:

@@ -3,7 +3,7 @@ TLS certificate generation and management for porpulsion agents.
 
 Each agent auto-generates a private CA on first boot, persisted to the
 porpulsion-credentials Kubernetes Secret. During peering the CA cert is
-exchanged — peers store each other's CA and use it as the trust anchor
+exchanged - peers store each other's CA and use it as the trust anchor
 for the WebSocket channel (authenticated by CA fingerprint). This gives
 full mutual authentication with no external dependencies.
 
@@ -52,7 +52,7 @@ def generate_ca_and_leaf_cert(agent_name: str,
 
     Returns (ca_cert_pem, ca_key_pem, leaf_cert_pem, leaf_key_pem) as bytes.
     """
-    # ── CA key + self-signed CA cert ──────────────────────────
+    # -- CA key + self-signed CA cert
     ca_key = ec.generate_private_key(ec.SECP256R1())  # ECDSA P-256
     ca_name = x509.Name([
         x509.NameAttribute(NameOID.COMMON_NAME, f"{agent_name}-ca"),
@@ -77,7 +77,7 @@ def generate_ca_and_leaf_cert(agent_name: str,
         .sign(ca_key, hashes.SHA256())
     )
 
-    # ── Leaf key + cert signed by the CA ──────────────────────
+    # -- Leaf key + cert signed by the CA
     leaf_key = ec.generate_private_key(ec.SECP256R1())  # ECDSA P-256
     leaf_name = x509.Name([
         x509.NameAttribute(NameOID.COMMON_NAME, agent_name),
@@ -328,7 +328,7 @@ def load_or_generate_ca(agent_name: str, namespace: str) -> tuple[bytes, bytes]:
             _log.info("Loaded existing CA cert from Secret")
             return ca_cert_pem, ca_key_pem
     except Exception:
-        pass  # Secret missing — generate fresh
+        pass  # Secret missing - generate fresh
 
     _log.info("Generating new CA for %s", agent_name)
     ca_cert_pem, ca_key_pem, _, _ = generate_ca_and_leaf_cert(agent_name)
@@ -382,7 +382,7 @@ def persist_token(namespace: str, token: str) -> None:
     threading.Thread(target=_write, daemon=True).start()
 
 
-# ── Peer persistence ──────────────────────────────────────────
+# -- Peer persistence
 
 def save_peers(namespace: str, peers: dict) -> None:
     """
@@ -440,7 +440,7 @@ def load_peers(namespace: str) -> list[dict]:
         return []
 
 
-# ── State ConfigMap (pending_approval + settings) ────────────
+# -- State ConfigMap (pending_approval + settings)
 
 _STATE_CONFIGMAP = "porpulsion-state"
 
@@ -451,7 +451,7 @@ def save_state_configmap(namespace: str, settings,
     Persist settings and pending_approval to the porpulsion-state ConfigMap
     (fire-and-forget thread).
 
-    Note: local_apps and remote_apps are no longer persisted here — they live in
+    Note: local_apps and remote_apps are no longer persisted here - they live in
     k8s CRs (RemoteApp / ExecutingApp) and are read directly from k8s.
     """
     import json

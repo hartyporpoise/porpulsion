@@ -228,7 +228,7 @@ resources:
     memory: 256Mi
 ```
 
-The spec is forwarded to the peer cluster over the WebSocket channel, which creates a Kubernetes Deployment in the `porpulsion` namespace. Status reflects back automatically (`Pending` → `Running`).
+The spec is forwarded to the peer cluster over the WebSocket channel, which creates a Kubernetes Deployment in the `porpulsion` namespace. Status reflects back automatically (`Pending` -> `Running`).
 
 ### 3 · Access via HTTP proxy
 
@@ -533,7 +533,7 @@ porpulsion/
 
 After peering completes, each agent opens a persistent WebSocket connection to its peer's `/ws` endpoint. Authentication uses the CA fingerprint sent in the `X-Agent-Ca` header (base64-encoded PEM) - no client certificate is needed for the WS upgrade, which avoids nginx client-cert-forwarding complexity.
 
-Both sides attempt to connect outbound on startup. Whichever side connects first becomes the active channel; the other side's outbound attempt arrives as an inbound connection and replaces it cleanly. The channel reconnects automatically with exponential backoff (2s → 4s → 8s → 16s → 30s); backoff resets to 2s after each successful connection.
+Both sides attempt to connect outbound on startup. Whichever side connects first becomes the active channel; the other side's outbound attempt arrives as an inbound connection and replaces it cleanly. The channel reconnects automatically with exponential backoff (2s -> 4s -> 8s -> 16s -> 30s); backoff resets to 2s after each successful connection.
 
 All peer-to-peer messages are framed as JSON:
 

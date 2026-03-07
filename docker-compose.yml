@@ -1,5 +1,5 @@
 services:
-  # ── k3s cluster A ───────────────────────────────────────────
+  # -- k3s cluster A
   cluster-a:
     image: rancher/k3s:v1.29.2-k3s1
     command: server --disable traefik --tls-san cluster-a
@@ -13,7 +13,7 @@ services:
     networks:
       - porpulsion-net
 
-  # ── k3s cluster B ───────────────────────────────────────────
+  # -- k3s cluster B
   cluster-b:
     image: rancher/k3s:v1.29.2-k3s1
     command: server --disable traefik --tls-san cluster-b --https-listen-port 6444
@@ -27,7 +27,7 @@ services:
     networks:
       - porpulsion-net
 
-  # ── k3s cluster C ───────────────────────────────────────────
+  # -- k3s cluster C
   cluster-c:
     image: rancher/k3s:v1.29.2-k3s1
     command: server --disable traefik --tls-san cluster-c --https-listen-port 6445
@@ -41,7 +41,7 @@ services:
     networks:
       - porpulsion-net
 
-  # ── helm runner ─────────────────────────────────────────────
+  # -- helm runner
   helm:
     image: alpine/helm:3.14.0
     entrypoint: ["sh", "-c", "apk add --quiet --no-cache docker-cli && sleep infinity"]

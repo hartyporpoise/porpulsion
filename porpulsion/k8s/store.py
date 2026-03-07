@@ -6,7 +6,7 @@ ExecutingApp CRs are created by the receiving side (the peer that runs the workl
 
 Both CRDs share the same spec schema (charts/porpulsion/files/schema.yaml), baked
 into the Docker image at build time. This is the single source of truth for spec
-fields, types, and defaults — no k8s API call is needed to discover the schema.
+fields, types, and defaults - no k8s API call is needed to discover the schema.
 """
 import base64 as _b64
 import datetime
@@ -35,7 +35,7 @@ except config.ConfigException:
 
 _crd_api = client.CustomObjectsApi()
 
-# CRD availability — checked lazily, separately for each plural
+# CRD availability - checked lazily, separately for each plural
 _crd_available: bool | None = None
 _crd_lock = threading.Lock()
 
@@ -45,7 +45,7 @@ _ea_crd_lock = threading.Lock()
 # schema.yaml path: charts/porpulsion/files/schema.yaml (baked into Docker image).
 _SCHEMA_FILE = pathlib.Path(__file__).parent.parent.parent / "charts" / "porpulsion" / "files" / "schema.yaml"
 
-# Cached spec schema: dict of property_name → openAPIV3Schema property dict.
+# Cached spec schema: dict of property_name -> openAPIV3Schema property dict.
 _spec_schema: dict | None = None
 _spec_schema_loaded = False
 _spec_schema_lock = threading.Lock()
@@ -55,7 +55,7 @@ def load_spec_schema() -> dict | None:
     """
     Load and cache the RemoteApp spec schema from schema.yaml (baked into the image).
     Called once at agent startup. Returns the property dict or None if unavailable.
-    Subsequent calls return the cached value immediately — no I/O.
+    Subsequent calls return the cached value immediately - no I/O.
     """
     global _spec_schema, _spec_schema_loaded
     if _spec_schema_loaded:
@@ -68,7 +68,7 @@ def load_spec_schema() -> dict | None:
             log.info("Loaded RemoteApp spec schema from %s: %d fields",
                      _SCHEMA_FILE.name, len(_spec_schema or {}))
         except Exception as e:
-            log.warning("Could not load schema.yaml (%s): %s — using passthrough mode",
+            log.warning("Could not load schema.yaml (%s): %s - using passthrough mode",
                         _SCHEMA_FILE, e)
         _spec_schema_loaded = True
     return _spec_schema
@@ -86,7 +86,7 @@ def _check_crd_available(namespace: str) -> bool:
             _crd_available = True
         except ApiException as e:
             if e.status in (404, 403):
-                log.warning("RemoteApp CRD not available (status %s) — CR operations disabled", e.status)
+                log.warning("RemoteApp CRD not available (status %s)  CR operations disabled", e.status)
                 _crd_available = False
             else:
                 _crd_available = False
@@ -108,7 +108,7 @@ def _check_ea_crd_available(namespace: str) -> bool:
             _ea_crd_available = True
         except ApiException as e:
             if e.status in (404, 403):
-                log.warning("ExecutingApp CRD not available (status %s) — EA CR operations disabled", e.status)
+                log.warning("ExecutingApp CRD not available (status %s)  EA CR operations disabled", e.status)
                 _ea_crd_available = False
             else:
                 _ea_crd_available = False
@@ -161,7 +161,7 @@ def _now_iso() -> str:
     return datetime.datetime.now(datetime.timezone.utc).isoformat()
 
 
-# ── CR → dict conversion ──────────────────────────────────────────────────────
+# -- CR -> dict conversion
 
 def cr_to_dict(cr: dict, side: str) -> dict:
     """Convert a RemoteApp or ExecutingApp CR dict to the API response shape."""
@@ -214,7 +214,7 @@ def get_cr_by_app_id(namespace: str, app_id: str) -> tuple[dict | None, str]:
     return None, ""
 
 
-# ── RemoteApp CR operations ───────────────────────────────────────────────────
+# -- RemoteApp CR operations
 
 def validate_remoteapp_spec(namespace: str, app_id: str, app_name: str, spec_dict: dict, target_peer: str) -> str | None:
     """
@@ -362,7 +362,7 @@ def list_remoteapp_crs(namespace: str) -> list[dict]:
         return []
 
 
-# ── ExecutingApp CR operations ────────────────────────────────────────────────
+# -- ExecutingApp CR operations
 
 def create_executingapp_cr(namespace: str, app_id: str, app_name: str, spec_dict: dict,
                            source_peer: str) -> str | None:
@@ -497,10 +497,10 @@ def patch_cr_volume_data(namespace: str, app_id: str, kind: str, vol_name: str,
     with live k8s ConfigMap/Secret state.
 
     kind: "configmap" or "secret"
-    data: plaintext key→value dict. ConfigMap values stored as-is; secret
+    data: plaintext key->value dict. ConfigMap values stored as-is; secret
           values are base64-encoded in the CR (decoded by executor on apply).
     """
-    # Find the CR — could be either type
+    # Find the CR - could be either type
     plural, cr = None, None
     ea = get_ea_cr_by_app_id(namespace, app_id)
     if ea is not None:
@@ -551,19 +551,19 @@ def patch_cr_volume_data(namespace: str, app_id: str, kind: str, vol_name: str,
         log.warning("Failed to patch CR spec for %s: %s", cr_name, e)
 
 
-# ── Internal helpers ──────────────────────────────────────────────────────────
+# -- Internal helpers
 
 def _patch_status(namespace: str, plural: str, cr_name: str, status_fields: dict) -> None:
     """Patch the status subresource of a CR (best-effort)."""
     body = {"status": status_fields}
     try:
         _crd_api.patch_namespaced_custom_object_status(GROUP, VERSION, namespace, plural, cr_name, body)
-        log.debug("Patched %s/%s status → %s", plural, cr_name, status_fields.get("phase", "?"))
+        log.debug("Patched %s/%s status -> %s", plural, cr_name, status_fields.get("phase", "?"))
     except ApiException as e:
         log.warning("Failed to patch %s/%s status: %s", plural, cr_name, e)
 
 
-# ── Schema helpers ────────────────────────────────────────────────────────────
+# -- Schema helpers
 
 def get_spec_properties() -> dict | None:
     """Return spec property names from the baked-in schema.yaml."""
@@ -592,14 +592,14 @@ def bootstrap_cr_status(namespace: str, plural: str, cr_name: str, meta: dict,
     or None if already bootstrapped or skipped.
 
     CRs created by porpulsion code carry the porpulsion.io/app-id label and
-    patch their own status — this function skips those to avoid races.
+    patch their own status - this function skips those to avoid races.
     Called from kopf on.create handlers.
     """
     import uuid as _uuid
 
     labels = meta.get("labels") or {}
     if labels.get("porpulsion.io/app-id"):
-        return None  # created by our code — skip
+        return None  # created by our code - skip
 
     if existing_status.get("appId"):
         return None  # already bootstrapped

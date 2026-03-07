@@ -100,7 +100,7 @@ def connect_peer():
             existing.url = peer_url
             existing.ca_pem = peer_ca
             tls.save_peers(state.NAMESPACE, state.peers)
-            log.info("Upgrading peer %s to bidirectional — opening outbound channel to %s", existing.name, peer_url)
+            log.info("Upgrading peer %s to bidirectional - opening outbound channel to %s", existing.name, peer_url)
             open_channel_to(existing.name, peer_url, ca_pem=peer_ca)
             return jsonify({"ok": True, "message": f"Connecting outbound to {existing.name} at {peer_url}"})
 
@@ -125,7 +125,7 @@ def remove_peer(peer_name):
         list_remoteapp_crs, list_executingapp_crs, delete_remoteapp_cr,
         delete_executingapp_cr, cr_to_dict,
     )
-    # ── 1. Delete RemoteApp CRs we submitted to this peer ────────
+    # -- 1. Delete RemoteApp CRs we submitted to this peer
     for cr in list_remoteapp_crs(state.NAMESPACE):
         d = cr_to_dict(cr, "submitted")
         if d["target_peer"] == peer_name:
@@ -136,7 +136,7 @@ def remove_peer(peer_name):
             delete_remoteapp_cr(state.NAMESPACE, d["cr_name"])
             log.info("Deleted RemoteApp CR %s (peer %s removed)", d["id"], peer_name)
 
-    # ── 2. Delete ExecutingApp CRs we're running for this peer ───
+    # -- 2. Delete ExecutingApp CRs we're running for this peer
     for cr in list_executingapp_crs(state.NAMESPACE):
         d = cr_to_dict(cr, "executing")
         if d["source_peer"] == peer_name:
@@ -145,7 +145,7 @@ def remove_peer(peer_name):
 
     tls.save_state_configmap(state.NAMESPACE, state.settings)
 
-    # ── 3. Notify peer and close the channel ─────────────────────
+    # -- 3. Notify peer and close the channel
     state.peers.pop(peer_name)
     log.info("Removed peer %s", peer_name)
 

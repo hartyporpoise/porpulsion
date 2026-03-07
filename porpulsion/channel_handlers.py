@@ -6,7 +6,7 @@ Handlers for request-type messages return a dict payload (sent as the reply).
 Handlers for push-type messages return None.
 
 All inbound peer authentication has already been done by the WS endpoint
-before the socket is handed to the channel — these handlers trust the caller.
+before the socket is handed to the channel - these handlers trust the caller.
 """
 import base64
 import logging
@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 log = logging.getLogger("porpulsion.channel_handlers")
 
 
-# ── RemoteApp ─────────────────────────────────────────────────
+# -- RemoteApp
 
 def handle_remoteapp_receive(payload: dict) -> dict:
     """Accept a RemoteApp submission from a peer."""
@@ -70,7 +70,7 @@ def handle_remoteapp_receive(payload: dict) -> dict:
         )
         return {"id": app_id, "status": "pending_approval"}
 
-    # Create ExecutingApp CR — the CR watcher drives workload execution from here
+    # Create ExecutingApp CR - the CR watcher drives workload execution from here
     cr_name = create_executingapp_cr(
         state.NAMESPACE, app_id, payload["name"], spec.to_dict(), source_peer,
     )
@@ -103,7 +103,7 @@ def handle_remoteapp_status(payload: dict):
             add_notification(
                 level="error",
                 title=f"Workload failed: {d['name']}",
-                message=f"{d['name']!r} on {d['target_peer']} → {status}.",
+                message=f"{d['name']!r} on {d['target_peer']} �� {status}.",
             )
     else:
         log.debug("Status update for unknown app %s: %s", app_id, status)
@@ -120,7 +120,7 @@ def handle_remoteapp_delete(payload: dict) -> dict:
         raise RuntimeError("app not found")
 
     d = cr_to_dict(ea_cr, "executing")
-    # Delete the CR — the CR watcher (DELETED) handles workload cleanup and peer notification
+    # Delete the CR - the CR watcher (DELETED) handles workload cleanup and peer notification
     delete_executingapp_cr(state.NAMESPACE, d["cr_name"])
     log.info("Deleted executing app %s (via channel)", app_id)
     return {"ok": True}
@@ -261,12 +261,12 @@ def handle_remoteapp_spec_update(payload: dict) -> dict:
     except Exception as _ve:
         log.debug("CRD spec validation skipped: %s", _ve)
 
-    # Update the ExecutingApp CR — the CR watcher drives the re-deploy
+    # Update the ExecutingApp CR - the CR watcher drives the re-deploy
     create_executingapp_cr(state.NAMESPACE, app_id, d["name"], parsed.to_dict(), d["source_peer"])
     return {"ok": True}
 
 
-# ── Proxy tunnel ──────────────────────────────────────────────
+# -- Proxy tunnel
 
 def handle_proxy_request(payload: dict, peer_name: str = "") -> dict:
     """
@@ -308,7 +308,7 @@ def handle_proxy_request(payload: dict, peer_name: str = "") -> dict:
     }
 
 
-# ── Peer lifecycle ────────────────────────────────────────────
+# -- Peer lifecycle
 
 def handle_peer_disconnect(payload: dict):
     """Peer is telling us it's disconnecting. If reason='removed', they intentionally
@@ -366,10 +366,10 @@ def handle_peer_disconnect(payload: dict):
                     log.debug("Could not update CR status for %s: %s", d["id"], e)
                 affected.append(d["name"])
 
-        log.info("Peer %s disconnected (via channel) — kept in peer list for reconnect", peer_name)
+        log.info("Peer %s disconnected (via channel)  kept in peer list for reconnect", peer_name)
         msg = f"Peer {peer_name!r} disconnected."
         if affected:
-            msg += f" {len(affected)} workload(s) marked Failed: {', '.join(affected[:3])}{'…' if len(affected) > 3 else ''}."
+            msg += f" {len(affected)} workload(s) marked Failed: {', '.join(affected[:3])}{'�' if len(affected) > 3 else ''}."
         add_notification(level="warn", title=f"Peer disconnected: {peer_name}", message=msg)
 
     # Always close and remove the channel entry

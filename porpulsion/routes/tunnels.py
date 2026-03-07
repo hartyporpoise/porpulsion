@@ -19,7 +19,7 @@ _HOP_BY_HOP = {"host", "transfer-encoding", "connection", "keep-alive",
                "upgrade", "content-encoding"}
 
 
-# ── User-facing proxy (submitting side) ───────────────────────
+# -- User-facing proxy (submitting side)
 #
 # Any request to /remoteapp/<id>/proxy/<port>[/<path>] is forwarded over
 # mTLS to the executing peer at /remoteapp/<id>/proxy-remote/<port>[/<path>],

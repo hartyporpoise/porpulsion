@@ -31,7 +31,7 @@ logging.basicConfig(
 install_log_handler(1000)
 log = logging.getLogger("porpulsion.agent")
 
-# ── Bootstrap config ──────────────────────────────────────────
+# -- Bootstrap config
 
 state.AGENT_NAME = os.environ.get("AGENT_NAME", "porpulsion-agent")
 
@@ -48,7 +48,7 @@ else:
         _detected_ip = "127.0.0.1"
     state.SELF_URL = f"http://{_detected_ip}:8000"
     log.warning(
-        "SELF_URL not set — auto-detected as %s. "
+        "SELF_URL not set - auto-detected as %s. "
         "This is a pod-internal IP and will cause peering to fail across clusters. "
         "Set agent.selfUrl in your Helm values to the externally reachable URL for "
         "this agent (e.g. https://porpulsion.example.com).",
@@ -82,7 +82,7 @@ def _compute_version_hash() -> str:
 state.VERSION_HASH = _compute_version_hash()
 log.info("SELF_URL=%s  VERSION_HASH=%s", state.SELF_URL, state.VERSION_HASH)
 
-# ── Restore persisted state ───────────────────────────────────
+# -- Restore persisted state
 
 from porpulsion.models import Peer  # noqa: E402
 
@@ -111,7 +111,7 @@ log.info("Restored %d peer(s), %d pending approval(s) from persistent storage",
 
 # Re-open WS channels for any peers restored from persistent storage.
 # Runs after the Flask app starts (deferred so the WS endpoint is registered).
-# Both sides attempt outbound — whichever connects first stays up. If the peer
+# Both sides attempt outbound - whichever connects first stays up. If the peer
 # also connects inbound simultaneously, accept_channel replaces the outbound
 # channel cleanly. This ensures reconnection works regardless of which side
 # restarted.
@@ -123,7 +123,7 @@ def _reconnect_persisted_peers():
         log.info("Re-opening WS channel to persisted peer %s", _p.name)
         open_channel_to(_p.name, _p.url, _p.ca_pem)
 
-# ── Flask app ─────────────────────────────────────────────────
+# -- Flask app
 
 _TEMPLATES = pathlib.Path(__file__).parent.parent / "templates"
 _STATIC    = pathlib.Path(__file__).parent.parent / "static"
@@ -132,7 +132,7 @@ app = Flask(__name__,
             static_folder=str(_STATIC),
             static_url_path="/static")
 
-# Session secret — load from env or fall back to a stable derivation from the CA key.
+# Session secret - load from env or fall back to a stable derivation from the CA key.
 # The CA key is already secret and cluster-unique, so its hash makes a safe default.
 _session_secret = os.environ.get("SECRET_KEY")
 if not _session_secret:
@@ -140,7 +140,7 @@ if not _session_secret:
     _session_secret = _hashlib.sha256(_CA_KEY_PEM).hexdigest()
 app.secret_key = _session_secret
 
-# Server-side sessions — each browser tab gets its own independent session ID,
+# Server-side sessions - each browser tab gets its own independent session ID,
 # so logging in/out in one tab doesn't affect other tabs.
 import tempfile as _tempfile
 from flask_session import Session as _Session
@@ -159,9 +159,9 @@ app.register_blueprint(logs_bp.bp, url_prefix="/api")
 app.register_blueprint(notifications_bp.bp, url_prefix="/api")
 app.register_blueprint(ui_bp.bp)
 
-# ── API auth guard ────────────────────────────────────────────
+# -- API auth guard
 # Port 8001 (peer_server) handles all inter-agent traffic.
-# Port 8002 (internal_server) handles probes — no auth needed there.
+# Port 8002 (internal_server) handles probes - no auth needed there.
 # Everything on port 8000 under /api/ is dashboard-only and requires a session.
 
 @app.before_request
@@ -174,19 +174,19 @@ def _require_api_auth():
     # Session cookie (browser)
     if session.get("user"):
         return
-    # HTTP Basic Auth (curl / scripts) — only honoured for /api/ paths
+    # HTTP Basic Auth (curl / scripts) - only honoured for /api/ paths
     if request.path.startswith("/api/"):
-        # Probe URL map to distinguish unknown routes (→ 404) from known-but-auth-gated (→ 401).
+        # Probe URL map to distinguish unknown routes (�� 404) from known-but-auth-gated (�� 401).
         # We must do this ourselves because before_request fires before route matching.
         _adapter = app.url_map.bind(request.host)
         try:
             _adapter.match(request.path, method=request.method)
-            # Route matched — fall through to auth check below
+            # Route matched - fall through to auth check below
         except Exception as _e:
             _ename = type(_e).__name__
             if _ename == "NotFound":
                 return jsonify({"error": "not found"}), 404
-            # MethodNotAllowed / RequestRedirect → route exists, fall through to auth
+            # MethodNotAllowed / RequestRedirect �� route exists, fall through to auth
 
         auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Basic "):
@@ -227,7 +227,7 @@ def openapi_yaml():
 
 
 
-# ── Main ──────────────────────────────────────────────────────
+# -- Main
 
 if __name__ == "__main__":
     log.info("Starting agent %s", state.AGENT_NAME)
@@ -241,7 +241,7 @@ if __name__ == "__main__":
     # Runs in a background thread alongside Flask.
     import asyncio
     import kopf
-    import porpulsion.k8s.kopf_handlers  # noqa: F401 — registers handlers via decorators
+    import porpulsion.k8s.kopf_handlers  # noqa: F401 - registers handlers via decorators
 
     def _run_kopf():
         loop = asyncio.new_event_loop()

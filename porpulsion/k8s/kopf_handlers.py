@@ -2,13 +2,13 @@
 Kopf operator handlers for ExecutingApp and RemoteApp CRs.
 
 ExecutingApp (executing side):
-  - create/update → run_workload() with owner refs so k8s GC cleans up children
-  - delete → cancel polling loop + notify source peer (children GC'd automatically)
+  - create/update -> run_workload() with owner refs so k8s GC cleans up children
+  - delete -> cancel polling loop + notify source peer (children GC'd automatically)
 
 RemoteApp (submitted side):
-  - create → forward remoteapp/receive to target peer
-  - update → forward remoteapp/spec-update to target peer
-  - delete → send remoteapp/delete to target peer
+  - create -> forward remoteapp/receive to target peer
+  - update -> forward remoteapp/spec-update to target peer
+  - delete -> send remoteapp/delete to target peer
 
 The finalizer on ExecutingApp CRs ensures cleanup always runs, even on
 kubectl delete, before the CR is actually removed from the API.
@@ -25,7 +25,7 @@ from porpulsion.k8s.store import (
 log = logging.getLogger("porpulsion.kopf")
 
 
-# ── ExecutingApp handlers ─────────────────────────────────────────────────────
+# -- ExecutingApp handlers
 
 @kopf.on.create(GROUP, VERSION, "executingapps")
 def on_executingapp_created(body, meta, status, namespace, **kwargs):
@@ -67,7 +67,7 @@ def _run_executingapp(body, meta, status, namespace):
     )
     ra.cr_name = cr_name
 
-    log.info("kopf: ExecutingApp %s (%s) changed — running workload", cr_name, app_id)
+    log.info("kopf: ExecutingApp %s (%s) changed - running workload", cr_name, app_id)
     run_workload(ra, source_peer, cr_body=body)
 
 
@@ -85,7 +85,7 @@ def on_executingapp_deleted(body, meta, status, **kwargs):
     if ev:
         ev.set()
 
-    log.info("kopf: ExecutingApp %s (%s) deleted — notifying source peer", cr_name, app_id)
+    log.info("kopf: ExecutingApp %s (%s) deleted - notifying source peer", cr_name, app_id)
 
     if source_peer and app_id:
         try:
@@ -96,10 +96,10 @@ def on_executingapp_deleted(body, meta, status, **kwargs):
         except Exception as e:
             log.warning("kopf: failed to notify source peer %s of EA deletion: %s", source_peer, e)
     elif not source_peer:
-        log.warning("kopf: EA %s deleted but sourcePeer is empty — cannot notify", app_id)
+        log.warning("kopf: EA %s deleted but sourcePeer is empty - cannot notify", app_id)
 
 
-# ── RemoteApp handlers ────────────────────────────────────────────────────────
+# -- RemoteApp handlers
 
 @kopf.on.create(GROUP, VERSION, "remoteapps")
 def on_remoteapp_created(body, meta, status, namespace, **kwargs):
@@ -190,7 +190,7 @@ def on_remoteapp_deleted(body, meta, status, **kwargs):
 
     peer = state.peers.get(target_peer)
     if not peer:
-        log.warning("kopf: RemoteApp %s deleted but peer %r not connected — skipping", cr_name, target_peer)
+        log.warning("kopf: RemoteApp %s deleted but peer %r not connected - skipping", cr_name, target_peer)
         return
 
     try:

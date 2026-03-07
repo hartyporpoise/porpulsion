@@ -8,7 +8,7 @@ proxy tunnelling) flows over this single persistent connection instead of
 making new outbound HTTPS requests for each call.
 
 Authentication happens entirely within the WS channel via the peer/hello
-frame — no HTTP headers or separate handshake endpoint required.
+frame - no HTTP headers or separate handshake endpoint required.
 
 Connect sequence
 ----------------
@@ -23,7 +23,7 @@ Outbound (initiator):
      can verify their key possession too).
 
 Inbound (acceptor, attach_inbound):
-  1. Receive the first frame — must be peer/hello.
+  1. Receive the first frame -- must be peer/hello.
   2. Verify challenge_sig against the presented ca_pem.
   3. If peer is already known: ensure CA fingerprint matches stored value.
      If peer is unknown: auto-register (they connected using our invite bundle,
@@ -37,7 +37,7 @@ Message framing (JSON):
   Request  {"id": "<uuid4-hex>", "type": "<method>", "payload": {...}}
   Reply    {"id": "<same>",       "type": "reply",    "ok": true|false,
             "payload": {...},     "error": "<str>"}    # error only when ok=false
-  Push     {"type": "<event>",   "payload": {...}}     # no id — fire-and-forget
+  Push     {"type": "<event>",   "payload": {...}}     # no id - fire-and-forget
 
 Types:
   peer/hello              first frame — identity + challenge sig
@@ -68,7 +68,7 @@ class _SimpleWsSendAdapter:
     """
     Thin wrapper around a simple_websocket server socket that exposes
     only the send() method needed by _send_raw and _ping_loop.
-    recv() is NOT delegated here — the inbound recv loop reads from the
+    recv() is NOT delegated here - the inbound recv loop reads from the
     raw sock object directly to stay on the correct thread.
     """
 
@@ -153,7 +153,7 @@ def _handle_crd_schema_announce(peer_name: str, payload: dict):
         missing_local  = diff["missing_local"]
         missing_remote = diff["missing_remote"]
         if missing_local or missing_remote:
-            log.warning("CRD schema mismatch with %s — missing_remote=%s missing_local=%s",
+            log.warning("CRD schema mismatch with %s - missing_remote=%s missing_local=%s",
                         peer_name, missing_remote, missing_local)
         else:
             log.info("CRD schemas in sync with peer %s", peer_name)
@@ -181,7 +181,7 @@ class PeerChannel:
 
     def __init__(self, peer_name: str, peer_url: str, ca_pem: str = ""):
         self.peer_name = peer_name
-        self.peer_url  = peer_url   # peer's public URL — WS connects here
+        self.peer_url  = peer_url   # peer's public URL  WS connects here
         self.ca_pem    = ca_pem
         self.peer_version_hash: str = ""   # set when peer announces its version
         self.latency_ms: float | None = None   # round-trip time from last ping/pong
@@ -194,7 +194,7 @@ class PeerChannel:
         self.connected_event = threading.Event()   # set once the channel is ready to use
         self._ping_sent_at: float | None = None   # time.monotonic() when last ping was sent
 
-    # ── Public API ────────────────────────────────────────────
+    # -- Public API
 
     def register(self, msg_type: str, handler):
         """Register a handler for an incoming message type."""
@@ -235,7 +235,7 @@ class PeerChannel:
     def is_connected(self) -> bool:
         return self.connected_event.is_set()
 
-    # ── Inbound (server side) ─────────────────────────────────
+    # -- Inbound (server side)
 
     def attach_inbound(self, sock) -> bool:
         """
@@ -361,7 +361,7 @@ class PeerChannel:
         self._inbound_recv_loop(sock)
         return True
 
-    # ── Outbound (client side) ────────────────────────────────
+    # -- Outbound (client side)
 
     def connect_and_maintain(self):
         """
@@ -377,7 +377,7 @@ class PeerChannel:
                 if not self._running:
                     return
                 delay = _RECONNECT_DELAY[min(attempt, len(_RECONNECT_DELAY) - 1)]
-                log.warning("Channel to %s: connect failed (%s) — retrying in %ds",
+                log.warning("Channel to %s: connect failed (%s)  retrying in %ds",
                             self.peer_name, exc, delay)
                 attempt += 1
                 # Notify once when we've exhausted the fast retries (after ~14s)
@@ -387,7 +387,7 @@ class PeerChannel:
                 time.sleep(delay)
                 continue
 
-            # Connected — reset backoff and clear failure flag
+            # Connected - reset backoff and clear failure flag
             attempt = 0
             _notified_failure = False
             self._recv_loop()
@@ -395,7 +395,7 @@ class PeerChannel:
             if not self._running:
                 return
             delay = _RECONNECT_DELAY[min(attempt, len(_RECONNECT_DELAY) - 1)]
-            log.info("Channel to %s dropped — reconnecting in %ds", self.peer_name, delay)
+            log.info("Channel to %s dropped - reconnecting in %ds", self.peer_name, delay)
             attempt += 1
             time.sleep(delay)
 
@@ -404,29 +404,34 @@ class PeerChannel:
         import tempfile
         from porpulsion import tls, state
 
-        # WS goes to the peer's public URL (nginx in production, UI NodePort in dev).
+        # WS goes to the peer's public URL.
         ws_url = self.peer_url.replace("https://", "wss://").replace("http://", "ws://")
         ws_url = ws_url.rstrip("/") + "/ws"
 
         # Pin TLS to the peer's CA cert for WSS connections.
         # Write the peer's CA to a temp file so websocket-client can use it.
+        # Fall back to certifi bundle when no peer CA is available (e.g. public endpoint).
         ssl_opts: dict = {}
         _ca_tmp = None
-        if ws_url.startswith("wss://") and self.ca_pem:
-            ca_bytes = self.ca_pem.encode() if isinstance(self.ca_pem, str) else self.ca_pem
-            fd, _ca_tmp = tempfile.mkstemp(prefix="porpulsion-peer-ca-", suffix=".pem")
-            try:
-                os.write(fd, ca_bytes)
-            finally:
-                os.close(fd)
-            ssl_opts = {"ca_certs": _ca_tmp, "cert_reqs": 2}  # ssl.CERT_REQUIRED
+        if ws_url.startswith("wss://"):
+            if self.ca_pem:
+                ca_bytes = self.ca_pem.encode() if isinstance(self.ca_pem, str) else self.ca_pem
+                fd, _ca_tmp = tempfile.mkstemp(prefix="porpulsion-peer-ca-", suffix=".pem")
+                try:
+                    os.write(fd, ca_bytes)
+                finally:
+                    os.close(fd)
+                ssl_opts = {"ca_certs": _ca_tmp, "cert_reqs": 2}  # ssl.CERT_REQUIRED
+            else:
+                import certifi
+                ssl_opts = {"ca_certs": certifi.where(), "cert_reqs": 2}
 
         try:
             ws = websocket.WebSocket(sslopt=ssl_opts)
             ws.connect(ws_url, timeout=_CONNECT_TIMEOUT, header={
                 "X-Agent-Name": state.AGENT_NAME,
             })
-            # Reset timeout to None after handshake — the connect() timeout would
+            # Reset timeout to None after handshake - the connect() timeout would
             # otherwise persist and cause recv() to raise WebSocketTimeoutException
             # after _CONNECT_TIMEOUT seconds of inactivity, dropping the channel.
             ws.settimeout(None)
@@ -437,7 +442,7 @@ class PeerChannel:
                 except Exception:
                     pass
 
-        # ── Send peer/hello — proves identity and key possession ──────────
+        # Send peer/hello - proves identity and key possession
         nonce = uuid.uuid4().hex
         challenge_sig = tls.sign_challenge(nonce, state.AGENT_CA_KEY_PEM)
         ws.send(json.dumps({
@@ -450,7 +455,7 @@ class PeerChannel:
             },
         }))
 
-        # ── Wait for peer/hello-ack ───────────────────────────────────────
+        # Wait for peer/hello-ack
         ws.settimeout(_CONNECT_TIMEOUT)
         try:
             raw_ack = ws.recv()
@@ -496,7 +501,7 @@ class PeerChannel:
         # Start keepalive ping thread
         threading.Thread(target=self._ping_loop, daemon=True).start()
 
-    # ── Recv loop (server / inbound side) ────────────────────
+    # -- Recv loop (server / inbound side)
 
     def _inbound_recv_loop(self, sock):
         """
@@ -540,7 +545,7 @@ class PeerChannel:
         for entry in self._pending.values():
             entry["event"].set()
 
-    # ── Recv loop (client / outbound side) ───────────────────
+    # -- Recv loop (client / outbound side)
 
     def _recv_loop(self):
         while self._running:
@@ -557,7 +562,7 @@ class PeerChannel:
             if raw is None:
                 continue
             if raw == "":
-                # Empty frame — websocket-client returns "" on clean close
+                # Empty frame - websocket-client returns "" on clean close
                 log.info("Channel to %s: empty recv (clean close)", self.peer_name)
                 break
             try:
@@ -586,7 +591,7 @@ class PeerChannel:
             self._pending[msg_id]["event"].set()
             return
 
-        # Incoming request — find a handler and send a reply
+        # Incoming request - find a handler and send a reply
         if msg_id:
             handler = self._handlers.get(msg_type)
             if handler:
@@ -653,7 +658,7 @@ class PeerChannel:
                 break
 
 
-# ── Convenience helpers used by route handlers ────────────────
+# -- Convenience helpers used by route handlers
 
 def get_channel(peer_name: str, wait: float = 8.0) -> "PeerChannel":
     """
@@ -698,7 +703,7 @@ def accept_channel(sock) -> "PeerChannel | None":
     Called by the WS server endpoint when a peer connects to us.
 
     Authentication and peer registration happen inside attach_inbound via the
-    peer/hello first frame — peer_name is not known until that frame arrives.
+    peer/hello first frame - peer_name is not known until that frame arrives.
 
     If an existing channel to this peer is already open, it is replaced cleanly.
     Returns the PeerChannel on success, None if the hello frame was rejected.

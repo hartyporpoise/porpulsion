@@ -103,7 +103,7 @@ configMaps:
         type: object
         additionalProperties:
           type: string
-        description: key → file-content map
+        description: key -> file-content map
 secrets:
   type: array
   description: >
@@ -123,7 +123,7 @@ secrets:
         type: object
         additionalProperties:
           type: string
-        description: key → plaintext-value map (base64-encoded in k8s)
+        description: key -> plaintext-value map (base64-encoded in k8s)
 pvcs:
   type: array
   description: >

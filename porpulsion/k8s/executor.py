@@ -26,7 +26,7 @@ NAMESPACE = state.NAMESPACE
 _stop_events: dict[str, threading.Event] = {}
 
 
-# ── Naming helpers ────────────────────────────────────────────────────────────
+# -- Naming helpers
 
 def _deploy_name(remote_app) -> str:
     # Use the pre-computed resource_name from CR status if available
@@ -63,7 +63,7 @@ def _owner_labels(remote_app) -> dict:
     }
 
 
-# ── Owner reference helper ────────────────────────────────────────────────────
+# -- Owner reference helper
 
 def _adopt(k8s_body, cr_body):
     """Stamp owner references from the ExecutingApp CR onto a child k8s object."""
@@ -72,7 +72,7 @@ def _adopt(k8s_body, cr_body):
     kopf.adopt(k8s_body, owner=cr_body)
 
 
-# ── ConfigMap management ──────────────────────────────────────────────────────
+# -- ConfigMap management
 
 def _apply_configmap_by_name(name: str, data: dict, cr_body=None) -> None:
     """Create or update a ConfigMap by its exact k8s name."""
@@ -87,7 +87,7 @@ def _apply_configmap_by_name(name: str, data: dict, cr_body=None) -> None:
     except client.ApiException as e:
         if e.status == 409:
             if not data:
-                log.info("ConfigMap %s already exists with no spec data — preserving live content", name)
+                log.info("ConfigMap %s already exists with no spec data - preserving live content", name)
             else:
                 core_v1.replace_namespaced_config_map(name=name, namespace=NAMESPACE, body=body)
                 log.info("Updated ConfigMap %s", name)
@@ -119,7 +119,7 @@ def get_configmap_data(app_id: str, logical_name: str) -> dict:
 
 
 
-# ── Secret management ─────────────────────────────────────────────────────────
+# -- Secret management
 
 def _apply_secret_by_name(name: str, plaintext_data: dict, cr_body=None) -> None:
     """Create or update a Secret by its exact k8s name. plaintext_data values are plain strings."""
@@ -135,7 +135,7 @@ def _apply_secret_by_name(name: str, plaintext_data: dict, cr_body=None) -> None
     except client.ApiException as e:
         if e.status == 409:
             if not plaintext_data:
-                log.info("Secret %s already exists with no spec data — preserving live content", name)
+                log.info("Secret %s already exists with no spec data - preserving live content", name)
             else:
                 core_v1.replace_namespaced_secret(name=name, namespace=NAMESPACE, body=body)
                 log.info("Updated Secret %s", name)
@@ -174,7 +174,7 @@ def get_secret_data(app_id: str, logical_name: str) -> dict:
 
 
 
-# ── PVC quota helpers ─────────────────────────────────────────────────────────
+# -- PVC quota helpers
 
 def _parse_storage_gb(storage: str) -> float:
     """Parse a k8s storage quantity string to GB (float). Returns 0 on parse failure."""
@@ -197,7 +197,7 @@ def _parse_storage_gb(storage: str) -> float:
         return 0.0
 
 
-# ── PVC management ────────────────────────────────────────────────────────────
+# -- PVC management
 
 def _apply_pvc_by_name(name: str, storage: str, access_mode: str, cr_body=None) -> None:
     """Create a PVC by its exact k8s name if it doesn't exist yet."""
@@ -227,7 +227,7 @@ def apply_pvc(app_id: str, logical_name: str, storage: str, access_mode: str) ->
 
 
 
-# ── Rollout restart ───────────────────────────────────────────────────────────
+# -- Rollout restart
 
 def rollout_restart(remote_app) -> None:
     """Patch the deployment's pod template annotation to trigger a rollout restart."""
@@ -249,7 +249,7 @@ def rollout_restart(remote_app) -> None:
         log.warning("Failed to trigger rollout restart for %s: %s", deploy_name, e.reason)
 
 
-# ── Status reporting ──────────────────────────────────────────────────────────
+# -- Status reporting
 
 def _report_status(remote_app, callback_url, status, peer=None, retries=3):
     """
@@ -283,7 +283,7 @@ def _report_status(remote_app, callback_url, status, peer=None, retries=3):
             time.sleep(2 ** attempt)
 
 
-# ── Main workload deploy ──────────────────────────────────────────────────────
+# -- Main workload deploy
 
 def run_workload(remote_app, callback_url, peer=None, cr_body=None):
     """Create/update Kubernetes resources for the RemoteApp (Deployment, Service, ConfigMaps, Secrets, PVCs)."""
@@ -310,7 +310,7 @@ def run_workload(remote_app, callback_url, peer=None, cr_body=None):
             else:
                 _report_status(remote_app, callback_url, "Creating", peer=peer)
 
-        # ── Volumes + VolumeMounts ──────────────────────────────────────────
+        # -- Volumes + VolumeMounts
         volumes: list[client.V1Volume] = []
         volume_mounts: list[client.V1VolumeMount] = []
 
@@ -342,7 +342,7 @@ def run_workload(remote_app, callback_url, peer=None, cr_body=None):
                 sec_data = sec_spec.data
                 if hasattr(sec_data, "to_dict"):
                     sec_data = sec_data.to_dict()
-                # CR spec stores secret values as base64 — decode to plaintext for k8s string_data
+                # CR spec stores secret values as base64 - decode to plaintext for k8s string_data
                 if sec_data:
                     sec_data = {k: base64.b64decode(v).decode() if isinstance(v, str) else v
                                 for k, v in sec_data.items()}
@@ -358,7 +358,7 @@ def run_workload(remote_app, callback_url, peer=None, cr_body=None):
             ))
             volume_mounts.append(client.V1VolumeMount(name=vol_name, mount_path=sec_spec.mountPath))
 
-        # PVCs — check total quota first
+        # PVCs - check total quota first
         total_pvc_limit = state.settings.max_pvc_storage_total_gb
         if total_pvc_limit > 0 and spec.pvcs:
             total_requested_gb = sum(_parse_storage_gb(p.storage) for p in spec.pvcs if p.name and p.mountPath)
@@ -392,13 +392,13 @@ def run_workload(remote_app, callback_url, peer=None, cr_body=None):
             ))
             volume_mounts.append(client.V1VolumeMount(name=vol_name, mount_path=pvc_spec.mountPath))
 
-        # ── Resources ─────────────────────────────────────────────────────
+        # -- Resources
         resource_requirements = None
         res = spec.resources
         if res is not None:
             req = res.requests
             lim = res.limits
-            # _DictWrapper → plain dict; plain dict stays as-is
+            # _DictWrapper �� plain dict; plain dict stays as-is
             if isinstance(req, object) and hasattr(req, "to_dict"):
                 req = req.to_dict()
             if isinstance(lim, object) and hasattr(lim, "to_dict"):
@@ -409,7 +409,7 @@ def run_workload(remote_app, callback_url, peer=None, cr_body=None):
                     limits=lim or None,
                 )
 
-        # ── Ports ──────────────────────────────────────────────────────────
+        # -- Ports
         if spec.ports:
             container_ports = [
                 client.V1ContainerPort(
@@ -421,7 +421,7 @@ def run_workload(remote_app, callback_url, peer=None, cr_body=None):
         else:
             container_ports = [client.V1ContainerPort(container_port=80)]
 
-        # ── Env ────────────────────────────────────────────────────────────
+        # -- Env
         env_list = None
         if spec.env:
             env_list = []
@@ -464,12 +464,12 @@ def run_workload(remote_app, callback_url, peer=None, cr_body=None):
                 else:
                     env_list.append(client.V1EnvVar(name=e.name, value=e.value or ""))
 
-        # ── imagePullPolicy / imagePullSecrets ─────────────────────────────
+        # -- imagePullPolicy / imagePullSecrets
         pull_policy = spec.imagePullPolicy
         pull_secrets = [client.V1LocalObjectReference(name=s) for s in spec.imagePullSecrets] \
             if spec.imagePullSecrets else None
 
-        # ── Readiness probe ────────────────────────────────────────────────
+        # -- Readiness probe
         readiness_probe = None
         rp = spec.readinessProbe
         if rp:
@@ -490,7 +490,7 @@ def run_workload(remote_app, callback_url, peer=None, cr_body=None):
                 failure_threshold=rp.failureThreshold,
             )
 
-        # ── Security context ───────────────────────────────────────────────
+        # -- Security context
         pod_security_ctx = None
         container_security_ctx = None
         sc = spec.securityContext
@@ -506,7 +506,7 @@ def run_workload(remote_app, callback_url, peer=None, cr_body=None):
                     read_only_root_filesystem=sc.readOnlyRootFilesystem
                 )
 
-        # ── Build Deployment ───────────────────────────────────────────────
+        # -- Build Deployment
         deployment = client.V1Deployment(
             metadata=client.V1ObjectMeta(
                 name=deploy_name,
@@ -559,7 +559,7 @@ def run_workload(remote_app, callback_url, peer=None, cr_body=None):
                 _report_status(remote_app, callback_url, f"Failed: {e.reason}", peer=peer)
                 return
 
-        # ── Service ────────────────────────────────────────────────────────
+        # -- Service
         if spec.ports:
             service_ports = [
                 client.V1ServicePort(
@@ -596,7 +596,7 @@ def run_workload(remote_app, callback_url, peer=None, cr_body=None):
 
         _report_status(remote_app, callback_url, "Running", peer=peer)
 
-        # ── Poll until ready ───────────────────────────────────────────────
+        # -- Poll until ready
         for _ in range(60):
             if stop.is_set():
                 log.info("Watcher for %s cancelled (re-deploy)", remote_app.id)
