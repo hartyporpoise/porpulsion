@@ -2,7 +2,7 @@
 Authentication routes - signup, login, logout.
 
 Users are stored in the porpulsion-users Kubernetes Secret as a JSON object:
-  { "username": { "hash": "<bcrypt hash>" }, ... }
+  { "username": { "hash": "<PBKDF2-SHA256 hash>" }, ... }
 
 If the Secret does not exist (first boot), unauthenticated visitors are shown
 the signup page to create the first account.  After that, additional users can

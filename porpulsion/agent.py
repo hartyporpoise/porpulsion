@@ -11,7 +11,7 @@ import pathlib
 import socket
 import threading
 
-from flask import Flask, render_template, Response, jsonify
+from flask import Flask, Response, jsonify
 
 from porpulsion import state, tls
 from porpulsion.log_buffer import install_log_handler
@@ -120,6 +120,9 @@ def _reconnect_persisted_peers():
     _time.sleep(3)  # let the server fully start before connecting outbound
     from porpulsion.channel import open_channel_to
     for _p in state.peers.values():
+        if not _p.url:
+            log.debug("Skipping reconnect for incoming-only peer %s (no URL)", _p.name)
+            continue
         log.info("Re-opening WS channel to persisted peer %s", _p.name)
         open_channel_to(_p.name, _p.url, _p.ca_pem)
 
@@ -226,24 +229,15 @@ def openapi_yaml():
     return Response(get_openapi_yaml(), mimetype="application/x-yaml")
 
 
-
 # -- Main
 
-if __name__ == "__main__":
-    log.info("Starting agent %s", state.AGENT_NAME)
-
-    level = getattr(logging, state.settings.log_level.upper(), logging.INFO)
-    logging.getLogger().setLevel(level)
-
-    threading.Thread(target=_reconnect_persisted_peers, daemon=True).start()
-
-    # Kopf operator: handles ExecutingApp and RemoteApp CR events.
-    # Runs in a background thread alongside Flask.
+def _run_kopf():
+    """Start the kopf operator in a background thread (inside the gunicorn worker after fork)."""
     import asyncio
     import kopf
     import porpulsion.k8s.kopf_handlers  # noqa: F401 - registers handlers via decorators
 
-    def _run_kopf():
+    def _loop():
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         loop.run_until_complete(kopf.operator(
@@ -253,19 +247,54 @@ if __name__ == "__main__":
             liveness_endpoint=None,
         ))
 
-    threading.Thread(target=_run_kopf, daemon=True, name="kopf-operator").start()
+    threading.Thread(target=_loop, daemon=True, name="kopf-operator").start()
     log.info("Kopf operator started for namespace %s", state.NAMESPACE)
 
-    # Peer-facing server (port 8001): /peer and /ws only.
-    # This is the only port exposed via the Ingress.
-    from porpulsion.peer_server import start as _start_peer_server
-    threading.Thread(target=_start_peer_server, daemon=True, name="peer-server").start()
 
-    # Internal server (port 8002): /status and probes only, no auth.
-    from porpulsion.internal_server import start as _start_internal_server
-    threading.Thread(target=_start_internal_server, daemon=True, name="internal-server").start()
+if __name__ == "__main__":
+    log.info("Starting agent %s", state.AGENT_NAME)
 
-    # Dashboard + API (port 8000): session auth required.
-    from werkzeug.serving import make_server as _make_server
-    log.info("Starting dashboard server on port 8000")
-    _make_server("0.0.0.0", 8000, app, threaded=True).serve_forever()
+    level = getattr(logging, state.settings.log_level.upper(), logging.INFO)
+    logging.getLogger().setLevel(level)
+
+    # Ports 8001 (peer WS) and 8002 (internal probes) run as gunicorn child processes.
+    # They must be forked here, before any threads exist in this process, so the fork
+    # is clean. The main gunicorn for port 8000 starts last and blocks.
+    from porpulsion.peer_server import run_in_process as _start_peer_server
+    from porpulsion.internal_server import run_in_process as _start_internal_server
+    _start_peer_server()
+    _start_internal_server()
+
+    import gunicorn.app.base
+
+    class _StandaloneApp(gunicorn.app.base.BaseApplication):
+        def __init__(self, application, options=None):
+            self.options = options or {}
+            self.application = application
+            super().__init__()
+
+        def load_config(self):
+            for key, value in self.options.items():
+                self.cfg.set(key.lower(), value)
+
+        def load(self):
+            return self.application
+
+    def _post_fork(server, worker):
+        """Start kopf and peer reconnect inside the gunicorn worker after fork."""
+        threading.Thread(target=_reconnect_persisted_peers, daemon=True).start()
+        _run_kopf()
+
+    worker_threads = int(os.environ.get("GUNICORN_THREADS", "4"))
+    _StandaloneApp(app, {
+        "bind":         "0.0.0.0:8000",
+        "workers":      1,
+        "worker_class": "gthread",
+        "threads":      worker_threads,
+        "timeout":      120,
+        "keepalive":    5,
+        "loglevel":     "warning",
+        "accesslog":    "-",
+        "errorlog":     "-",
+        "post_fork":    _post_fork,
+    }).run()

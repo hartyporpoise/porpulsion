@@ -99,7 +99,11 @@
     return '<span class="badge badge-handshake">&#8594; outgoing</span>';
   }
 
+  var ICON_INFO = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="8.5"/><line x1="12" y1="12" x2="12" y2="16"/></svg>';
+  var ICON_TRASH = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>';
+
   function renderAllPeers(peers) {
+    window._lastPeers = peers;
     var body = el('all-peers-body');
     var empty = el('all-peers-empty');
     var countEl = el('all-peers-count');
@@ -108,20 +112,80 @@
     if (!peers.length) { body.innerHTML = ''; if (empty) empty.style.display = ''; return; }
     if (empty) empty.style.display = 'none';
     body.innerHTML = peers.map(function (p) {
-      var latency = (p.latency_ms != null) ? '<span class="peer-latency">' + p.latency_ms + ' ms</span>' : '';
       var chanHtml = (p.channel === 'connected')
-        ? channelBadge(p.url) + latency
+        ? channelBadge(p.url)
         : '<span class="badge badge-failed">offline</span>';
       var dirBadge = directionBadge(p.direction);
-      var actions = '<button class="btn-sm btn-danger peer-remove-btn">Remove</button>';
+      var latencyCell = (p.latency_ms != null)
+        ? '<span class="peer-latency">' + p.latency_ms + ' ms</span>'
+        : '<span class="text-muted" style="font-size:0.8rem;">-</span>';
+      var actions = '<span class="btn-row">' +
+        '<button type="button" class="btn-icon peer-info-btn" title="Info" aria-label="Info">' + ICON_INFO + '</button>' +
+        '<button type="button" class="btn-icon btn-icon-danger peer-remove-btn" title="Remove" aria-label="Remove">' + ICON_TRASH + '</button>' +
+        '</span>';
       return '<tr data-peer-url="' + _esc(p.url) + '" data-peer-name="' + _esc(p.name) + '">' +
         '<td><strong>' + _esc(p.name) + '</strong></td>' +
         '<td class="mono">' + _esc(p.url || '') + '</td>' +
         '<td>' + dirBadge + '</td>' +
         '<td>' + chanHtml + '</td>' +
+        '<td>' + latencyCell + '</td>' +
         '<td class="time-ago">' + timeAgo(p.connected_at) + '</td>' +
         '<td>' + actions + '</td></tr>';
     }).join('');
+  }
+
+  function openPeerModal(peerName) {
+    var modal = el('peer-modal');
+    var title = el('peer-modal-title');
+    var body = el('peer-modal-body');
+    var removeBtn = el('peer-modal-remove-btn');
+    if (!modal || !body) return;
+
+    var peers = (window._lastPeers || []);
+    var p = peers.filter(function (x) { return x.name === peerName; })[0];
+
+    if (title) title.textContent = peerName;
+    if (removeBtn) {
+      removeBtn.onclick = function () {
+        modal.classList.remove('open');
+        showPeerRemoveConfirm(peerName, function () { removePeer(peerName); });
+      };
+    }
+
+    if (!p) { body.innerHTML = '<p class="text-muted text-sm">Not found.</p>'; modal.classList.add('open'); return; }
+
+    var latencyRow = (p.latency_ms != null)
+      ? '<div class="detail-row"><span class="label">Latency</span><span>' + p.latency_ms + ' ms</span></div>'
+      : '';
+    var versionRow = p.version_hash
+      ? '<div class="detail-row"><span class="label">Version</span><span class="mono" style="font-size:0.8rem;">' + _esc(p.version_hash) + '</span></div>'
+      : '';
+    var crdDiff = p.crd_diff;
+    var crdRow = '';
+    if (crdDiff && ((crdDiff.missing_local && crdDiff.missing_local.length) || (crdDiff.missing_remote && crdDiff.missing_remote.length))) {
+      var parts = [];
+      if (crdDiff.missing_remote && crdDiff.missing_remote.length) parts.push('peer missing: ' + crdDiff.missing_remote.join(', '));
+      if (crdDiff.missing_local && crdDiff.missing_local.length) parts.push('we missing: ' + crdDiff.missing_local.join(', '));
+      crdRow = '<div class="detail-row"><span class="label">CRD diff</span><span class="text-sm" style="color:var(--yellow);">' + _esc(parts.join(' | ')) + '</span></div>';
+    }
+
+    var remoteAddrRow = p.remote_addr
+      ? '<div class="detail-row"><span class="label">Inbound IP</span><span class="mono" style="font-size:0.85rem;">' + _esc(p.remote_addr) + '</span></div>'
+      : '';
+
+    body.innerHTML =
+      '<div class="detail-block" style="border:none;padding-top:0;">' +
+        '<div class="detail-row"><span class="label">URL</span><span class="mono" style="font-size:0.82rem;word-break:break-all;">' + _esc(p.url || '-') + '</span></div>' +
+        remoteAddrRow +
+        '<div class="detail-row"><span class="label">Direction</span><span>' + directionBadge(p.direction) + '</span></div>' +
+        '<div class="detail-row"><span class="label">Status</span><span>' + (p.channel === 'connected' ? channelBadge(p.url) : '<span class="badge badge-failed">offline</span>') + '</span></div>' +
+        latencyRow +
+        '<div class="detail-row"><span class="label">Connected</span><span>' + timeAgo(p.connected_at) + '</span></div>' +
+        versionRow +
+        crdRow +
+      '</div>';
+
+    modal.classList.add('open');
   }
 
 
@@ -686,6 +750,11 @@
         ? 'Stop executing "' + appName + '" on this cluster. The peer that submitted it may re-deploy it.'
         : 'Delete "' + appName + '" and remove it from the peer cluster. This cannot be undone.';
       showConfirm('Delete workload?', deleteMsg, 'Delete', 'btn-danger', function () { deleteApp(appId, appName); });
+    } else if (btn.classList.contains('peer-info-btn')) {
+      e.preventDefault();
+      var row = btn.closest('tr[data-peer-name]');
+      if (!row) return;
+      openPeerModal(row.dataset.peerName);
     } else if (btn.classList.contains('peer-remove-btn')) {
       e.preventDefault();
       var row = btn.closest('tr[data-peer-url]');
@@ -1469,6 +1538,11 @@
   if (appModal) appModal.addEventListener('click', function (e) { if (e.target === this) closeAppModal(); });
   var appModalClose = el('app-modal-close');
   if (appModalClose) appModalClose.addEventListener('click', closeAppModal);
+
+  var peerModal = el('peer-modal');
+  if (peerModal) peerModal.addEventListener('click', function (e) { if (e.target === this) this.classList.remove('open'); });
+  var peerModalClose = el('peer-modal-close');
+  if (peerModalClose) peerModalClose.addEventListener('click', function () { peerModal && peerModal.classList.remove('open'); });
 
   // ── Notifications bell ──────────────────────────────────────
 

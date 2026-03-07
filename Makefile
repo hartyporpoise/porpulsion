@@ -35,40 +35,44 @@ define helm
 	"
 endef
 
-.PHONY: help deploy redeploy teardown clean-ns _clean-cluster status logs \
-        deploy-single redeploy-single teardown-single status-single logs-single
+.PHONY: help deploy teardown clean-ns _clean-cluster status logs \
+        deploy-single teardown-single status-single logs-single
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
 		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
 
 deploy: ## Full deploy: start clusters, build image, helm install all agents
-	@echo ""
-	@echo "==> Starting clusters + helm runner..."
-	$(COMPOSE) up -d
-	@echo "Waiting for cluster-a API..."
-	@until $(KUBECTL_A) get nodes &>/dev/null; do sleep 2; done
-	@echo "  cluster-a ready"
-	@echo "Waiting for cluster-b API..."
-	@until $(KUBECTL_B) get nodes &>/dev/null; do sleep 2; done
-	@echo "  cluster-b ready"
-	@echo "Waiting for cluster-c API..."
-	@until $(KUBECTL_C) get nodes &>/dev/null; do sleep 2; done
-	@echo "  cluster-c ready"
-
-	@echo ""
-	@echo "==> Building porpulsion-agent image..."
-	docker build -t porpulsion-agent:local .
-
-	@echo ""
-	@echo "==> Loading image into clusters..."
-	docker save porpulsion-agent:local | docker exec -i $(CLUSTER_A) ctr images import -
-	docker save porpulsion-agent:local | docker exec -i $(CLUSTER_B) ctr images import -
-	docker save porpulsion-agent:local | docker exec -i $(CLUSTER_C) ctr images import -
-
-	@echo ""
-	@echo "==> Helm installing porpulsion on cluster-a..."
-	@IP_A=$$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' $(CLUSTER_A)); \
+	@_names=.porpulsion-agents; \
+	_get() { grep "^$$1=" $$_names 2>/dev/null | cut -d= -f2; }; \
+	NAME_A=$$(_get a); NAME_B=$$(_get b); NAME_C=$$(_get c); \
+	[ -z "$$NAME_A" ] && NAME_A=$$(openssl rand -hex 6); \
+	[ -z "$$NAME_B" ] && NAME_B=$$(openssl rand -hex 6); \
+	[ -z "$$NAME_C" ] && NAME_C=$$(openssl rand -hex 6); \
+	printf 'a=%s\nb=%s\nc=%s\n' "$$NAME_A" "$$NAME_B" "$$NAME_C" > $$_names; \
+	echo ""; \
+	echo "==> Starting clusters + helm runner (a=$$NAME_A b=$$NAME_B c=$$NAME_C)..."; \
+	$(COMPOSE) up -d; \
+	echo "Waiting for cluster-a API..."; \
+	until $(KUBECTL_A) get nodes &>/dev/null; do sleep 2; done; \
+	echo "  cluster-a ready"; \
+	echo "Waiting for cluster-b API..."; \
+	until $(KUBECTL_B) get nodes &>/dev/null; do sleep 2; done; \
+	echo "  cluster-b ready"; \
+	echo "Waiting for cluster-c API..."; \
+	until $(KUBECTL_C) get nodes &>/dev/null; do sleep 2; done; \
+	echo "  cluster-c ready"; \
+	echo ""; \
+	echo "==> Building porpulsion-agent image..."; \
+	docker build -t porpulsion-agent:local .; \
+	echo ""; \
+	echo "==> Loading image into clusters..."; \
+	docker save porpulsion-agent:local | docker exec -i $(CLUSTER_A) ctr images import -; \
+	docker save porpulsion-agent:local | docker exec -i $(CLUSTER_B) ctr images import -; \
+	docker save porpulsion-agent:local | docker exec -i $(CLUSTER_C) ctr images import -; \
+	echo ""; \
+	echo "==> Helm installing on cluster-a ($$NAME_A)..."; \
+	IP_A=$$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' $(CLUSTER_A)); \
 	echo "  cluster-a IP: $$IP_A"; \
 	docker exec $(HELM) sh -c " \
 		docker exec $(CLUSTER_A) cat /etc/rancher/k3s/k3s.yaml \
@@ -77,7 +81,7 @@ deploy: ## Full deploy: start clusters, build image, helm install all agents
 		chmod 600 /tmp/kubeconfig-a.yaml && \
 		KUBECONFIG=/tmp/kubeconfig-a.yaml helm upgrade --install porpulsion /charts/porpulsion \
 			--create-namespace --namespace porpulsion \
-			--set agent.agentName=cluster-a \
+			--set agent.agentName=$$NAME_A \
 			--set agent.selfUrl=http://$$IP_A:30081 \
 			--set agent.image=porpulsion-agent:local \
 			--set agent.pullPolicy=Never \
@@ -85,11 +89,10 @@ deploy: ## Full deploy: start clusters, build image, helm install all agents
 			--set service.uiNodePort=30080 \
 			--set service.peerNodePort=30081 \
 			--wait --timeout 90s \
-	"
-
-	@echo ""
-	@echo "==> Helm installing porpulsion on cluster-b..."
-	@IP_B=$$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' $(CLUSTER_B)); \
+	"; \
+	echo ""; \
+	echo "==> Helm installing on cluster-b ($$NAME_B)..."; \
+	IP_B=$$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' $(CLUSTER_B)); \
 	echo "  cluster-b IP: $$IP_B"; \
 	docker exec $(HELM) sh -c " \
 		docker exec $(CLUSTER_B) cat /etc/rancher/k3s/k3s.yaml \
@@ -98,7 +101,7 @@ deploy: ## Full deploy: start clusters, build image, helm install all agents
 		chmod 600 /tmp/kubeconfig-b.yaml && \
 		KUBECONFIG=/tmp/kubeconfig-b.yaml helm upgrade --install porpulsion /charts/porpulsion \
 			--create-namespace --namespace porpulsion \
-			--set agent.agentName=cluster-b \
+			--set agent.agentName=$$NAME_B \
 			--set agent.selfUrl=http://$$IP_B:30081 \
 			--set agent.image=porpulsion-agent:local \
 			--set agent.pullPolicy=Never \
@@ -106,11 +109,10 @@ deploy: ## Full deploy: start clusters, build image, helm install all agents
 			--set service.uiNodePort=30080 \
 			--set service.peerNodePort=30081 \
 			--wait --timeout 90s \
-	"
-
-	@echo ""
-	@echo "==> Helm installing porpulsion on cluster-c..."
-	@IP_C=$$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' $(CLUSTER_C)); \
+	"; \
+	echo ""; \
+	echo "==> Helm installing on cluster-c ($$NAME_C)..."; \
+	IP_C=$$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' $(CLUSTER_C)); \
 	echo "  cluster-c IP: $$IP_C"; \
 	docker exec $(HELM) sh -c " \
 		docker exec $(CLUSTER_C) cat /etc/rancher/k3s/k3s.yaml \
@@ -119,7 +121,7 @@ deploy: ## Full deploy: start clusters, build image, helm install all agents
 		chmod 600 /tmp/kubeconfig-c.yaml && \
 		KUBECONFIG=/tmp/kubeconfig-c.yaml helm upgrade --install porpulsion /charts/porpulsion \
 			--create-namespace --namespace porpulsion \
-			--set agent.agentName=cluster-c \
+			--set agent.agentName=$$NAME_C \
 			--set agent.selfUrl=http://$$IP_C:30081 \
 			--set agent.image=porpulsion-agent:local \
 			--set agent.pullPolicy=Never \
@@ -127,104 +129,29 @@ deploy: ## Full deploy: start clusters, build image, helm install all agents
 			--set service.uiNodePort=30080 \
 			--set service.peerNodePort=30081 \
 			--wait --timeout 90s \
-	"
-
-	@echo ""
-	@echo "============================================"
-	@echo "  porpulsion is running!"
-	@echo "============================================"
-	@echo ""
-	@echo "  cluster-a UI:         http://localhost:8001"
-	@echo "  cluster-b UI:         http://localhost:8002"
-	@echo "  cluster-c UI:         http://localhost:8003"
-	@echo "  cluster-a peer port:  http://localhost:8004  (/ws)"
-	@echo "  cluster-b peer port:  http://localhost:8005  (/ws)"
-	@echo "  cluster-c peer port:  http://localhost:8006  (/ws)"
-	@echo ""
-	@echo "  kubectl:"
-	@echo "    docker exec $(CLUSTER_A) kubectl get pods -n porpulsion"
-	@echo "    docker exec $(CLUSTER_B) kubectl get pods -n porpulsion"
-	@echo "    docker exec $(CLUSTER_C) kubectl get pods -n porpulsion"
-	@echo ""
-
-redeploy: ## Rebuild agent image + helm upgrade (clusters must already be running)
-	@echo ""
-	@echo "==> Rebuilding porpulsion-agent image..."
-	docker build -t porpulsion-agent:local .
-	@echo ""
-	@echo "==> Loading image into clusters..."
-	docker save porpulsion-agent:local | docker exec -i $(CLUSTER_A) ctr images import -
-	docker save porpulsion-agent:local | docker exec -i $(CLUSTER_B) ctr images import -
-	docker save porpulsion-agent:local | docker exec -i $(CLUSTER_C) ctr images import -
-	@echo ""
-	@echo "==> Helm upgrading cluster-a..."
-	@IP_A=$$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' $(CLUSTER_A)); \
-	echo "  cluster-a IP: $$IP_A"; \
-	docker exec $(HELM) sh -c " \
-		docker exec $(CLUSTER_A) cat /etc/rancher/k3s/k3s.yaml \
-			| sed 's|127.0.0.1:[0-9]*|cluster-a:6443|g' \
-			> /tmp/kubeconfig-a.yaml && \
-		chmod 600 /tmp/kubeconfig-a.yaml && \
-		KUBECONFIG=/tmp/kubeconfig-a.yaml helm upgrade --install porpulsion /charts/porpulsion \
-			--create-namespace --namespace porpulsion \
-			--set agent.agentName=cluster-a \
-			--set agent.selfUrl=http://$$IP_A:30081 \
-			--set agent.image=porpulsion-agent:local \
-			--set agent.pullPolicy=Never \
-			--set service.type=NodePort \
-			--set service.uiNodePort=30080 \
-			--set service.peerNodePort=30081 \
-			--wait --timeout 90s \
-	"
-	@echo ""
-	@echo "==> Helm upgrading cluster-b..."
-	@IP_B=$$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' $(CLUSTER_B)); \
-	echo "  cluster-b IP: $$IP_B"; \
-	docker exec $(HELM) sh -c " \
-		docker exec $(CLUSTER_B) cat /etc/rancher/k3s/k3s.yaml \
-			| sed 's|127.0.0.1:[0-9]*|cluster-b:6444|g' \
-			> /tmp/kubeconfig-b.yaml && \
-		chmod 600 /tmp/kubeconfig-b.yaml && \
-		KUBECONFIG=/tmp/kubeconfig-b.yaml helm upgrade --install porpulsion /charts/porpulsion \
-			--create-namespace --namespace porpulsion \
-			--set agent.agentName=cluster-b \
-			--set agent.selfUrl=http://$$IP_B:30081 \
-			--set agent.image=porpulsion-agent:local \
-			--set agent.pullPolicy=Never \
-			--set service.type=NodePort \
-			--set service.uiNodePort=30080 \
-			--set service.peerNodePort=30081 \
-			--wait --timeout 90s \
-	"
-	@echo ""
-	@echo "==> Helm upgrading cluster-c..."
-	@IP_C=$$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' $(CLUSTER_C)); \
-	echo "  cluster-c IP: $$IP_C"; \
-	docker exec $(HELM) sh -c " \
-		docker exec $(CLUSTER_C) cat /etc/rancher/k3s/k3s.yaml \
-			| sed 's|127.0.0.1:[0-9]*|cluster-c:6445|g' \
-			> /tmp/kubeconfig-c.yaml && \
-		chmod 600 /tmp/kubeconfig-c.yaml && \
-		KUBECONFIG=/tmp/kubeconfig-c.yaml helm upgrade --install porpulsion /charts/porpulsion \
-			--create-namespace --namespace porpulsion \
-			--set agent.agentName=cluster-c \
-			--set agent.selfUrl=http://$$IP_C:30081 \
-			--set agent.image=porpulsion-agent:local \
-			--set agent.pullPolicy=Never \
-			--set service.type=NodePort \
-			--set service.uiNodePort=30080 \
-			--set service.peerNodePort=30081 \
-			--wait --timeout 90s \
-	"
-	@echo ""
-	@echo "  Done. Agents redeployed."
-	@echo "  cluster-a UI: http://localhost:8001  (ws: http://localhost:8004)"
-	@echo "  cluster-b UI: http://localhost:8002  (ws: http://localhost:8005)"
-	@echo "  cluster-c UI: http://localhost:8003  (ws: http://localhost:8006)"
+	"; \
+	echo ""; \
+	echo "============================================"; \
+	echo "  porpulsion is running!"; \
+	echo "  a=$$NAME_A  b=$$NAME_B  c=$$NAME_C"; \
+	echo "============================================"; \
+	echo ""; \
+	echo "  cluster-a UI:         http://localhost:8001"; \
+	echo "  cluster-b UI:         http://localhost:8002"; \
+	echo "  cluster-c UI:         http://localhost:8003"; \
+	echo "  cluster-a peer port:  http://localhost:8004  (/ws)"; \
+	echo "  cluster-b peer port:  http://localhost:8005  (/ws)"; \
+	echo "  cluster-c peer port:  http://localhost:8006  (/ws)"; \
+	echo ""; \
+	echo "  kubectl:"; \
+	echo "    docker exec $(CLUSTER_A) kubectl get pods -n porpulsion"; \
+	echo "    docker exec $(CLUSTER_B) kubectl get pods -n porpulsion"; \
+	echo "    docker exec $(CLUSTER_C) kubectl get pods -n porpulsion"
 	@echo ""
 
 teardown: ## Destroy clusters and volumes
 	$(COMPOSE) down -v
+	@rm -f .porpulsion-agents
 
 status: ## Show pods, deployments, and peer status
 	@echo "=== Cluster A Pods ==="
@@ -305,24 +232,27 @@ _clean-cluster:
 # ---------------------------------------------------------------------------
 
 deploy-single: ## Start a single k3s cluster, build image, helm install
-	@echo ""
-	@echo "==> Starting single cluster + helm runner..."
-	$(COMPOSE_SINGLE) up -d
-	@echo "Waiting for cluster API..."
-	@until $(KUBECTL_SINGLE) get nodes &>/dev/null; do sleep 2; done
-	@echo "  cluster ready"
-
-	@echo ""
-	@echo "==> Building porpulsion-agent image..."
-	docker build -t porpulsion-agent:local .
-
-	@echo ""
-	@echo "==> Loading image into cluster..."
-	docker save porpulsion-agent:local | docker exec -i $(CLUSTER_SINGLE) ctr images import -
-
-	@echo ""
-	@echo "==> Helm installing porpulsion..."
-	@IP=$$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' $(CLUSTER_SINGLE)); \
+	@if [ -f .porpulsion-agents-single ]; then \
+		NAME=$$(cat .porpulsion-agents-single); \
+	else \
+		NAME=$$(openssl rand -hex 6); \
+		echo "$$NAME" > .porpulsion-agents-single; \
+	fi; \
+	echo ""; \
+	echo "==> Starting single cluster + helm runner (agent: $$NAME)..."; \
+	$(COMPOSE_SINGLE) up -d; \
+	echo "Waiting for cluster API..."; \
+	until $(KUBECTL_SINGLE) get nodes &>/dev/null; do sleep 2; done; \
+	echo "  cluster ready"; \
+	echo ""; \
+	echo "==> Building porpulsion-agent image..."; \
+	docker build -t porpulsion-agent:local .; \
+	echo ""; \
+	echo "==> Loading image into cluster..."; \
+	docker save porpulsion-agent:local | docker exec -i $(CLUSTER_SINGLE) ctr images import -; \
+	echo ""; \
+	echo "==> Helm installing porpulsion..."; \
+	IP=$$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' $(CLUSTER_SINGLE)); \
 	echo "  cluster IP: $$IP"; \
 	docker exec $(HELM_SINGLE) sh -c " \
 		docker exec $(CLUSTER_SINGLE) cat /etc/rancher/k3s/k3s.yaml \
@@ -331,7 +261,7 @@ deploy-single: ## Start a single k3s cluster, build image, helm install
 		chmod 600 /tmp/kubeconfig-single.yaml && \
 		KUBECONFIG=/tmp/kubeconfig-single.yaml helm upgrade --install porpulsion /charts/porpulsion \
 			--create-namespace --namespace porpulsion \
-			--set agent.agentName=cluster \
+			--set agent.agentName=$$NAME \
 			--set agent.selfUrl=http://$$IP:30081 \
 			--set agent.image=porpulsion-agent:local \
 			--set agent.pullPolicy=Never \
@@ -339,50 +269,19 @@ deploy-single: ## Start a single k3s cluster, build image, helm install
 			--set service.uiNodePort=30080 \
 			--set service.peerNodePort=30081 \
 			--wait --timeout 90s \
-	"
-
-	@echo ""
-	@echo "============================================"
-	@echo "  porpulsion is running!"
-	@echo "============================================"
-	@echo ""
-	@echo "  UI:        http://localhost:8080"
-	@echo "  Peer port: http://localhost:8081  (/ws)"
-	@echo ""
-
-redeploy-single: ## Rebuild agent image + helm upgrade (single cluster, must be running)
-	@echo ""
-	@echo "==> Rebuilding porpulsion-agent image..."
-	docker build -t porpulsion-agent:local .
-	@echo ""
-	@echo "==> Loading image into cluster..."
-	docker save porpulsion-agent:local | docker exec -i $(CLUSTER_SINGLE) ctr images import -
-	@echo ""
-	@echo "==> Helm upgrading..."
-	@IP=$$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' $(CLUSTER_SINGLE)); \
-	echo "  cluster IP: $$IP"; \
-	docker exec $(HELM_SINGLE) sh -c " \
-		docker exec $(CLUSTER_SINGLE) cat /etc/rancher/k3s/k3s.yaml \
-			| sed 's|127.0.0.1:[0-9]*|cluster:6443|g' \
-			> /tmp/kubeconfig-single.yaml && \
-		chmod 600 /tmp/kubeconfig-single.yaml && \
-		KUBECONFIG=/tmp/kubeconfig-single.yaml helm upgrade --install porpulsion /charts/porpulsion \
-			--create-namespace --namespace porpulsion \
-			--set agent.agentName=cluster \
-			--set agent.selfUrl=http://$$IP:30081 \
-			--set agent.image=porpulsion-agent:local \
-			--set agent.pullPolicy=Never \
-			--set service.type=NodePort \
-			--set service.uiNodePort=30080 \
-			--set service.peerNodePort=30081 \
-			--wait --timeout 90s \
-	"
-	@echo ""
-	@echo "  Done. UI: http://localhost:8080"
-	@echo ""
+	"; \
+	echo ""; \
+	echo "============================================"; \
+	echo "  porpulsion is running! (agent: $$NAME)"; \
+	echo "============================================"; \
+	echo ""; \
+	echo "  UI:        http://localhost:8080"; \
+	echo "  Peer port: http://localhost:8081  (/ws)"; \
+	echo ""
 
 teardown-single: ## Destroy single cluster and volumes
 	$(COMPOSE_SINGLE) down -v
+	@rm -f .porpulsion-agents-single
 
 status-single: ## Show pods and deployments for single cluster
 	@echo "=== Pods ==="

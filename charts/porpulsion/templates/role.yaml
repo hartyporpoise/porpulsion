@@ -33,7 +33,7 @@ rules:
   # -- Secrets  porpulsion system secrets (named access)
   - apiGroups: [""]
     resources: ["secrets"]
-    resourceNames: ["porpulsion-credentials", "porpulsion-users"]
+    resourceNames: ["porpulsion-credentials", "porpulsion-peers", "porpulsion-users"]
     verbs: ["get", "patch"]
 
   # -- Secrets  remoteapp-managed secrets (create + full lifecycle)
@@ -48,7 +48,7 @@ rules:
   - apiGroups: [""]
     resources: ["configmaps"]
     resourceNames: ["porpulsion-state"]
-    verbs: ["get", "patch", "delete"]
+    verbs: ["get", "patch"]
 
   # -- ConfigMaps  remoteapp-managed configmaps (create + full lifecycle)
   - apiGroups: [""]

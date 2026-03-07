@@ -140,6 +140,20 @@
   <!-- GLOBAL: toast (JS-driven) -->
   <div id="toast" role="status" aria-live="polite"></div>
 
+  <!-- MODAL: peer detail (JS-driven) -->
+  <div class="modal-backdrop" id="peer-modal">
+    <div class="modal-inner" style="width:min(520px,100%);">
+      <div class="modal-header">
+        <span class="modal-title" id="peer-modal-title">Peer</span>
+        <button type="button" class="modal-close" id="peer-modal-close" aria-label="Close"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M1 1l12 12M13 1L1 13"/></svg></button>
+      </div>
+      <div class="modal-body" id="peer-modal-body"></div>
+      <div class="modal-footer" id="peer-modal-footer">
+        <button type="button" class="btn-sm btn-danger" id="peer-modal-remove-btn">Remove peer</button>
+      </div>
+    </div>
+  </div>
+
   <!-- MODAL: app detail (JS-driven) -->
   <div class="modal-backdrop" id="app-modal">
     <div class="modal-inner">

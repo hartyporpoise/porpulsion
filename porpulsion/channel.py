@@ -51,6 +51,7 @@ Types:
   proxy/request           HTTP proxy request (payload includes base64 body)
   proxy/response          HTTP proxy response
   peer/disconnect         graceful disconnect notification
+  peer/bidirectional      acceptor notifies initiator that inbound was received (direction upgrade)
   ping                    keepalive
 """
 import json
@@ -185,6 +186,7 @@ class PeerChannel:
         self.ca_pem    = ca_pem
         self.peer_version_hash: str = ""   # set when peer announces its version
         self.latency_ms: float | None = None   # round-trip time from last ping/pong
+        self.peer_remote_addr: str = ""        # IP the inbound WS connection came from
         self._ws: websocket.WebSocket | None = None
         self._lock     = threading.Lock()
         self._pending: dict[str, dict] = {}   # id -> {"event": Event, "result": dict|None}
@@ -248,6 +250,12 @@ class PeerChannel:
         Blocks until the connection closes on success.
         """
         from porpulsion import state as _state, tls
+
+        # Capture the remote IP from the WSGI environ before reading any frames
+        try:
+            self.peer_remote_addr = sock.environ.get("REMOTE_ADDR", "")
+        except Exception:
+            pass
 
         # ── Receive and validate peer/hello ──────────────────────────────
         try:
@@ -362,6 +370,14 @@ class PeerChannel:
             self.push("version/announce", {"version": _state.VERSION_HASH})
         except Exception:
             pass
+
+        # If this peer was already known to us (they connected back after we initiated),
+        # tell them so they can mark us as bidirectional on their side too.
+        if _state.peers.get(peer_name) and _state.peers[peer_name].has_inbound:
+            try:
+                self.push("peer/bidirectional", {"name": _state.AGENT_NAME})
+            except Exception:
+                pass
 
         _push_crd_schema(self)
         threading.Thread(target=self._ping_loop, daemon=True).start()
@@ -734,6 +750,7 @@ def _register_handlers(ch: "PeerChannel"):
         handle_remoteapp_config_patch,
         handle_proxy_request,
         handle_peer_disconnect,
+        handle_peer_bidirectional,
     )
     ch.register("remoteapp/receive",       handle_remoteapp_receive)
     ch.register("remoteapp/status",        handle_remoteapp_status)
@@ -746,5 +763,6 @@ def _register_handlers(ch: "PeerChannel"):
     # Wrap proxy handler so it can enforce the per-peer tunnel allowlist.
     def _proxy_handler(payload, _peer=ch.peer_name):
         return handle_proxy_request(payload, peer_name=_peer)
-    ch.register("proxy/request", _proxy_handler)
+    ch.register("proxy/request",         _proxy_handler)
     ch.register("peer/disconnect",       handle_peer_disconnect)
+    ch.register("peer/bidirectional",    handle_peer_bidirectional)

@@ -310,6 +310,21 @@ def handle_proxy_request(payload: dict, peer_name: str = "") -> dict:
 
 # -- Peer lifecycle
 
+def handle_peer_bidirectional(payload: dict):
+    """The accepting peer is telling us they received our inbound connection.
+    Mark our peer entry for them as has_inbound=True so direction shows bidirectional."""
+    from porpulsion import state, tls
+
+    peer_name = payload.get("name", "")
+    if not peer_name:
+        return
+    peer = state.peers.get(peer_name)
+    if peer and not peer.has_inbound:
+        peer.has_inbound = True
+        tls.save_peers(state.NAMESPACE, state.peers)
+        log.info("Peer %s confirmed bidirectional connection", peer_name)
+
+
 def handle_peer_disconnect(payload: dict):
     """Peer is telling us it's disconnecting. If reason='removed', they intentionally
     removed us  - wipe them from our state too. Otherwise keep them for reconnect."""

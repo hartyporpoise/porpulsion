@@ -1,124 +1,32 @@
 """
 TLS certificate generation and management for porpulsion agents.
 
-Each agent auto-generates a private CA on first boot, persisted to the
-porpulsion-credentials Kubernetes Secret. During peering the CA cert is
-exchanged - peers store each other's CA and use it as the trust anchor
-for the WebSocket channel (authenticated by CA fingerprint). This gives
-full mutual authentication with no external dependencies.
+Each agent auto-generates a private CA (ECDSA P-256) on first boot, persisted
+to the porpulsion-credentials Kubernetes Secret. The CA cert (never the key)
+is exchanged during peering via a signed invite bundle and used as the trust
+anchor for the persistent WebSocket channel.
 
-Invite bundles
---------------
-Instead of a bare token + separate fingerprint, this agent generates a
-signed invite bundle — a compact base64 blob containing:
+Invite bundles: a compact base64url blob {v, agent_name, url, ca_pem, sig}
+where sig is ECDSA-SHA256 over the canonical fields using the CA private key.
+The connecting peer verifies the signature offline before any network call -
+MITM is impossible regardless of transport TLS trust.
 
-  {v, agent_name, url, ca_pem, sig}
-
-The sig is an ECDSA-SHA256 signature over the canonical fields using the
-agent's CA private key. The connecting peer verifies the signature against
-the embedded ca_pem before making any network call, making MITM impossible
-regardless of TLS trust.
-
-Challenge/response
-------------------
-On WS connect the initiator sends a peer/hello frame containing a
-challenge_sig — an ECDSA-SHA256 signature over a short nonce using its CA
-private key. The acceptor verifies this against the peer's stored (or
-bundle-provided) CA cert, proving the connector holds the private key and
-is not just replaying a captured CA cert.
+Challenge/response: on WS connect the initiator sends a peer/hello frame with
+a challenge_sig - ECDSA-SHA256 over a nonce using its CA private key. The
+acceptor verifies this against the stored CA cert, proving key possession.
 """
 import base64
 import json
+import logging
 import os
+import threading
 import datetime
-import ipaddress
 from cryptography import x509
-from cryptography.x509.oid import NameOID, ExtendedKeyUsageOID
+from cryptography.x509.oid import NameOID
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 
-
-def generate_ca_and_leaf_cert(agent_name: str,
-                               self_ip: str = "") -> tuple[bytes, bytes, bytes, bytes]:
-    """
-    Generate a private CA and a leaf cert signed by it.
-
-    The CA cert is long-lived (10 years) and is what peers exchange during
-    the peering handshake. The leaf cert is used on the mTLS listener and
-    can be rotated independently without re-peering.
-
-    self_ip: included as an IP SAN in the leaf cert so peers connecting
-    by bare IP pass TLS hostname verification.
-
-    Returns (ca_cert_pem, ca_key_pem, leaf_cert_pem, leaf_key_pem) as bytes.
-    """
-    # -- CA key + self-signed CA cert
-    ca_key = ec.generate_private_key(ec.SECP256R1())  # ECDSA P-256
-    ca_name = x509.Name([
-        x509.NameAttribute(NameOID.COMMON_NAME, f"{agent_name}-ca"),
-        x509.NameAttribute(NameOID.ORGANIZATION_NAME, "porpulsion"),
-    ])
-    ca_cert = (
-        x509.CertificateBuilder()
-        .subject_name(ca_name)
-        .issuer_name(ca_name)
-        .public_key(ca_key.public_key())
-        .serial_number(x509.random_serial_number())
-        .not_valid_before(datetime.datetime.now(datetime.timezone.utc))
-        .not_valid_after(
-            datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=3650)
-        )
-        .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
-        .add_extension(x509.KeyUsage(
-            digital_signature=True, key_cert_sign=True, crl_sign=True,
-            content_commitment=False, key_encipherment=False, data_encipherment=False,
-            key_agreement=False, encipher_only=False, decipher_only=False,
-        ), critical=True)
-        .sign(ca_key, hashes.SHA256())
-    )
-
-    # -- Leaf key + cert signed by the CA
-    leaf_key = ec.generate_private_key(ec.SECP256R1())  # ECDSA P-256
-    leaf_name = x509.Name([
-        x509.NameAttribute(NameOID.COMMON_NAME, agent_name),
-        x509.NameAttribute(NameOID.ORGANIZATION_NAME, "porpulsion"),
-    ])
-    san_entries: list = [x509.DNSName(agent_name)]
-    if self_ip:
-        try:
-            san_entries.append(x509.IPAddress(ipaddress.ip_address(self_ip)))
-        except ValueError:
-            pass
-    leaf_cert = (
-        x509.CertificateBuilder()
-        .subject_name(leaf_name)
-        .issuer_name(ca_name)
-        .public_key(leaf_key.public_key())
-        .serial_number(x509.random_serial_number())
-        .not_valid_before(datetime.datetime.now(datetime.timezone.utc))
-        .not_valid_after(
-            datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=365)
-        )
-        .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
-        .add_extension(x509.SubjectAlternativeName(san_entries), critical=False)
-        .add_extension(x509.ExtendedKeyUsage([
-            ExtendedKeyUsageOID.SERVER_AUTH,
-            ExtendedKeyUsageOID.CLIENT_AUTH,
-        ]), critical=False)
-        .sign(ca_key, hashes.SHA256())
-    )
-
-    def _pem(obj):
-        return obj.public_bytes(serialization.Encoding.PEM)
-
-    def _key_pem(k):
-        return k.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.TraditionalOpenSSL,
-            encryption_algorithm=serialization.NoEncryption(),
-        )
-
-    return _pem(ca_cert), _key_pem(ca_key), _pem(leaf_cert), _key_pem(leaf_key)
+_log = logging.getLogger("porpulsion.tls")
 
 
 def write_temp_pem(pem_bytes: bytes, name: str) -> str:
@@ -156,7 +64,7 @@ def sign_bundle(agent_name: str, url: str, ca_pem: str | bytes,
 
     Returns a compact base64url string that the operator copies once and
     pastes into the connecting peer's dashboard.  The bundle contains
-    everything needed to establish trust — no separate fingerprint required.
+    everything needed to establish trust - no separate fingerprint required.
     """
     if isinstance(ca_pem, bytes):
         ca_pem = ca_pem.decode()
@@ -250,6 +158,7 @@ def verify_challenge(nonce: str, sig_b64: str, ca_pem: str | bytes) -> bool:
 
 
 _CREDENTIALS_SECRET = "porpulsion-credentials"
+_PEERS_SECRET       = "porpulsion-peers"
 
 
 def _k8s_core_v1():
@@ -262,49 +171,22 @@ def _k8s_core_v1():
     return client.CoreV1Api()
 
 
-def _save_credentials_secret(core_v1, namespace: str,
-                              ca_cert_pem: bytes | None = None,
-                              ca_key_pem: bytes | None = None,
-                              cert_pem: bytes | None = None,
-                              key_pem: bytes | None = None,
-                              invite_token: str | None = None,
-                              self_ip: str | None = None,
-                              peers_json: str | None = None) -> None:
-    """
-    Create or patch the porpulsion-credentials Secret with any non-None fields.
-    """
+def _patch_secret(core_v1, namespace: str, name: str, data: dict) -> None:
+    """Patch (or create) a named Secret with the given base64-encoded data dict."""
     from kubernetes import client as k8s_client
-    data = {}
-    if ca_cert_pem is not None:
-        data["ca.crt"] = base64.b64encode(ca_cert_pem).decode()
-    if ca_key_pem is not None:
-        data["ca.key"] = base64.b64encode(ca_key_pem).decode()
-    if cert_pem is not None:
-        data["tls.crt"] = base64.b64encode(cert_pem).decode()
-    if key_pem is not None:
-        data["tls.key"] = base64.b64encode(key_pem).decode()
-    if invite_token is not None:
-        data["invite-token"] = base64.b64encode(invite_token.encode()).decode()
-    if self_ip is not None:
-        data["self-ip"] = base64.b64encode(self_ip.encode()).decode()
-    if peers_json is not None:
-        data["peers"] = base64.b64encode(peers_json.encode()).decode()
-
     if not data:
         return
-
     secret = k8s_client.V1Secret(
-        metadata=k8s_client.V1ObjectMeta(name=_CREDENTIALS_SECRET, namespace=namespace),
+        metadata=k8s_client.V1ObjectMeta(name=name, namespace=namespace),
         data=data,
     )
     try:
-        core_v1.create_namespaced_secret(namespace, secret)
+        core_v1.patch_namespaced_secret(name, namespace, secret)
     except k8s_client.ApiException as e:
-        if e.status == 409:
-            core_v1.patch_namespaced_secret(_CREDENTIALS_SECRET, namespace, secret)
+        if e.status == 404:
+            core_v1.create_namespaced_secret(namespace, secret)
         else:
             raise
-
 
 
 def load_or_generate_ca(agent_name: str, namespace: str) -> tuple[bytes, bytes]:
@@ -315,8 +197,6 @@ def load_or_generate_ca(agent_name: str, namespace: str) -> tuple[bytes, bytes]:
     The CA cert is what peers exchange during peering and is used to authenticate
     the persistent WebSocket channel. The private key never leaves this agent.
     """
-    import logging
-    _log = logging.getLogger("porpulsion.tls")
     core_v1 = _k8s_core_v1()
 
     try:
@@ -328,72 +208,54 @@ def load_or_generate_ca(agent_name: str, namespace: str) -> tuple[bytes, bytes]:
             _log.info("Loaded existing CA cert from Secret")
             return ca_cert_pem, ca_key_pem
     except Exception:
-        pass  # Secret missing - generate fresh
+        pass  # Secret missing or keys absent - generate fresh
 
     _log.info("Generating new CA for %s", agent_name)
-    ca_cert_pem, ca_key_pem, _, _ = generate_ca_and_leaf_cert(agent_name)
+    ca_key = ec.generate_private_key(ec.SECP256R1())
+    ca_name = x509.Name([
+        x509.NameAttribute(NameOID.COMMON_NAME, f"{agent_name}-ca"),
+        x509.NameAttribute(NameOID.ORGANIZATION_NAME, "porpulsion"),
+    ])
+    now = datetime.datetime.now(datetime.timezone.utc)
+    ca_cert = (
+        x509.CertificateBuilder()
+        .subject_name(ca_name)
+        .issuer_name(ca_name)
+        .public_key(ca_key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now)
+        .not_valid_after(now + datetime.timedelta(days=3650))
+        .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
+        .add_extension(x509.KeyUsage(
+            digital_signature=True, key_cert_sign=True, crl_sign=True,
+            content_commitment=False, key_encipherment=False, data_encipherment=False,
+            key_agreement=False, encipher_only=False, decipher_only=False,
+        ), critical=True)
+        .sign(ca_key, hashes.SHA256())
+    )
+    ca_cert_pem = ca_cert.public_bytes(serialization.Encoding.PEM)
+    ca_key_pem  = ca_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.TraditionalOpenSSL,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
     try:
-        _save_credentials_secret(core_v1, namespace,
-                                  ca_cert_pem=ca_cert_pem, ca_key_pem=ca_key_pem)
+        _patch_secret(core_v1, namespace, _CREDENTIALS_SECRET, {
+            "ca.crt": base64.b64encode(ca_cert_pem).decode(),
+            "ca.key": base64.b64encode(ca_key_pem).decode(),
+        })
     except Exception as exc:
         _log.warning("Could not persist CA to Secret: %s", exc)
     return ca_cert_pem, ca_key_pem
-
-
-def load_or_generate_token(namespace: str) -> str:
-    """
-    Try to load the invite token from the porpulsion-credentials Secret.
-    If absent, generate a fresh one and save it back.
-    """
-    import logging
-    import secrets as _secrets
-    core_v1 = _k8s_core_v1()
-    try:
-        secret = core_v1.read_namespaced_secret(_CREDENTIALS_SECRET, namespace)
-        if secret.data and "invite-token" in secret.data:
-            token = base64.b64decode(secret.data["invite-token"]).decode()
-            if token:
-                return token
-    except Exception:
-        pass
-
-    token = _secrets.token_hex(32)
-    try:
-        _save_credentials_secret(core_v1, namespace, invite_token=token)
-    except Exception as exc:
-        logging.getLogger("porpulsion.tls").warning(
-            "Could not persist invite token to Secret: %s", exc
-        )
-    return token
-
-
-def persist_token(namespace: str, token: str) -> None:
-    """Write a rotated invite token back to the credentials Secret (fire-and-forget)."""
-    import threading
-    def _write():
-        try:
-            core_v1 = _k8s_core_v1()
-            _save_credentials_secret(core_v1, namespace, invite_token=token)
-        except Exception as exc:
-            import logging
-            logging.getLogger("porpulsion.tls").warning(
-                "Could not persist rotated token to Secret: %s", exc
-            )
-    threading.Thread(target=_write, daemon=True).start()
 
 
 # -- Peer persistence
 
 def save_peers(namespace: str, peers: dict) -> None:
     """
-    Persist the peers dict to the porpulsion-credentials Secret (fire-and-forget thread).
-    Serialises each peer as {name, url, ca_pem}.
+    Persist the peers dict to the porpulsion-peers Secret (fire-and-forget thread).
+    Serialises each peer as {name, url, ca_pem, initiator, has_inbound}.
     """
-    import json
-    import threading
-    import logging
-    _log = logging.getLogger("porpulsion.tls")
-
     peer_list = [
         {"name": p.name, "url": p.url, "ca_pem": p.ca_pem,
          "initiator": p.initiator, "has_inbound": p.has_inbound}
@@ -404,8 +266,10 @@ def save_peers(namespace: str, peers: dict) -> None:
     def _write():
         try:
             core_v1 = _k8s_core_v1()
-            _save_credentials_secret(core_v1, namespace, peers_json=json_str)
-            _log.debug("Persisted %d peer(s) to Secret", len(peer_list))
+            _patch_secret(core_v1, namespace, _PEERS_SECRET, {
+                "peers": base64.b64encode(json_str.encode()).decode(),
+            })
+            _log.debug("Persisted %d peer(s) to %s", len(peer_list), _PEERS_SECRET)
         except Exception as exc:
             _log.warning("Could not persist peers to Secret: %s", exc)
 
@@ -414,26 +278,16 @@ def save_peers(namespace: str, peers: dict) -> None:
 
 def load_peers(namespace: str) -> list[dict]:
     """
-    Load the peers list from the porpulsion-credentials Secret.
-    Also re-writes each peer's CA PEM to /tmp so mTLS verify paths are ready.
+    Load the peers list from the porpulsion-peers Secret.
     Returns [] on missing Secret or any error.
     """
-    import json
-    import logging
-    _log = logging.getLogger("porpulsion.tls")
     try:
         core_v1 = _k8s_core_v1()
-        secret = core_v1.read_namespaced_secret(_CREDENTIALS_SECRET, namespace)
+        secret = core_v1.read_namespaced_secret(_PEERS_SECRET, namespace)
         if not (secret.data and "peers" in secret.data):
             return []
         peer_list = json.loads(base64.b64decode(secret.data["peers"]).decode())
-        for p in peer_list:
-            if p.get("ca_pem"):
-                write_temp_pem(
-                    p["ca_pem"].encode() if isinstance(p["ca_pem"], str) else p["ca_pem"],
-                    f"peer-ca-{p['name']}",
-                )
-        _log.info("Loaded %d peer(s) from Secret", len(peer_list))
+        _log.info("Loaded %d peer(s) from %s", len(peer_list), _PEERS_SECRET)
         return peer_list
     except Exception as exc:
         _log.warning("Could not load peers from Secret: %s", exc)
@@ -450,15 +304,8 @@ def save_state_configmap(namespace: str, settings,
     """
     Persist settings and pending_approval to the porpulsion-state ConfigMap
     (fire-and-forget thread).
-
-    Note: local_apps and remote_apps are no longer persisted here - they live in
-    k8s CRs (RemoteApp / ExecutingApp) and are read directly from k8s.
     """
-    import json
-    import threading
-    import logging
     from kubernetes import client as k8s_client
-    _log = logging.getLogger("porpulsion.tls")
 
     settings_json = json.dumps(settings.to_dict())
     pending_json  = json.dumps(list((pending_approval or {}).values()))
@@ -475,10 +322,10 @@ def save_state_configmap(namespace: str, settings,
                 },
             )
             try:
-                core_v1.create_namespaced_config_map(namespace, cm)
+                core_v1.patch_namespaced_config_map(_STATE_CONFIGMAP, namespace, cm)
             except k8s_client.ApiException as e:
-                if e.status == 409:
-                    core_v1.patch_namespaced_config_map(_STATE_CONFIGMAP, namespace, cm)
+                if e.status == 404:
+                    core_v1.create_namespaced_config_map(namespace, cm)
                 else:
                     raise
             _log.debug("Persisted %d pending approval(s) + settings to ConfigMap",
@@ -494,9 +341,6 @@ def load_state_configmap(namespace: str) -> dict:
     Load settings and pending_approval from the porpulsion-state ConfigMap.
     Returns {"pending_approval": [...], "settings": {...}} or {} on error.
     """
-    import json
-    import logging
-    _log = logging.getLogger("porpulsion.tls")
     try:
         core_v1 = _k8s_core_v1()
         cm = core_v1.read_namespaced_config_map(_STATE_CONFIGMAP, namespace)
