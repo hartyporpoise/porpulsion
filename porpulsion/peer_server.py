@@ -2,11 +2,11 @@
 Peer-facing Flask app (port 8001).
 
 Exposes only the WebSocket endpoint that remote peers need to reach:
-  GET /ws  — persistent WebSocket channel (auth via peer/hello frame)
+  GET /ws  - persistent WebSocket channel (auth via peer/hello frame)
 
-The old POST /peer handshake endpoint has been removed. Peering is now
-initiated entirely over the WS channel using signed invite bundles and
-the peer/hello challenge/response protocol.
+Runs as a standalone gunicorn gthread process. Must be launched via
+run_in_process() *before* any threads are created in the parent process
+(i.e. before the main gunicorn for port 8000 starts), so the fork is clean.
 """
 import logging
 
@@ -23,21 +23,37 @@ sock = Sock(peer_app)
 sock.route("/ws")(peer_ws)
 
 
-class _StripServerHeader:
-    """WSGI middleware that removes the Werkzeug Server banner."""
-    def __init__(self, app):
-        self._app = app
+def run_in_process(port: int = 8001):
+    """Launch a gunicorn gthread server for the peer app in a child process.
 
-    def __call__(self, environ, start_response):
-        def _start(status, headers, exc_info=None):
-            headers = [(k, v) for k, v in headers if k.lower() != "server"]
-            return start_response(status, headers, exc_info)
-        return self._app(environ, _start)
+    Called before the main gunicorn (port 8000) starts, so the fork is clean
+    (no threads exist in the parent yet). Returns the Process object - caller
+    should not join it (it runs forever as a daemon-equivalent).
+    """
+    import multiprocessing
+    import gunicorn.app.base
 
+    class _App(gunicorn.app.base.BaseApplication):
+        def load_config(self):
+            for k, v in {
+                "bind":         f"0.0.0.0:{port}",
+                "workers":      1,
+                "worker_class": "gthread",
+                "threads":      4,
+                "timeout":      300,   # WS connections are long-lived
+                "keepalive":    5,
+                "loglevel":     "warning",
+                "accesslog":    "-",
+                "errorlog":     "-",
+            }.items():
+                self.cfg.set(k, v)
 
-def start(port: int = 8001):
-    """Start the peer-facing server in the calling thread (run in a daemon thread)."""
-    from werkzeug.serving import make_server
-    log.info("Starting peer-facing server on port %d", port)
-    srv = make_server("0.0.0.0", port, _StripServerHeader(peer_app), threaded=True)
-    srv.serve_forever()
+        def load(self):
+            return peer_app
+
+    def _run():
+        _App().run()
+
+    p = multiprocessing.Process(target=_run, name="peer-server", daemon=True)
+    p.start()
+    return p

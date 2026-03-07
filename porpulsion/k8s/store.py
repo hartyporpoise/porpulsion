@@ -320,9 +320,8 @@ def update_remoteapp_cr_status(namespace: str, cr_name: str, phase: str, app_id:
     _patch_status(namespace, PLURAL, cr_name, {
         "phase":       phase,
         "appId":       app_id,
-        "message":     message,
-        "lastUpdated": _now_iso(),
-        "updatedAt":   _now_iso(),
+        "message":   message,
+        "updatedAt": _now_iso(),
     })
 
 
@@ -423,9 +422,8 @@ def update_executingapp_cr_status(namespace: str, cr_name: str, phase: str, app_
     _patch_status(namespace, PLURAL_EA, cr_name, {
         "phase":       phase,
         "appId":       app_id,
-        "message":     message,
-        "lastUpdated": _now_iso(),
-        "updatedAt":   _now_iso(),
+        "message":   message,
+        "updatedAt": _now_iso(),
     })
 
 

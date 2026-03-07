@@ -20,6 +20,10 @@ def list_peers():
         d["channel"] = "connected" if (ch and ch.is_connected()) else "disconnected"
         if ch and ch.latency_ms is not None:
             d["latency_ms"] = round(ch.latency_ms, 1)
+        if ch and ch.peer_version_hash:
+            d["version_hash"] = ch.peer_version_hash
+        if ch and ch.peer_remote_addr:
+            d["remote_addr"] = ch.peer_remote_addr
         result.append(d)
     return jsonify(result)
 
@@ -43,9 +47,10 @@ def get_invite():
     fp = tls.cert_fingerprint(state.AGENT_CA_PEM)
     return jsonify({
         "agent": state.AGENT_NAME,
+        "namespace": state.NAMESPACE,
         "self_url": state.SELF_URL,
         "bundle": bundle,
-        "cert_fingerprint": fp,   # human-readable only — not required for connect
+        "cert_fingerprint": fp,   # human-readable only - not required for connect
     })
 
 

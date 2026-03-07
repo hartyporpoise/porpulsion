@@ -26,8 +26,34 @@ def status():
     })
 
 
-def start(port: int = 8002):
-    from werkzeug.serving import make_server
-    log.info("Starting internal server on port %d", port)
-    srv = make_server("0.0.0.0", port, internal_app, threaded=True)
-    srv.serve_forever()
+def run_in_process(port: int = 8002):
+    """Launch a gunicorn gthread server for the internal app in a child process.
+
+    Called before the main gunicorn (port 8000) starts, so the fork is clean.
+    """
+    import multiprocessing
+    import gunicorn.app.base
+
+    class _App(gunicorn.app.base.BaseApplication):
+        def load_config(self):
+            for k, v in {
+                "bind":         f"0.0.0.0:{port}",
+                "workers":      1,
+                "worker_class": "gthread",
+                "threads":      2,
+                "timeout":      30,
+                "loglevel":     "warning",
+                "accesslog":    "-",
+                "errorlog":     "-",
+            }.items():
+                self.cfg.set(k, v)
+
+        def load(self):
+            return internal_app
+
+    def _run():
+        _App().run()
+
+    p = multiprocessing.Process(target=_run, name="internal-server", daemon=True)
+    p.start()
+    return p

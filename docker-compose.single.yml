@@ -10,7 +10,7 @@ services:
     ports:
       - "6443:6443"
       - "8080:30080"   # UI
-      - "8081:30081"   # peer server (/peer + /ws)
+      - "8081:30081"   # peer server (/ws)
     networks:
       - porpulsion-net
 

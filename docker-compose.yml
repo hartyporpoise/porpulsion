@@ -9,7 +9,7 @@ services:
     ports:
       - "6443:6443"    # k8s API
       - "8001:30080"   # NodePort UI
-      - "8004:30081"   # NodePort peer server (/peer + /ws)
+      - "8004:30081"   # NodePort peer server (/ws)
     networks:
       - porpulsion-net
 
@@ -23,7 +23,7 @@ services:
     ports:
       - "6444:6444"    # k8s API
       - "8002:30080"   # NodePort UI
-      - "8005:30081"   # NodePort peer server (/peer + /ws)
+      - "8005:30081"   # NodePort peer server (/ws)
     networks:
       - porpulsion-net
 
@@ -37,7 +37,7 @@ services:
     ports:
       - "6445:6445"    # k8s API
       - "8003:30080"   # NodePort UI
-      - "8006:30081"   # NodePort peer server (/peer + /ws)
+      - "8006:30081"   # NodePort peer server (/ws)
     networks:
       - porpulsion-net
 
