@@ -421,7 +421,8 @@
     expanded: {},    // keyed by peer name, true if app list is open
     peers: [],       // [{name, apps:[{id,name}]}] from last refresh
     denied: {},      // {peer: true} or {"peer/appid": true}
-    allowedRaw: ''   // last known allowed_tunnel_peers value from settings
+    allowedRaw: '',  // last known allowed_tunnel_peers value from settings
+    peersKey: ''     // JSON snapshot of peers for change detection
   };
 
   function _tunnelIsDenied(key) {
@@ -530,11 +531,15 @@
     var inbound = peers.filter(function (p) {
       return p.direction === 'incoming' || p.direction === 'bidirectional';
     });
-    _tunnelState.peers = inbound.map(function (peer) {
+    var newPeers = inbound.map(function (peer) {
       var peerApps = (executing || []).filter(function (a) { return a.source_peer === peer.name; })
         .map(function (a) { return { id: a.id, name: a.name }; });
       return { name: peer.name, apps: peerApps };
     });
+    var newKey = JSON.stringify(newPeers);
+    if (newKey === _tunnelState.peersKey) return; // nothing changed, skip re-render
+    _tunnelState.peers = newPeers;
+    _tunnelState.peersKey = newKey;
     // Re-apply the saved allowed value now that peers are known
     _loadTunnelDeniedFromValue(_tunnelState.allowedRaw);
   }
@@ -591,7 +596,8 @@
         });
       }
     });
-    return allowed.join(', ');
+    // If something is denied but nothing is allowed, use sentinel to mean "deny all"
+    return allowed.length ? allowed.join(', ') : '__none__';
   }
 
   function _populateHealthGrid(s, selfUrl) {
