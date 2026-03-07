@@ -74,114 +74,67 @@ def build_spec() -> APISpec:
         ),
     )
     spec.path(
-        path="/peer",
-        operations=dict(
-            post=dict(
-                summary="Peering (invite or confirm)",
-                description=(
-                    "**Step 1 (invite):** Initiator sends invite token in X-Invite-Token and body name, url, ca. "
-                    "**Step 2 (confirm):** Acceptor calls with body name, url, ca (no token) to confirm."
-                ),
-                operationId="acceptPeer",
-                parameters=[
-                    {
-                        "name": "X-Invite-Token",
-                        "in": "header",
-                        "description": "Required for invite step; single-use, rotated after use",
-                        "schema": {"type": "string"},
-                    }
-                ],
-                requestBody={
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "type": "object",
-                                "properties": {
-                                    "name": {"type": "string"},
-                                    "url": {"type": "string"},
-                                    "ca": {"type": "string", "description": "PEM-encoded CA cert"},
-                                },
-                            }
-                        }
-                    }
-                },
-                responses={
-                    "200": {
-                        "description": "Peered or pending",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "name": {"type": "string"},
-                                        "status": {"type": "string", "enum": ["peered", "pending"]},
-                                        "ca": {"type": "string"},
-                                    },
-                                }
-                            }
-                        },
-                    },
-                    "403": {"description": "Invalid token or no pending connection"},
-                },
-            )
-        ),
-    )
-    spec.path(
-        path="/peers/inbound",
+        path="/invite",
         operations=dict(
             get=dict(
-                summary="List inbound peering requests",
-                description="Pending connection requests from other clusters (no CA in response).",
-                operationId="listInbound",
-                responses=resp_json(
-                    {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "id": {"type": "string"},
-                                "name": {"type": "string"},
-                                "url": {"type": "string"},
-                                "since": {"type": "string"},
-                            },
-                        },
-                    },
+                summary="Get signed invite bundle",
+                description=(
+                    "Returns a signed invite bundle for this agent. The bundle is a compact base64url blob "
+                    "containing the agent name, URL, CA cert, and an ECDSA signature. The connecting peer "
+                    "verifies the signature locally before making any network call — no separate fingerprint needed."
                 ),
-            )
-        ),
-    )
-    spec.path(
-        path="/peers/inbound/{req_id}/accept",
-        operations=dict(
-            post=dict(
-                summary="Accept inbound peering",
-                description="Accept a pending inbound peering request by ID.",
-                operationId="acceptInbound",
-                parameters=[{"name": "req_id", "in": "path", "required": True, "schema": {"type": "string"}}],
+                operationId="getInvite",
                 responses={
                     "200": {
                         "description": "OK",
                         "content": {
                             "application/json": {
-                                "schema": {"type": "object", "properties": {"ok": {"type": "boolean"}, "peer": {"type": "string"}}}
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "agent": {"type": "string"},
+                                        "self_url": {"type": "string"},
+                                        "bundle": {"type": "string", "description": "Signed base64url invite bundle"},
+                                        "cert_fingerprint": {"type": "string", "description": "Human-readable only"},
+                                    },
+                                }
                             }
                         },
-                    },
-                    "404": {"description": "Request not found"},
-                    "502": {"description": "Could not reach initiator"},
+                    }
                 },
             )
         ),
     )
     spec.path(
-        path="/peers/inbound/{req_id}",
+        path="/peers/connect",
         operations=dict(
-            delete=dict(
-                summary="Reject inbound peering",
-                description="Reject a pending inbound peering request.",
-                operationId="rejectInbound",
-                parameters=[{"name": "req_id", "in": "path", "required": True, "schema": {"type": "string"}}],
-                responses={"200": {"description": "OK"}, "404": {"description": "Request not found"}},
+            post=dict(
+                summary="Connect to peer using invite bundle",
+                description=(
+                    "Initiate peering with another agent using their signed invite bundle. "
+                    "The bundle signature is verified locally before any network call is made. "
+                    "Authentication completes via the peer/hello challenge/response over the WS channel."
+                ),
+                operationId="connectPeer",
+                requestBody={
+                    "required": True,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["bundle"],
+                                "properties": {
+                                    "bundle": {"type": "string", "description": "Signed base64url invite bundle from /invite"},
+                                },
+                            }
+                        }
+                    },
+                },
+                responses={
+                    "200": {"description": "OK — WS channel connecting"},
+                    "400": {"description": "Missing or invalid bundle"},
+                    "409": {"description": "Already peered with this agent"},
+                },
             )
         ),
     )
@@ -203,132 +156,6 @@ def build_spec() -> APISpec:
                         },
                     },
                     "404": {"description": "Peer not found"},
-                },
-            )
-        ),
-    )
-    spec.path(
-        path="/peer/disconnect",
-        operations=dict(
-            post=dict(
-                summary="Peer disconnected us",
-                description="Called when the peer notifies us they removed us. Removes them from our list.",
-                operationId="peerDisconnect",
-                requestBody={
-                    "content": {
-                        "application/json": {
-                            "schema": {"type": "object", "properties": {"name": {"type": "string"}}}
-                        }
-                    }
-                },
-                responses={
-                    "200": {
-                        "description": "OK",
-                        "content": {
-                            "application/json": {
-                                "schema": {"type": "object", "properties": {"ok": {"type": "boolean"}, "removed": {"type": "boolean"}}}
-                            }
-                        },
-                    }
-                },
-            )
-        ),
-    )
-    spec.path(
-        path="/peers/retry",
-        operations=dict(
-            post=dict(
-                summary="Retry connecting to peer",
-                description="Retry peering with a previously failed URL (same token and CA fingerprint).",
-                operationId="retryConnectingPeer",
-                requestBody={
-                    "required": True,
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "type": "object",
-                                "required": ["url", "invite_token", "ca_fingerprint"],
-                                "properties": {
-                                    "url": {"type": "string"},
-                                    "invite_token": {"type": "string"},
-                                    "ca_fingerprint": {"type": "string"},
-                                },
-                            }
-                        }
-                    },
-                },
-                responses={"200": {"description": "OK"}, "400": {"description": "Missing url, invite_token, or ca_fingerprint"}},
-            )
-        ),
-    )
-    spec.path(
-        path="/peers/connecting",
-        operations=dict(
-            delete=dict(
-                summary="Cancel pending connection",
-                description="Cancel an outbound peering attempt.",
-                operationId="cancelConnectingPeer",
-                parameters=[{"name": "url", "in": "query", "required": True, "schema": {"type": "string"}}],
-                responses={
-                    "200": {"description": "OK"},
-                    "400": {"description": "url query parameter required"},
-                    "404": {"description": "No pending connection to that URL"},
-                },
-            )
-        ),
-    )
-    spec.path(
-        path="/peers/connect",
-        operations=dict(
-            post=dict(
-                summary="Connect to peer",
-                description="Initiate peering with another cluster. Provide their invite token and CA fingerprint.",
-                operationId="connectPeer",
-                requestBody={
-                    "required": True,
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "type": "object",
-                                "required": ["url", "invite_token", "ca_fingerprint"],
-                                "properties": {
-                                    "url": {"type": "string"},
-                                    "invite_token": {"type": "string"},
-                                    "ca_fingerprint": {"type": "string"},
-                                },
-                            }
-                        }
-                    },
-                },
-                responses={"200": {"description": "OK"}, "400": {"description": "Missing url, invite_token, or ca_fingerprint"}},
-            )
-        ),
-    )
-    spec.path(
-        path="/token",
-        operations=dict(
-            get=dict(
-                summary="Get invite token and CA",
-                description="Returns agent name, current invite token, self URL, cert fingerprint, and CA PEM (for sharing with peer).",
-                operationId="getToken",
-                responses={
-                    "200": {
-                        "description": "OK",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "agent": {"type": "string"},
-                                        "invite_token": {"type": "string"},
-                                        "self_url": {"type": "string"},
-                                        "cert_fingerprint": {"type": "string"},
-                                        "ca_pem": {"type": "string"},
-                                    },
-                                }
-                            }
-                        },
-                    }
                 },
             )
         ),

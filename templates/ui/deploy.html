@@ -21,7 +21,6 @@
             <label class="form-label" for="deploy-target-peer">Target peer <span class="req">*</span></label>
             <select id="deploy-target-peer">
               <option value="" disabled hidden selected>— select peer —</option>
-              <option value="*">All Peers</option>
             </select>
           </div>
         </div>
@@ -138,25 +137,6 @@
 
   </div>
 
-<!-- All Peers confirm modal -->
-<div id="all-peers-confirm-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="all-peers-confirm-title">
-  <div class="modal-inner">
-    <div class="modal-header">
-      <span class="modal-title" id="all-peers-confirm-title">Deploy to All Peers?</span>
-      <button type="button" class="modal-close" id="all-peers-confirm-close" aria-label="Close">
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M1 1l12 12M13 1L1 13"/></svg>
-      </button>
-    </div>
-    <div class="modal-body">
-      <p style="margin:0 0 1.25rem;font-size:0.9375rem;color:var(--text);">This will deploy <strong id="all-peers-confirm-name"></strong> to <strong>every connected peer</strong>. Are you sure?</p>
-      <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
-        <button type="button" class="btn-sm btn-outline" id="all-peers-confirm-cancel">Cancel</button>
-        <button type="button" id="all-peers-confirm-ok">Deploy to All Peers</button>
-      </div>
-    </div>
-  </div>
-</div>
-
 <!-- YAML preview modal -->
 <div id="yaml-preview-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="yaml-preview-title">
   <div class="modal-inner">
@@ -216,16 +196,18 @@
   function populatePeers(peers) {
     var sel = el('deploy-target-peer');
     if (!sel) return;
-    // Remove old peer options (keep placeholder and "All peers")
+    // Remove old peer options (keep placeholder)
     var toRemove = [];
     for (var i = 0; i < sel.options.length; i++) {
       var opt = sel.options[i];
-      if (opt.value !== '' && opt.value !== '*') toRemove.push(opt);
+      if (opt.value !== '') toRemove.push(opt);
     }
     toRemove.forEach(function (o) { sel.removeChild(o); });
 
-    // Show all confirmed peers (channel field present); pending peers have status but no channel
-    var confirmed = peers.filter(function (p) { return 'channel' in p; });
+    // Only show outgoing/bidirectional peers — incoming-only peers cannot receive deployments
+    var confirmed = peers.filter(function (p) {
+      return 'channel' in p && (p.direction === 'outgoing' || p.direction === 'bidirectional');
+    });
     confirmed.forEach(function (p) {
       var opt = document.createElement('option');
       opt.value = p.name;
@@ -604,23 +586,7 @@
     if (!targetPeer) { toast('Select a target peer', 'error'); return; }
     var spec = buildSpec();
     if (!spec.image) { toast('Image is required', 'error'); return; }
-    if (targetPeer === '*') {
-      el('all-peers-confirm-name').textContent = name;
-      el('all-peers-confirm-modal').classList.add('open');
-      el('all-peers-confirm-ok').onclick = function () {
-        el('all-peers-confirm-modal').classList.remove('open');
-        doSubmit(name, targetPeer, spec);
-      };
-    } else {
-      doSubmit(name, targetPeer, spec);
-    }
-  });
-
-  el('all-peers-confirm-close').addEventListener('click', function () {
-    el('all-peers-confirm-modal').classList.remove('open');
-  });
-  el('all-peers-confirm-cancel').addEventListener('click', function () {
-    el('all-peers-confirm-modal').classList.remove('open');
+    doSubmit(name, targetPeer, spec);
   });
 })();
 </script>

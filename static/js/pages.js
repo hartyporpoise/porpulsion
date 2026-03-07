@@ -37,23 +37,23 @@
   function populateTargetPeerSelect(peers) {
     var sel = el('app-target-peer');
     if (!sel) return;
-    // Confirmed peers have channel field; pending peers have status but no channel
-    var confirmed = peers.filter(function (p) { return 'channel' in p; });
+    // Only show outgoing/bidirectional peers — incoming-only peers cannot receive deployments
+    var deployable = peers.filter(function (p) {
+      return 'channel' in p && (p.direction === 'outgoing' || p.direction === 'bidirectional');
+    });
     var prev = sel.value;
-    // Placeholder option — value="" so form validation can catch it
     sel.innerHTML = '<option value="" disabled hidden>— select peer —</option>';
-    confirmed.forEach(function (p) {
+    deployable.forEach(function (p) {
       var opt = document.createElement('option');
       opt.value = p.name;
       opt.textContent = p.channel === 'connected' ? p.name : p.name + ' (reconnecting)';
       sel.appendChild(opt);
     });
     // Restore previous selection if still valid
-    if (prev && confirmed.some(function (p) { return p.name === prev; })) {
+    if (prev && deployable.some(function (p) { return p.name === prev; })) {
       sel.value = prev;
-    } else if (confirmed.length === 1) {
-      // Auto-select when exactly one peer is known
-      sel.value = confirmed[0].name;
+    } else if (deployable.length === 1) {
+      sel.value = deployable[0].name;
     }
   }
 
@@ -72,8 +72,15 @@
       var chanBadge = wsConn
         ? (encrypted ? '<span class="badge badge-mtls"><span class="badge-dot"></span>live</span>' : '<span class="badge badge-warn"><span class="badge-dot"></span>live</span>')
         : '<span class="badge badge-failed">offline</span>';
-      return '<tr><td><strong>' + _esc(p.name) + '</strong></td><td class="mono">' + _esc(p.url || '') + '</td><td>' + chanBadge + '</td><td class="time-ago">' + timeAgo(p.connected_at) + '</td></tr>';
+      var dirBadge = directionBadge(p.direction);
+      return '<tr><td><strong>' + _esc(p.name) + '</strong></td><td class="mono">' + _esc(p.url || '') + '</td><td>' + chanBadge + '</td><td>' + dirBadge + '</td><td class="time-ago">' + timeAgo(p.connected_at) + '</td></tr>';
     }).join('');
+  }
+
+  function directionBadge(dir) {
+    if (dir === 'bidirectional') return '<span class="badge badge-mtls">&#8644; bidirectional</span>';
+    if (dir === 'incoming')     return '<span class="badge badge-pending">&#8592; incoming</span>';
+    return '<span class="badge badge-handshake">&#8594; outgoing</span>';
   }
 
   function renderAllPeers(peers) {
@@ -85,55 +92,23 @@
     if (!peers.length) { body.innerHTML = ''; if (empty) empty.style.display = ''; return; }
     if (empty) empty.style.display = 'none';
     body.innerHTML = peers.map(function (p) {
-      var status = p.status || 'connected';
-      var statusCls = status === 'connected' ? 'badge-mtls' : status === 'connecting' ? 'badge-connecting' : status === 'awaiting_confirmation' ? 'badge-handshake' : 'badge-failed';
-      var statusHtml = '<span class="badge ' + statusCls + '">' + (status === 'connected' ? '<span class="badge-dot"></span>' : '') + status + '</span>';
       var chEncrypted = (p.url || '').indexOf('https://') === 0;
       var latency = (p.latency_ms != null) ? '<span class="peer-latency">' + p.latency_ms + ' ms</span>' : '';
       var chanHtml = (p.channel === 'connected')
         ? (chEncrypted ? '<span class="badge badge-mtls"><span class="badge-dot"></span>live</span>' : '<span class="badge badge-warn"><span class="badge-dot"></span>live</span>') + latency
         : '<span class="badge badge-pending">—</span>';
-      var actions = '';
-      if (status === 'connecting') actions = '<button class="btn-sm peer-cancel-btn">Cancel</button>';
-      else if (status === 'failed' || status === 'awaiting_confirmation') actions = '<button class="btn-sm peer-retry-btn">Retry</button>';
-      else actions = '<button class="btn-sm btn-danger peer-remove-btn">Remove</button>';
+      var dirBadge = directionBadge(p.direction);
+      var actions = '<button class="btn-sm btn-danger peer-remove-btn">Remove</button>';
       return '<tr data-peer-url="' + _esc(p.url) + '" data-peer-name="' + _esc(p.name) + '">' +
         '<td><strong>' + _esc(p.name) + '</strong></td>' +
         '<td class="mono">' + _esc(p.url || '') + '</td>' +
-        '<td>' + statusHtml + '</td>' +
+        '<td>' + dirBadge + '</td>' +
         '<td>' + chanHtml + '</td>' +
         '<td class="time-ago">' + timeAgo(p.connected_at) + '</td>' +
         '<td>' + actions + '</td></tr>';
     }).join('');
   }
 
-  function renderInbound(list) {
-    var banner = el('inbound-banner');
-    var listEl = el('inbound-list');
-    var badge = el('nav-inbound-badge');
-    if (!banner) return;
-    if (!list.length) {
-      banner.classList.remove('visible');
-      if (badge) { badge.style.display = 'none'; }
-      if (listEl) listEl.innerHTML = '';
-      return;
-    }
-    banner.classList.add('visible');
-    if (badge) { badge.style.display = ''; badge.textContent = list.length; }
-    if (listEl) {
-      listEl.innerHTML = list.map(function (r) {
-        var id = r.id;
-        var name = (r.name || '').replace(/'/g, "\\'");
-        return '<div class="inbound-item">' +
-          '<div class="inbound-item-info"><div class="inbound-item-name">' + _esc(r.name) + '</div><div class="inbound-item-url">' + _esc(r.url || '') + '</div></div>' +
-          '<div class="inbound-item-time">' + timeAgo(r.since) + '</div>' +
-          '<div class="btn-row">' +
-          '<button type="button" class="btn-sm btn-success" data-accept-inbound="' + _esc(id) + '" data-inbound-name="' + _esc(r.name || '') + '">Accept</button>' +
-          '<button type="button" class="btn-sm btn-danger" data-reject-inbound="' + _esc(id) + '">Reject</button>' +
-          '</div></div>';
-      }).join('');
-    }
-  }
 
   function renderRecentApps(submitted, executing) {
     var body = el('recent-apps-body');
@@ -248,13 +223,11 @@
     Promise.all([
       P.getPeers(),
       P.getRemoteApps(),
-      P.getInbound(),
       P.getPendingApproval().catch(function () { return []; })
     ]).then(function (results) {
       var peers = results[0];
       var apps = results[1];
-      var inbound = results[2];
-      var approval = results[3];
+      var approval = results[2];
       var submitted = apps.submitted || [];
       var executing = apps.executing || [];
       _lastSubmitted = submitted;
@@ -276,22 +249,19 @@
       if (statHealthySub) statHealthySub.textContent = healthy === 1 ? 'app ready' : 'apps ready';
 
       var connecting = peers.filter(function (p) { return p.status === 'connecting'; }).length;
-      var awaiting = peers.filter(function (p) { return p.status === 'awaiting_confirmation'; }).length;
       var sub = [];
       if (connecting) sub.push(connecting + ' connecting');
-      if (awaiting) sub.push(awaiting + ' awaiting');
       if (wsUp < connected.length && connected.length > 0) sub.push((connected.length - wsUp) + ' reconnecting');
       var statSub = el('stat-peers-sub');
       if (statSub) statSub.textContent = sub.length ? sub.join(', ') : (connected.length ? 'all connected' : 'no peers');
 
       var peerLabel = el('peer-count-label');
-      if (peerLabel) peerLabel.textContent = connected.length + ' peer' + (connected.length !== 1 ? 's' : '') + (connecting ? ', ' + connecting + ' connecting' : '') + (awaiting ? ', ' + awaiting + ' waiting' : '');
+      if (peerLabel) peerLabel.textContent = connected.length + ' peer' + (connected.length !== 1 ? 's' : '') + (connecting ? ', ' + connecting + ' connecting' : '');
 
       renderOverviewPeers(peers);
       renderAllPeers(peers);
       populateTargetPeerSelect(peers);
       _syncTunnelPeersFromData(peers, executing);
-      renderInbound(inbound);
       renderApproval(approval);
       renderRecentApps(submitted, executing);
       renderApps(submitted, 'submitted-body', 'submitted-empty', 'submitted-count', false, 'submitted');
@@ -328,20 +298,16 @@
     });
   }
 
-  function loadToken() {
-    P.getToken().then(function (d) {
+  function loadInvite() {
+    P.getInvite().then(function (d) {
       var url = d.self_url || '(not set)';
-      var token = d.invite_token || '';
-      var fp = d.cert_fingerprint || '';
-      P.setSecret('token-key', token);
-      P.setSecret('token-fp-peers', fp);
+      var bundle = d.bundle || '';
       var tokenUrl = el('token-url');
       if (tokenUrl) tokenUrl.textContent = url;
-      P.setSecret('settings-token-key', token);
-      P.setSecret('token-fp', fp);
+      P.setSecret('invite-bundle', bundle);
       var settingsUrl = el('settings-token-url');
       if (settingsUrl) settingsUrl.textContent = url;
-      P.setSecret('token-pem', d.ca_pem || '');
+      P.setSecret('settings-invite-bundle', bundle);
       var aboutUrl = el('about-url');
       if (aboutUrl) aboutUrl.textContent = url;
       var ns = el('health-namespace');
@@ -598,7 +564,7 @@
       _loadTunnelDeniedFromValue(s.allowed_tunnel_peers || '');
       // Health grid (overview page)
       if (el('health-grid')) {
-        P.getToken().then(function (tok) {
+        P.getInvite().then(function (tok) {
           _populateHealthGrid(s, tok.self_url || '');
         }).catch(function () { _populateHealthGrid(s, ''); });
       }
@@ -711,25 +677,6 @@
       if (!row) return;
       var peerName = row.dataset.peerName;
       showPeerRemoveConfirm(peerName, function () { removePeer(peerName); });
-    } else if (btn.classList.contains('peer-cancel-btn')) {
-      e.preventDefault();
-      var row = btn.closest('tr[data-peer-url]');
-      if (!row) return;
-      showConfirm('Cancel peering?', 'Cancel the in-progress connection to "' + row.dataset.peerName + '".', 'Cancel peering', 'btn-danger', function () { removePeer(row.dataset.peerName); });
-    } else if (btn.classList.contains('peer-retry-btn')) {
-      e.preventDefault();
-      var row = btn.closest('tr[data-peer-url]');
-      if (row) removePeer(row.dataset.peerName);
-    } else if (btn.dataset.acceptInbound) {
-      e.preventDefault();
-      P.acceptInbound(btn.dataset.acceptInbound).then(function () { toast('Connected', 'ok'); refresh(); }).catch(function (err) { toast('Failed: ' + err.message, 'error'); refresh(); });
-    } else if (btn.dataset.rejectInbound) {
-      e.preventDefault();
-      var inboundName = btn.closest('.inbound-item') && btn.closest('.inbound-item').querySelector('.inbound-item-name');
-      var iname = inboundName ? inboundName.textContent : 'this peer';
-      showConfirm('Reject request?', 'Reject the incoming connection request from "' + iname + '".', 'Reject', 'btn-danger', function () {
-        P.rejectInbound(btn.dataset.rejectInbound).then(function () { toast('Rejected', 'ok'); refresh(); }).catch(function () { refresh(); });
-      });
     } else if (btn.dataset.approveApp) {
       e.preventDefault();
       P.approveApp(btn.dataset.approveApp).then(function () { toast('Approved ' + (btn.dataset.approveName || ''), 'ok'); refresh(); }).catch(function (err) { toast(err.message, 'error'); refresh(); });
@@ -778,33 +725,22 @@
     });
   }
 
-  function _handleConnectPeerResponse(xhr) {
-    var success = xhr && xhr.status >= 200 && xhr.status < 300;
-    try {
-      var d = JSON.parse(xhr.responseText || '{}');
-      if (success) {
-        toast(d.message || 'Peering initiated', 'ok');
-        if (el('new-peer-url')) el('new-peer-url').value = '';
-        if (el('new-peer-token')) el('new-peer-token').value = '';
-        if (el('new-peer-fp')) el('new-peer-fp').value = '';
-        setTimeout(refresh, 500);
-      } else {
-        toast(d.error || xhr.statusText || 'Failed', 'error');
-      }
-    } catch (e) {
-      toast(success ? 'Connected' : (xhr.statusText || 'Error'), success ? 'ok' : 'error');
-      if (success) setTimeout(refresh, 500);
-    }
+  var connectPeerForm = el('connect-peer-form');
+  if (connectPeerForm) {
+    connectPeerForm.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var bundleEl = el('new-peer-bundle');
+      var bundle = bundleEl ? bundleEl.value.trim() : '';
+      if (!bundle) { toast('Paste an invite bundle first', 'error'); return; }
+      P.connectPeer({ bundle: bundle }).then(function (d) {
+        toast(d.message || 'Connecting…', 'ok');
+        if (bundleEl) bundleEl.value = '';
+        setTimeout(refresh, 800);
+      }).catch(function (err) {
+        toast(err.message || 'Failed', 'error');
+      });
+    });
   }
-  // htmx:afterOnLoad fires on 2xx; htmx:responseError fires on 4xx/5xx
-  document.body.addEventListener('htmx:afterOnLoad', function (ev) {
-    if (ev.detail.target.id !== 'connect-peer-form') return;
-    _handleConnectPeerResponse(ev.detail.xhr);
-  });
-  document.body.addEventListener('htmx:responseError', function (ev) {
-    if (!ev.detail.elt || ev.detail.elt.id !== 'connect-peer-form') return;
-    _handleConnectPeerResponse(ev.detail.xhr);
-  });
 
   var _currentAppId = null;
 
@@ -1887,7 +1823,7 @@
 
   window.PorpulsionPages = {
     refresh: refresh,
-    loadToken: loadToken,
+    loadInvite: loadInvite,
     openAppModal: openAppModal,
     closeAppModal: closeAppModal,
     deleteApp: deleteApp,
@@ -1898,11 +1834,11 @@
 
   refresh();
   initDeploySpecEditor();
-  loadToken();
+  loadInvite();
   loadSettings();
   initNumSpinners();
   initCustomDropdowns();
   setInterval(refresh, 3000);
-  setInterval(loadToken, 5000);
+  setInterval(loadInvite, 5000);
 })();
 })();

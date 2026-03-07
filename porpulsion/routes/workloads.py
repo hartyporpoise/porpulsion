@@ -285,25 +285,16 @@ def create_remoteapp():
                  cr_name or "?", ra.name, ra.id, peer.name)
         return ra
 
-    if target_peer_name == "*":
-        peers_to_deploy = list(state.peers.values())
-        if not peers_to_deploy:
-            return jsonify({"error": "no peers connected"}), 503
-        results = []
-        for peer in peers_to_deploy:
-            try:
-                ra = _create_cr(peer, data.get("spec", {}), data["name"])
-                results.append(ra.to_dict())
-            except Exception as e:
-                log.warning("Failed to create RemoteApp CR for peer %s: %s", peer.name, e)
-        return jsonify({"deployed": results, "count": len(results)}), 201
-
     if target_peer_name:
         peer = state.peers.get(target_peer_name)
         if not peer:
             return jsonify({"error": f"peer '{target_peer_name}' not found or not connected"}), 400
+        if not peer.initiator:
+            return jsonify({"error": f"'{target_peer_name}' connected to us — can only deploy to peers you initiated"}), 403
     else:
-        peer = next(iter(state.peers.values()))
+        peer = next((p for p in state.peers.values() if p.initiator), None)
+        if not peer:
+            return jsonify({"error": "no outgoing peers to deploy to"}), 503
 
     try:
         ra = _create_cr(peer, data.get("spec", {}), data["name"])

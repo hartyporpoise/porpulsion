@@ -1,26 +1,23 @@
 """
 Peer-facing Flask app (port 8001).
 
-Exposes only the two endpoints that remote peers need to reach:
-  POST /peer   — peering handshake
-  GET  /ws     — persistent WebSocket channel
+Exposes only the WebSocket endpoint that remote peers need to reach:
+  GET /ws  — persistent WebSocket channel (auth via peer/hello frame)
 
-Everything else (dashboard, local API) lives on port 8000 and is never
-exposed via the Ingress.
+The old POST /peer handshake endpoint has been removed. Peering is now
+initiated entirely over the WS channel using signed invite bundles and
+the peer/hello challenge/response protocol.
 """
 import logging
 
 from flask import Flask
 from flask_sock import Sock
 
-from porpulsion.routes.peers import accept_peer
 from porpulsion.routes.ws import peer_ws
 
 log = logging.getLogger("porpulsion.peer_server")
 
 peer_app = Flask(__name__)
-
-peer_app.add_url_rule("/peer", view_func=accept_peer, methods=["POST"])
 
 sock = Sock(peer_app)
 sock.route("/ws")(peer_ws)

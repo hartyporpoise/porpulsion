@@ -12,6 +12,11 @@ rules:
     resources: ["deployments/status"]
     verbs: ["get"]
 
+  # -- Events - kopf posts operator events to the namespace
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch", "update"]
+
   # -- Pods
   - apiGroups: [""]
     resources: ["pods"]

@@ -19,7 +19,7 @@ import kopf
 
 from porpulsion.k8s.store import (
     GROUP, VERSION, PLURAL_EA, PLURAL,
-    bootstrap_cr_status,
+    bootstrap_cr_status, _patch_status,
 )
 
 log = logging.getLogger("porpulsion.kopf")
@@ -122,6 +122,16 @@ def on_remoteapp_created(body, meta, status, namespace, **kwargs):
     if not peer:
         log.warning("kopf: RemoteApp %s targets peer %r which is not connected", cr_name, target_peer)
         raise kopf.TemporaryError(f"peer {target_peer!r} not connected", delay=5)
+
+    if not peer.initiator:
+        msg = (f"Cannot deploy to '{target_peer}' — they connected to us (incoming only). "
+               "Paste their invite bundle to enable bidirectional peering.")
+        log.warning("kopf: RemoteApp %s rejected: %s", cr_name, msg)
+        _patch_status(namespace, PLURAL, cr_name, {
+            "phase": "Failed", "appId": app_id,
+            "message": msg, "sourcePeer": state.AGENT_NAME,
+        })
+        raise kopf.PermanentError(msg)
 
     payload = {
         "id": app_id,
