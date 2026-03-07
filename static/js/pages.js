@@ -68,13 +68,29 @@
     if (empty) empty.style.display = 'none';
     body.innerHTML = connected.map(function (p) {
       var wsConn = p.channel === 'connected';
-      var encrypted = (p.url || '').indexOf('https://') === 0;
-      var chanBadge = wsConn
-        ? (encrypted ? '<span class="badge badge-mtls"><span class="badge-dot"></span>live</span>' : '<span class="badge badge-warn"><span class="badge-dot"></span>live</span>')
-        : '<span class="badge badge-failed">offline</span>';
+      var chanBadge = wsConn ? channelBadge(p.url) : '<span class="badge badge-failed">offline</span>';
       var dirBadge = directionBadge(p.direction);
       return '<tr><td><strong>' + _esc(p.name) + '</strong></td><td class="mono">' + _esc(p.url || '') + '</td><td>' + chanBadge + '</td><td>' + dirBadge + '</td><td class="time-ago">' + timeAgo(p.connected_at) + '</td></tr>';
     }).join('');
+  }
+
+  function isPrivateUrl(url) {
+    try {
+      var h = new URL(url).hostname;
+      return h === 'localhost' || h === '127.0.0.1' || h === '::1' ||
+             /^10\./.test(h) || /^192\.168\./.test(h) ||
+             /^172\.(1[6-9]|2\d|3[01])\./.test(h);
+    } catch (e) { return false; }
+  }
+
+  function channelBadge(url) {
+    var encrypted = (url || '').indexOf('https://') === 0;
+    var local = isPrivateUrl(url || '');
+    if (encrypted)
+      return '<span class="badge badge-mtls"><span class="badge-dot"></span>live</span>';
+    if (local)
+      return '<span class="badge badge-pending"><span class="badge-dot"></span>local</span>';
+    return '<span class="badge badge-warn"><span class="badge-dot"></span>live</span>';
   }
 
   function directionBadge(dir) {
@@ -92,11 +108,10 @@
     if (!peers.length) { body.innerHTML = ''; if (empty) empty.style.display = ''; return; }
     if (empty) empty.style.display = 'none';
     body.innerHTML = peers.map(function (p) {
-      var chEncrypted = (p.url || '').indexOf('https://') === 0;
       var latency = (p.latency_ms != null) ? '<span class="peer-latency">' + p.latency_ms + ' ms</span>' : '';
       var chanHtml = (p.channel === 'connected')
-        ? (chEncrypted ? '<span class="badge badge-mtls"><span class="badge-dot"></span>live</span>' : '<span class="badge badge-warn"><span class="badge-dot"></span>live</span>') + latency
-        : '<span class="badge badge-pending">—</span>';
+        ? channelBadge(p.url) + latency
+        : '<span class="badge badge-pending">-</span>';
       var dirBadge = directionBadge(p.direction);
       var actions = '<button class="btn-sm btn-danger peer-remove-btn">Remove</button>';
       return '<tr data-peer-url="' + _esc(p.url) + '" data-peer-name="' + _esc(p.name) + '">' +
