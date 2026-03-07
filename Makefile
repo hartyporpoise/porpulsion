@@ -7,10 +7,16 @@ CLUSTER_B := porpulsion-cluster-b-1
 CLUSTER_C := porpulsion-cluster-c-1
 HELM      := porpulsion-helm-1
 
-# kubectl via docker exec — no local kubeconfig ever needed
+# kubectl via docker exec - no local kubeconfig ever needed
 KUBECTL_A := docker exec $(CLUSTER_A) kubectl
 KUBECTL_B := docker exec $(CLUSTER_B) kubectl
 KUBECTL_C := docker exec $(CLUSTER_C) kubectl
+
+# Single-cluster setup (docker-compose.single.yml)
+COMPOSE_SINGLE  := docker-compose -f docker-compose.single.yml
+CLUSTER_SINGLE  := porpulsion-cluster-1
+HELM_SINGLE     := porpulsion-helm-1
+KUBECTL_SINGLE  := docker exec $(CLUSTER_SINGLE) kubectl
 
 # Run helm inside the persistent helm container.
 # Usage: $(call helm, K3S_CONTAINER, K3S_HOSTNAME:PORT, helm args...)
@@ -29,7 +35,8 @@ define helm
 	"
 endef
 
-.PHONY: help deploy redeploy teardown clean-ns _clean-cluster status logs stream
+.PHONY: help deploy redeploy teardown clean-ns _clean-cluster status logs \
+        deploy-single redeploy-single teardown-single status-single logs-single
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -130,9 +137,9 @@ deploy: ## Full deploy: start clusters, build image, helm install all agents
 	@echo "  cluster-a UI:         http://localhost:8001"
 	@echo "  cluster-b UI:         http://localhost:8002"
 	@echo "  cluster-c UI:         http://localhost:8003"
-	@echo "  cluster-a peer port:  http://localhost:8004  (/peer + /ws)"
-	@echo "  cluster-b peer port:  http://localhost:8005  (/peer + /ws)"
-	@echo "  cluster-c peer port:  http://localhost:8006  (/peer + /ws)"
+	@echo "  cluster-a peer port:  http://localhost:8004  (/ws)"
+	@echo "  cluster-b peer port:  http://localhost:8005  (/ws)"
+	@echo "  cluster-c peer port:  http://localhost:8006  (/ws)"
 	@echo ""
 	@echo "  kubectl:"
 	@echo "    docker exec $(CLUSTER_A) kubectl get pods -n porpulsion"
@@ -211,9 +218,9 @@ redeploy: ## Rebuild agent image + helm upgrade (clusters must already be runnin
 	"
 	@echo ""
 	@echo "  Done. Agents redeployed."
-	@echo "  cluster-a UI: http://localhost:8001  (peer: http://localhost:8004)"
-	@echo "  cluster-b UI: http://localhost:8002  (peer: http://localhost:8005)"
-	@echo "  cluster-c UI: http://localhost:8003  (peer: http://localhost:8006)"
+	@echo "  cluster-a UI: http://localhost:8001  (ws: http://localhost:8004)"
+	@echo "  cluster-b UI: http://localhost:8002  (ws: http://localhost:8005)"
+	@echo "  cluster-c UI: http://localhost:8003  (ws: http://localhost:8006)"
 	@echo ""
 
 teardown: ## Destroy clusters and volumes
@@ -292,3 +299,103 @@ _clean-cluster:
 		done
 	@$(KUBECTL) delete crd remoteapps.porpulsion.io --ignore-not-found=true 2>/dev/null || true
 	@$(KUBECTL) delete namespace porpulsion --ignore-not-found=true 2>/dev/null || true
+
+# ---------------------------------------------------------------------------
+# Single-cluster targets (docker-compose.single.yml)
+# ---------------------------------------------------------------------------
+
+deploy-single: ## Start a single k3s cluster, build image, helm install
+	@echo ""
+	@echo "==> Starting single cluster + helm runner..."
+	$(COMPOSE_SINGLE) up -d
+	@echo "Waiting for cluster API..."
+	@until $(KUBECTL_SINGLE) get nodes &>/dev/null; do sleep 2; done
+	@echo "  cluster ready"
+
+	@echo ""
+	@echo "==> Building porpulsion-agent image..."
+	docker build -t porpulsion-agent:local .
+
+	@echo ""
+	@echo "==> Loading image into cluster..."
+	docker save porpulsion-agent:local | docker exec -i $(CLUSTER_SINGLE) ctr images import -
+
+	@echo ""
+	@echo "==> Helm installing porpulsion..."
+	@IP=$$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' $(CLUSTER_SINGLE)); \
+	echo "  cluster IP: $$IP"; \
+	docker exec $(HELM_SINGLE) sh -c " \
+		docker exec $(CLUSTER_SINGLE) cat /etc/rancher/k3s/k3s.yaml \
+			| sed 's|127.0.0.1:[0-9]*|cluster:6443|g' \
+			> /tmp/kubeconfig-single.yaml && \
+		chmod 600 /tmp/kubeconfig-single.yaml && \
+		KUBECONFIG=/tmp/kubeconfig-single.yaml helm upgrade --install porpulsion /charts/porpulsion \
+			--create-namespace --namespace porpulsion \
+			--set agent.agentName=cluster \
+			--set agent.selfUrl=http://$$IP:30081 \
+			--set agent.image=porpulsion-agent:local \
+			--set agent.pullPolicy=Never \
+			--set service.type=NodePort \
+			--set service.uiNodePort=30080 \
+			--set service.peerNodePort=30081 \
+			--wait --timeout 90s \
+	"
+
+	@echo ""
+	@echo "============================================"
+	@echo "  porpulsion is running!"
+	@echo "============================================"
+	@echo ""
+	@echo "  UI:        http://localhost:8080"
+	@echo "  Peer port: http://localhost:8081  (/ws)"
+	@echo ""
+
+redeploy-single: ## Rebuild agent image + helm upgrade (single cluster, must be running)
+	@echo ""
+	@echo "==> Rebuilding porpulsion-agent image..."
+	docker build -t porpulsion-agent:local .
+	@echo ""
+	@echo "==> Loading image into cluster..."
+	docker save porpulsion-agent:local | docker exec -i $(CLUSTER_SINGLE) ctr images import -
+	@echo ""
+	@echo "==> Helm upgrading..."
+	@IP=$$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' $(CLUSTER_SINGLE)); \
+	echo "  cluster IP: $$IP"; \
+	docker exec $(HELM_SINGLE) sh -c " \
+		docker exec $(CLUSTER_SINGLE) cat /etc/rancher/k3s/k3s.yaml \
+			| sed 's|127.0.0.1:[0-9]*|cluster:6443|g' \
+			> /tmp/kubeconfig-single.yaml && \
+		chmod 600 /tmp/kubeconfig-single.yaml && \
+		KUBECONFIG=/tmp/kubeconfig-single.yaml helm upgrade --install porpulsion /charts/porpulsion \
+			--create-namespace --namespace porpulsion \
+			--set agent.agentName=cluster \
+			--set agent.selfUrl=http://$$IP:30081 \
+			--set agent.image=porpulsion-agent:local \
+			--set agent.pullPolicy=Never \
+			--set service.type=NodePort \
+			--set service.uiNodePort=30080 \
+			--set service.peerNodePort=30081 \
+			--wait --timeout 90s \
+	"
+	@echo ""
+	@echo "  Done. UI: http://localhost:8080"
+	@echo ""
+
+teardown-single: ## Destroy single cluster and volumes
+	$(COMPOSE_SINGLE) down -v
+
+status-single: ## Show pods and deployments for single cluster
+	@echo "=== Pods ==="
+	@$(KUBECTL_SINGLE) -n porpulsion get pods 2>/dev/null || echo "  not available"
+	@echo ""
+	@echo "=== Deployments ==="
+	@$(KUBECTL_SINGLE) -n porpulsion get deployments 2>/dev/null || echo "  not available"
+	@echo ""
+	@echo "=== RemoteApps ==="
+	@$(KUBECTL_SINGLE) -n porpulsion get remoteapps.porpulsion.io 2>/dev/null || echo "  not available"
+	@echo ""
+	@echo "=== ExecutingApps ==="
+	@$(KUBECTL_SINGLE) -n porpulsion get executingapps.porpulsion.io 2>/dev/null || echo "  not available"
+
+logs-single: ## Stream live logs from single cluster (Ctrl-C to stop)
+	$(KUBECTL_SINGLE) -n porpulsion logs -l app=porpulsion-agent -f --tail=50

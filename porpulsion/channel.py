@@ -400,47 +400,29 @@ class PeerChannel:
             time.sleep(delay)
 
     def _connect(self):
-        import os
-        import tempfile
         from porpulsion import tls, state
 
         # WS goes to the peer's public URL.
         ws_url = self.peer_url.replace("https://", "wss://").replace("http://", "ws://")
         ws_url = ws_url.rstrip("/") + "/ws"
 
-        # Pin TLS to the peer's CA cert for WSS connections.
-        # Write the peer's CA to a temp file so websocket-client can use it.
-        # Fall back to certifi bundle when no peer CA is available (e.g. public endpoint).
+        # Use certifi for TLS server cert verification on WSS connections.
+        # Peer identity is verified separately via the peer/hello challenge/response,
+        # so we don't pin the peer's self-signed CA here — that would break connections
+        # to peers behind public TLS
         ssl_opts: dict = {}
-        _ca_tmp = None
         if ws_url.startswith("wss://"):
-            if self.ca_pem:
-                ca_bytes = self.ca_pem.encode() if isinstance(self.ca_pem, str) else self.ca_pem
-                fd, _ca_tmp = tempfile.mkstemp(prefix="porpulsion-peer-ca-", suffix=".pem")
-                try:
-                    os.write(fd, ca_bytes)
-                finally:
-                    os.close(fd)
-                ssl_opts = {"ca_certs": _ca_tmp, "cert_reqs": 2}  # ssl.CERT_REQUIRED
-            else:
-                import certifi
-                ssl_opts = {"ca_certs": certifi.where(), "cert_reqs": 2}
+            import certifi
+            ssl_opts = {"ca_certs": certifi.where(), "cert_reqs": 2}
 
-        try:
-            ws = websocket.WebSocket(sslopt=ssl_opts)
-            ws.connect(ws_url, timeout=_CONNECT_TIMEOUT, header={
-                "X-Agent-Name": state.AGENT_NAME,
-            })
-            # Reset timeout to None after handshake - the connect() timeout would
-            # otherwise persist and cause recv() to raise WebSocketTimeoutException
-            # after _CONNECT_TIMEOUT seconds of inactivity, dropping the channel.
-            ws.settimeout(None)
-        finally:
-            if _ca_tmp:
-                try:
-                    os.unlink(_ca_tmp)
-                except Exception:
-                    pass
+        ws = websocket.WebSocket(sslopt=ssl_opts)
+        ws.connect(ws_url, timeout=_CONNECT_TIMEOUT, header={
+            "X-Agent-Name": state.AGENT_NAME,
+        })
+        # Reset timeout to None after handshake - the connect() timeout would
+        # otherwise persist and cause recv() to raise WebSocketTimeoutException
+        # after _CONNECT_TIMEOUT seconds of inactivity, dropping the channel.
+        ws.settimeout(None)
 
         # Send peer/hello - proves identity and key possession
         nonce = uuid.uuid4().hex
