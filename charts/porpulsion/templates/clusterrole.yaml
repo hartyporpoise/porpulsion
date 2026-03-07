@@ -1,0 +1,27 @@
+# Kopf operator requires cluster-scoped namespace listing even when running
+# in namespace-scoped mode (clusterwide=False). This ClusterRole grants only
+# the minimum permissions needed for that internal kopf bootstrap check.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "porpulsion.fullname" . }}-kopf-ns
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "porpulsion.fullname" . }}-kopf-ns
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "porpulsion.fullname" . }}-sa
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: ClusterRole
+  name: {{ include "porpulsion.fullname" . }}-kopf-ns
+  apiGroup: rbac.authorization.k8s.io

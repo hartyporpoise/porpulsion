@@ -55,14 +55,14 @@ else:
         state.SELF_URL
     )
 
-# Load invite token from k8s Secret (generate if absent)
-state.invite_token = tls.load_or_generate_token(state.NAMESPACE)
-
-# Load CA cert from k8s Secret (generate if absent).
-# The CA cert is exchanged during peering and used to authenticate the WS channel.
+# Load CA cert + key from k8s Secret (generate if absent).
+# The CA cert is included in signed invite bundles and used to verify peer/hello
+# challenge signatures. The key signs bundles and hello challenges — never leaves
+# this process.
 _CA_PEM, _CA_KEY_PEM = tls.load_or_generate_ca(state.AGENT_NAME, state.NAMESPACE)
 
-state.AGENT_CA_PEM = _CA_PEM
+state.AGENT_CA_PEM     = _CA_PEM
+state.AGENT_CA_KEY_PEM = _CA_KEY_PEM
 
 # Compute a version fingerprint from key protocol files. Used to detect
 # version mismatches when peers connect over WebSocket.
@@ -93,7 +93,9 @@ _load_spec_schema()
 
 for _p in tls.load_peers(state.NAMESPACE):
     state.peers[_p["name"]] = Peer(
-        name=_p["name"], url=_p["url"], ca_pem=_p.get("ca_pem", ""))
+        name=_p["name"], url=_p["url"], ca_pem=_p.get("ca_pem", ""),
+        initiator=_p.get("initiator", False),
+        has_inbound=_p.get("has_inbound", False))
 
 _saved = tls.load_state_configmap(state.NAMESPACE)
 if "settings" in _saved:
