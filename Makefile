@@ -82,12 +82,11 @@ deploy: ## Full deploy: start clusters, build image, helm install all agents
 		KUBECONFIG=/tmp/kubeconfig-a.yaml helm upgrade --install porpulsion /charts/porpulsion \
 			--create-namespace --namespace porpulsion \
 			--set agent.agentName=$$NAME_A \
-			--set agent.selfUrl=http://$$IP_A:30081 \
+			--set agent.selfUrl=http://$$IP_A:30080 \
 			--set agent.image=porpulsion-agent:local \
 			--set agent.pullPolicy=Never \
 			--set service.type=NodePort \
-			--set service.uiNodePort=30080 \
-			--set service.peerNodePort=30081 \
+			--set service.nodePort=30080 \
 			--wait --timeout 90s \
 	"; \
 	echo ""; \
@@ -102,12 +101,11 @@ deploy: ## Full deploy: start clusters, build image, helm install all agents
 		KUBECONFIG=/tmp/kubeconfig-b.yaml helm upgrade --install porpulsion /charts/porpulsion \
 			--create-namespace --namespace porpulsion \
 			--set agent.agentName=$$NAME_B \
-			--set agent.selfUrl=http://$$IP_B:30081 \
+			--set agent.selfUrl=http://$$IP_B:30080 \
 			--set agent.image=porpulsion-agent:local \
 			--set agent.pullPolicy=Never \
 			--set service.type=NodePort \
-			--set service.uiNodePort=30080 \
-			--set service.peerNodePort=30081 \
+			--set service.nodePort=30080 \
 			--wait --timeout 90s \
 	"; \
 	echo ""; \
@@ -122,12 +120,11 @@ deploy: ## Full deploy: start clusters, build image, helm install all agents
 		KUBECONFIG=/tmp/kubeconfig-c.yaml helm upgrade --install porpulsion /charts/porpulsion \
 			--create-namespace --namespace porpulsion \
 			--set agent.agentName=$$NAME_C \
-			--set agent.selfUrl=http://$$IP_C:30081 \
+			--set agent.selfUrl=http://$$IP_C:30080 \
 			--set agent.image=porpulsion-agent:local \
 			--set agent.pullPolicy=Never \
 			--set service.type=NodePort \
-			--set service.uiNodePort=30080 \
-			--set service.peerNodePort=30081 \
+			--set service.nodePort=30080 \
 			--wait --timeout 90s \
 	"; \
 	echo ""; \
@@ -136,12 +133,9 @@ deploy: ## Full deploy: start clusters, build image, helm install all agents
 	echo "  a=$$NAME_A  b=$$NAME_B  c=$$NAME_C"; \
 	echo "============================================"; \
 	echo ""; \
-	echo "  cluster-a UI:         http://localhost:8001"; \
-	echo "  cluster-b UI:         http://localhost:8002"; \
-	echo "  cluster-c UI:         http://localhost:8003"; \
-	echo "  cluster-a peer port:  http://localhost:8004  (/ws)"; \
-	echo "  cluster-b peer port:  http://localhost:8005  (/ws)"; \
-	echo "  cluster-c peer port:  http://localhost:8006  (/ws)"; \
+	echo "  cluster-a:  http://localhost:8001  (/ws on same port)"; \
+	echo "  cluster-b:  http://localhost:8002  (/ws on same port)"; \
+	echo "  cluster-c:  http://localhost:8003  (/ws on same port)"; \
 	echo ""; \
 	echo "  kubectl:"; \
 	echo "    docker exec $(CLUSTER_A) kubectl get pods -n porpulsion"; \
@@ -262,12 +256,11 @@ deploy-single: ## Start a single k3s cluster, build image, helm install
 		KUBECONFIG=/tmp/kubeconfig-single.yaml helm upgrade --install porpulsion /charts/porpulsion \
 			--create-namespace --namespace porpulsion \
 			--set agent.agentName=$$NAME \
-			--set agent.selfUrl=http://$$IP:30081 \
+			--set agent.selfUrl=http://$$IP:30080 \
 			--set agent.image=porpulsion-agent:local \
 			--set agent.pullPolicy=Never \
 			--set service.type=NodePort \
-			--set service.uiNodePort=30080 \
-			--set service.peerNodePort=30081 \
+			--set service.nodePort=30080 \
 			--wait --timeout 90s \
 	"; \
 	echo ""; \
@@ -275,8 +268,7 @@ deploy-single: ## Start a single k3s cluster, build image, helm install
 	echo "  porpulsion is running! (agent: $$NAME)"; \
 	echo "============================================"; \
 	echo ""; \
-	echo "  UI:        http://localhost:8080"; \
-	echo "  Peer port: http://localhost:8081  (/ws)"; \
+	echo "  UI + peer: http://localhost:8080  (/ws on same port)"; \
 	echo ""
 
 teardown-single: ## Destroy single cluster and volumes

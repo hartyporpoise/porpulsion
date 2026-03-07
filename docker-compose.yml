@@ -8,8 +8,7 @@ services:
       - K3S_TOKEN=porpulsion-token
     ports:
       - "6443:6443"    # k8s API
-      - "8001:30080"   # NodePort UI
-      - "8004:30081"   # NodePort peer server (/ws)
+      - "8001:30080"   # NodePort (UI + /ws + /status)
     networks:
       - porpulsion-net
 
@@ -22,8 +21,7 @@ services:
       - K3S_TOKEN=porpulsion-token
     ports:
       - "6444:6444"    # k8s API
-      - "8002:30080"   # NodePort UI
-      - "8005:30081"   # NodePort peer server (/ws)
+      - "8002:30080"   # NodePort (UI + /ws + /status)
     networks:
       - porpulsion-net
 
@@ -36,8 +34,7 @@ services:
       - K3S_TOKEN=porpulsion-token
     ports:
       - "6445:6445"    # k8s API
-      - "8003:30080"   # NodePort UI
-      - "8006:30081"   # NodePort peer server (/ws)
+      - "8003:30080"   # NodePort (UI + /ws + /status)
     networks:
       - porpulsion-net
 
