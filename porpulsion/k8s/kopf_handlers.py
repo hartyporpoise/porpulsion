@@ -2,13 +2,13 @@
 Kopf operator handlers for ExecutingApp and RemoteApp CRs.
 
 ExecutingApp (executing side):
-  - create/update †’ run_workload() with owner refs so k8s GC cleans up children
-  - delete †’ cancel polling loop + notify source peer (children GC'd automatically)
+  - create/update -> run_workload() with owner refs so k8s GC cleans up children
+  - delete -> cancel polling loop + notify source peer (children GC'd automatically)
 
 RemoteApp (submitted side):
-  - create †’ forward remoteapp/receive to target peer
-  - update †’ forward remoteapp/spec-update to target peer
-  - delete †’ send remoteapp/delete to target peer
+  - create -> forward remoteapp/receive to target peer
+  - update -> forward remoteapp/spec-update to target peer
+  - delete -> send remoteapp/delete to target peer
 
 The finalizer on ExecutingApp CRs ensures cleanup always runs, even on
 kubectl delete, before the CR is actually removed from the API.

@@ -45,7 +45,7 @@ _ea_crd_lock = threading.Lock()
 # schema.yaml path: charts/porpulsion/files/schema.yaml (baked into Docker image).
 _SCHEMA_FILE = pathlib.Path(__file__).parent.parent.parent / "charts" / "porpulsion" / "files" / "schema.yaml"
 
-# Cached spec schema: dict of property_name †’ openAPIV3Schema property dict.
+# Cached spec schema: dict of property_name -> openAPIV3Schema property dict.
 _spec_schema: dict | None = None
 _spec_schema_loaded = False
 _spec_schema_lock = threading.Lock()
@@ -161,7 +161,7 @@ def _now_iso() -> str:
     return datetime.datetime.now(datetime.timezone.utc).isoformat()
 
 
-# -- CR †’ dict conversion
+# -- CR -> dict conversion
 
 def cr_to_dict(cr: dict, side: str) -> dict:
     """Convert a RemoteApp or ExecutingApp CR dict to the API response shape."""
@@ -497,7 +497,7 @@ def patch_cr_volume_data(namespace: str, app_id: str, kind: str, vol_name: str,
     with live k8s ConfigMap/Secret state.
 
     kind: "configmap" or "secret"
-    data: plaintext key†’value dict. ConfigMap values stored as-is; secret
+    data: plaintext key->value dict. ConfigMap values stored as-is; secret
           values are base64-encoded in the CR (decoded by executor on apply).
     """
     # Find the CR - could be either type
@@ -558,7 +558,7 @@ def _patch_status(namespace: str, plural: str, cr_name: str, status_fields: dict
     body = {"status": status_fields}
     try:
         _crd_api.patch_namespaced_custom_object_status(GROUP, VERSION, namespace, plural, cr_name, body)
-        log.debug("Patched %s/%s status †’ %s", plural, cr_name, status_fields.get("phase", "?"))
+        log.debug("Patched %s/%s status -> %s", plural, cr_name, status_fields.get("phase", "?"))
     except ApiException as e:
         log.warning("Failed to patch %s/%s status: %s", plural, cr_name, e)
 
