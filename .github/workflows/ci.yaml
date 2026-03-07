@@ -2,9 +2,9 @@ name: CI
 
 # Single workflow for all CI/CD:
 #
-#   pull_request → version-bump
+#   pull_request �� version-bump
 #     Scans PR commits for release prefixes and bumps Chart.yaml + values.yaml.
-#     Prefix → bump:
+#     Prefix �� bump:
 #       [bugfix] [schema]  - patch bump appVersion + version + values.yaml image tag
 #       [minor]            - minor bump appVersion + version + values.yaml image tag
 #       [major]            - major bump appVersion + version + values.yaml image tag
@@ -12,17 +12,17 @@ name: CI
 #     If the PR already has a bump commit it is amended so version only moves
 #     forward once per PR regardless of how many times the branch is pushed.
 #
-#   push to main (charts/** changed) → release-chart
+#   push to main (charts/** changed) �� release-chart
 #     Packages and pushes the Helm chart to GHCR.
 #
-#   push to main (charts/** changed, appVersion changed) → build-image
+#   push to main (charts/** changed, appVersion changed) �� build-image
 #     Detects whether appVersion changed vs the previous commit and, if so,
 #     builds and publishes the Docker image tagged with that version.
 #     NOTE: we cannot create a git tag and rely on it to trigger a build
 #     because tags pushed by GITHUB_TOKEN don't fire other workflows.
 #     Instead the check job passes app_version directly to build-image.
 #
-#   push to main (any) or pull_request → build-image (branch/PR tag only)
+#   push to main (any) or pull_request �� build-image (branch/PR tag only)
 #     Always builds the image on main push and PRs (tagged :main / :sha / :pr-N).
 
 on:
@@ -42,7 +42,7 @@ env:
 
 jobs:
 
-  # ── PR only: bump Chart.yaml + values.yaml ───────────────────────────────
+  # -- PR only: bump Chart.yaml + values.yaml
   version-bump:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
@@ -164,7 +164,7 @@ jobs:
             fi
           fi
 
-  # ── PR only: dependency security scan (non-blocking) ─────────────────────
+  # -- PR only: dependency security scan (non-blocking)
   security-scan:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
@@ -193,7 +193,7 @@ jobs:
           path: pip-audit-report.txt
           if-no-files-found: ignore
 
-  # ── PR only: auto-upgrade pinned dependencies ─────────────────────────────
+  # -- PR only: auto-upgrade pinned dependencies
   deps-upgrade:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
@@ -237,7 +237,7 @@ jobs:
             git push origin "${{ github.head_ref }}"
           )
 
-  # ── Main push: detect chart/appVersion changes ───────────────────────────
+  # -- Main push: detect chart/appVersion changes
   check:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
@@ -272,7 +272,7 @@ jobs:
             && echo "chart_version_changed=true" >> "$GITHUB_OUTPUT" \
             || echo "chart_version_changed=false" >> "$GITHUB_OUTPUT"
 
-  # ── Main push: release Helm chart when chart version changed ─────────────
+  # -- Main push: release Helm chart when chart version changed
   release-chart:
     needs: check
     if: needs.check.outputs.chart_version_changed == 'true'
@@ -313,7 +313,7 @@ jobs:
             helm push "$pkg" oci://ghcr.io/${{ github.repository_owner }}/charts
           done
 
-  # ── Tag repo with app version when appVersion changes ───────────────────
+  # -- Tag repo with app version when appVersion changes
   tag-app:
     needs: check
     if: needs.check.outputs.app_version_changed == 'true'
@@ -342,7 +342,7 @@ jobs:
             --generate-notes \
             --latest
 
-  # ── Build and publish Docker image ───────────────────────────────────────
+  # -- Build and publish Docker image
   # Runs on:
   #   - push to main (always, for :main and :sha tags)
   #   - push of a v* tag (for semver tags)

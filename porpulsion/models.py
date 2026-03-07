@@ -4,7 +4,7 @@ Porpulsion data models.
 RemoteAppSpec is driven entirely by the installed CRD's openAPIV3Schema.
 The CRD (charts/porpulsion/templates/crd.yaml) is the single source of truth
 for spec fields, types, and defaults.  To add or remove a spec field, edit
-crd.yaml and run `helm upgrade` — no Python changes required.
+crd.yaml and run `helm upgrade`  no Python changes required.
 
 All other models (Peer, RemoteApp, AgentSettings, etc.) remain plain dataclasses.
 """
@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from typing import Literal
 
 
-# ── CRD-driven spec wrapper ────────────────────────────────────────────────────
+# -- CRD-driven spec wrapper
 
 class _DictWrapper:
     """
@@ -53,10 +53,10 @@ class _DictWrapper:
 def _wrap(value, prop_schema: dict | None = None):
     """
     Wrap a raw JSON value according to its CRD schema type.
-    - object  → _DictWrapper (with nested wrapping of its properties)
-    - array of objects → list of _DictWrapper
-    - array of scalars → plain list
-    - scalar → value as-is
+    - object  �� _DictWrapper (with nested wrapping of its properties)
+    - array of objects �� list of _DictWrapper
+    - array of scalars �� plain list
+    - scalar �� value as-is
     When schema is None we infer from the value type.
     """
     if value is None:
@@ -91,7 +91,7 @@ class RemoteAppSpec(_DictWrapper):
     """
     A RemoteApp spec, loaded from the CRD's openAPIV3Schema at agent startup.
 
-    Fields and their types come entirely from the installed CRD — no field list
+    Fields and their types come entirely from the installed CRD  no field list
     is hardcoded here.  Access any field as an attribute:
 
         spec.image          # str
@@ -181,7 +181,7 @@ def _coerce(value, schema: dict):
     return _wrap(value, schema)
 
 
-# ── Remaining models (plain dataclasses) ─────────────────────────────────────
+# -- Remaining models (plain dataclasses)
 
 
 @dataclass
@@ -256,33 +256,33 @@ class AgentSettings:
     Persistent (in-memory) settings for this agent.
 
     Access control:
-      allow_inbound_remoteapps   — accept RemoteApp submissions from peers
-      require_remoteapp_approval — queue inbound apps for manual approval before executing
-      allowed_images             — comma-separated image prefixes; empty = allow all
-      blocked_images             — comma-separated image prefixes always rejected
-      allowed_source_peers       — comma-separated peer names that may submit; empty = all connected
-      allow_pvcs                 — allow inbound RemoteApps to request PVCs (default: False)
+      allow_inbound_remoteapps    accept RemoteApp submissions from peers
+      require_remoteapp_approval  queue inbound apps for manual approval before executing
+      allowed_images              comma-separated image prefixes; empty = allow all
+      blocked_images              comma-separated image prefixes always rejected
+      allowed_source_peers        comma-separated peer names that may submit; empty = all connected
+      allow_pvcs                  allow inbound RemoteApps to request PVCs (default: False)
 
     Resource quotas (enforced on inbound RemoteApp submissions).
     All cpu/memory values are k8s quantity strings, e.g. "500m", "1", "256Mi", "2Gi".
     Empty string = unlimited.
 
       Presence requirements (checked before numeric limits):
-        require_resource_requests — reject apps that don't specify resources.requests.cpu/memory
-        require_resource_limits   — reject apps that don't specify resources.limits.cpu/memory
+        require_resource_requests  reject apps that don't specify resources.requests.cpu/memory
+        require_resource_limits    reject apps that don't specify resources.limits.cpu/memory
 
       Per-pod:
-        max_cpu_request_per_pod    — max cpu request per pod
-        max_cpu_limit_per_pod      — max cpu limit per pod
-        max_memory_request_per_pod — max memory request per pod
-        max_memory_limit_per_pod   — max memory limit per pod
-        max_replicas_per_app       — max replicas for a single app (0 = unlimited)
+        max_cpu_request_per_pod     max cpu request per pod
+        max_cpu_limit_per_pod       max cpu limit per pod
+        max_memory_request_per_pod  max memory request per pod
+        max_memory_limit_per_pod    max memory limit per pod
+        max_replicas_per_app        max replicas for a single app (0 = unlimited)
 
       Aggregate:
-        max_total_deployments      — max concurrent RemoteApp deployments (0 = unlimited)
-        max_total_pods             — max total pods across all deployments (0 = unlimited)
-        max_total_cpu_requests     — max total cpu requests across all running apps
-        max_total_memory_requests  — max total memory requests across all running apps
+        max_total_deployments       max concurrent RemoteApp deployments (0 = unlimited)
+        max_total_pods              max total pods across all deployments (0 = unlimited)
+        max_total_cpu_requests      max total cpu requests across all running apps
+        max_total_memory_requests   max total memory requests across all running apps
     """
     # Access control
     allow_inbound_remoteapps: bool = True

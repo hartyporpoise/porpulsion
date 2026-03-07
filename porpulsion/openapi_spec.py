@@ -34,13 +34,13 @@ def build_spec() -> APISpec:
     )
     spec.options["servers"] = [{"url": "/api", "description": "API base"}]
 
-    # ── Components: schemas from models (marshalling only, no duplication) ──
+    # -- Components: schemas from models (marshalling only, no duplication)
     spec.components.schema("PeerEntry", peer_entry_schema())
     spec.components.schema("Status", status_schema())
     for name, schema in schemas_from_models().items():
         spec.components.schema(name, schema)
 
-    # ── Paths ──
+    # -- Paths
     def resp_json(schema, status="200", description="OK"):
         return {
             status: {

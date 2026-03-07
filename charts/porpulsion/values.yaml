@@ -1,9 +1,9 @@
-# ──────────────────────────────────────────────────────────────────────────────
-# porpulsion — peer-to-peer Kubernetes connector
+#
+# porpulsion  peer-to-peer Kubernetes connector
 # Helm chart default values
-# ──────────────────────────────────────────────────────────────────────────────
+#
 
-# ── Agent ──────────────────────────────────────────────────────────────────────
+# -- Agent
 agent:
   # -- Container image for the porpulsion agent.
   image: ghcr.io/hartyporpoise/porpulsion:0.3.9
@@ -20,7 +20,7 @@ agent:
 
   # -- Allow inbound RemoteApps to request PersistentVolumeClaims.
   #    When true, the Role gains PVC create/delete permissions.
-  #    Defaults to false — enable only on clusters where you trust peers to claim storage.
+  #    Defaults to false  enable only on clusters where you trust peers to claim storage.
   allowPvcs: false
 
   # -- Externally reachable URL for this agent (e.g. https://porpulsion.example.com).
@@ -30,13 +30,13 @@ agent:
   #    empty, but explicit is recommended in production.
   selfUrl: ""
 
-# ── Service ────────────────────────────────────────────────────────────────────
+# -- Service
 # The Service exposes three ports:
-#   8000 (ui)       — dashboard and management API. Session auth required.
+#   8000 (ui)        dashboard and management API. Session auth required.
 #                     Internal only; access via kubectl port-forward.
-#   8001 (peer-ws)  — peer handshake (/peer) and WebSocket channel (/ws).
+#   8001 (peer-ws)   peer handshake (/peer) and WebSocket channel (/ws).
 #                     This is the only port your Ingress should forward to.
-#   8002 (internal) — health/readiness probes (/status). No auth. Never expose externally.
+#   8002 (internal)  health/readiness probes (/status). No auth. Never expose externally.
 #
 #   kubectl port-forward svc/porpulsion 8000:8000   # dashboard
 #   kubectl port-forward svc/porpulsion 8001:8001   # peer channel (testing)
@@ -64,10 +64,10 @@ service:
   # -- NodePort for the internal server. Only used when type=NodePort.
   internalNodePort: ""
 
-# ── Agent runtime settings ──────────────────────────────────────────────────────
+# -- Agent runtime settings
 # These settings are configured at runtime via the dashboard UI or the /settings
 # API. They are persisted to the porpulsion-state ConfigMap and survive restarts.
-# The values below are for reference only — they are NOT applied by Helm.
+# The values below are for reference only  they are NOT applied by Helm.
 #
 # Access control:
 #   allow_inbound_remoteapps: true        # accept workloads from peers

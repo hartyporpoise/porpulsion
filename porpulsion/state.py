@@ -10,7 +10,7 @@ from porpulsion.models import Peer, TunnelRequest, AgentSettings
 if TYPE_CHECKING:
     from porpulsion.channel import PeerChannel
 
-# ── Runtime config (set by agent.py at startup) ──────────────
+# -- Runtime config (set by agent.py at startup)
 AGENT_NAME: str = ""
 
 def _detect_namespace() -> str:
@@ -26,7 +26,7 @@ SELF_URL:   str = ""
 AGENT_CA_PEM: bytes = b""
 VERSION_HASH: str = ""          # SHA-256 of key protocol files, first 16 hex chars
 
-# ── In-memory state ───────────────────────────────────────────
+# -- In-memory state
 peers:          dict[str, Peer]          = {}
 pending_peers:  dict[str, dict]          = {}   # url  -> {name, url, since, attempts, status, ca_pem}
 pending_inbound: dict[str, dict]         = {}   # id   -> {name, url, ca_pem, since}
@@ -41,5 +41,5 @@ invite_token: str = ""
 # peer_name -> PeerChannel (live WebSocket connection to that peer)
 peer_channels: "dict[str, PeerChannel]" = {}
 
-# In-app notifications — newest first, capped at 50
+# In-app notifications  newest first, capped at 50
 notifications: list[dict] = []

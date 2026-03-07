@@ -44,7 +44,7 @@ def list_peers():
 @bp.route("/peer", methods=["POST"])
 def accept_peer():
     """
-    Peering endpoint — two steps:
+    Peering endpoint  two steps:
 
     Step 1 (invite): initiator sends our invite token + their cert.
     Step 2 (confirm): called by accept_inbound() when operator clicks Accept.
@@ -58,7 +58,7 @@ def accept_peer():
 
     presented_token = request.headers.get("X-Invite-Token", "")
 
-    # ── Confirmation path (no token, ca in body) ─────────────
+    # -- Confirmation path (no token, ca in body)
     if peer_ca and not presented_token:
         presented_fp = tls.cert_fingerprint(peer_ca)
         log.info("Confirmation from %s (url=%r), presented_fp=%s, pending keys=%s",
@@ -78,22 +78,22 @@ def accept_peer():
             state.peers[peer_name] = Peer(name=peer_name, url=peer_url, ca_pem=peer_ca)
             state.pending_peers.pop(peer_url, None)
             tls.save_peers(state.NAMESPACE, state.peers)
-            log.info("Peering confirmed by %s — fully connected", peer_name)
-            # We are the initiator — open outbound WS channel to the accepting peer
+            log.info("Peering confirmed by %s  fully connected", peer_name)
+            # We are the initiator  open outbound WS channel to the accepting peer
             open_channel_to(peer_name, peer_url, ca_pem=peer_ca)
             return jsonify({"name": state.AGENT_NAME, "status": "peered",
                             "ca": state.AGENT_CA_PEM.decode()})
         log.warning("accept_peer: unexpected ca-only request from %s (no matching pending)", peer_name)
         return jsonify({"error": "no pending outbound connection for this peer"}), 403
 
-    # ── Invite path ───────────────────────────────────────────
+    # -- Invite path
     if not presented_token or not secrets.compare_digest(presented_token, state.invite_token):
         log.warning("accept_peer: bad or missing invite token from %s", request.remote_addr)
         return jsonify({"error": "invalid token"}), 403
 
     state.invite_token = secrets.token_hex(32)
     tls.persist_token(state.NAMESPACE, state.invite_token)
-    log.info("Invite token consumed — queuing inbound request from %s", peer_name)
+    log.info("Invite token consumed  queuing inbound request from %s", peer_name)
 
     req_id = uuid.uuid4().hex[:12]
     state.pending_inbound[req_id] = {
@@ -129,7 +129,7 @@ def accept_inbound(req_id):
 
     _urllib3.disable_warnings(_urllib3.exceptions.InsecureRequestWarning)
     session = _req.Session()
-    session.verify = False  # no CA pinned yet at this stage — bootstrap trust
+    session.verify = False  # no CA pinned yet at this stage  bootstrap trust
 
     try:
         resp = session.post(
@@ -146,7 +146,7 @@ def accept_inbound(req_id):
             state.peers[peer_name] = Peer(name=peer_name, url=peer_url, ca_pem=their_ca)
             tls.save_peers(state.NAMESPACE, state.peers)
             log.info("Accepted and confirmed peering with %s", peer_name)
-            # We are the acceptor — the initiator will open the WS channel to us,
+            # We are the acceptor  the initiator will open the WS channel to us,
             # so we don't need to connect outbound here.
             return jsonify({"ok": True, "peer": peer_name})
         log.warning("accept_inbound: initiator returned %s: %s", resp.status_code, resp.text[:200])
@@ -177,7 +177,7 @@ def remove_peer(peer_name):
         list_remoteapp_crs, list_executingapp_crs, delete_remoteapp_cr,
         delete_executingapp_cr, cr_to_dict,
     )
-    # ── 1. Delete RemoteApp CRs we submitted to this peer ────────
+    # -- 1. Delete RemoteApp CRs we submitted to this peer
     for cr in list_remoteapp_crs(state.NAMESPACE):
         d = cr_to_dict(cr, "submitted")
         if d["target_peer"] == peer_name:
@@ -188,7 +188,7 @@ def remove_peer(peer_name):
             delete_remoteapp_cr(state.NAMESPACE, d["cr_name"])
             log.info("Deleted RemoteApp CR %s (peer %s removed)", d["id"], peer_name)
 
-    # ── 2. Delete ExecutingApp CRs we're running for this peer ───
+    # -- 2. Delete ExecutingApp CRs we're running for this peer
     for cr in list_executingapp_crs(state.NAMESPACE):
         d = cr_to_dict(cr, "executing")
         if d["source_peer"] == peer_name:
@@ -197,7 +197,7 @@ def remove_peer(peer_name):
 
     tls.save_state_configmap(state.NAMESPACE, state.settings)
 
-    # ── 3. Notify peer and close the channel ─────────────────────
+    # -- 3. Notify peer and close the channel
     state.peers.pop(peer_name)
     log.info("Removed peer %s", peer_name)
 
@@ -226,7 +226,7 @@ def peer_disconnect():
         # The channel's connect_and_maintain loop retries automatically.
         state.peer_channels.pop(peer_name, None)
         removed = True
-        log.info("Peer %s disconnected us — peer kept for reconnect", peer_name)
+        log.info("Peer %s disconnected us  peer kept for reconnect", peer_name)
         # Mark all RemoteApp CRs targeting this peer as Failed
         from porpulsion.k8s.store import list_remoteapp_crs, cr_to_dict, update_remoteapp_cr_status
         for cr in list_remoteapp_crs(state.NAMESPACE):
@@ -311,7 +311,7 @@ def connect_peer():
 
     # Reject if already attempting to connect to this URL
     if url in state.pending_peers:
-        return jsonify({"error": f"Already connecting to {url} — cancel it first if you want to retry"}), 409
+        return jsonify({"error": f"Already connecting to {url}  cancel it first if you want to retry"}), 409
 
     state.pending_peers[url] = {
         "name": url, "url": url,

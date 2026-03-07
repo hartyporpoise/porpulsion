@@ -7,17 +7,16 @@ subsequent peer-to-peer communication (workload submission, status callbacks,
 proxy tunnelling) flows over this single persistent connection instead of
 making new outbound HTTPS requests for each call.
 
-This sidesteps the nginx client-cert-forwarding problem entirely: the WS
-upgrade is a plain HTTPS request (nginx handles it fine), and once the
-connection is established both sides authenticate via the CA cert check on
-the first frame. No client cert needs to reach the Flask app.
+Authentication happens via the X-Agent-Ca / X-Agent-Name headers on the
+WS upgrade request  the accepting side matches the CA fingerprint against
+known peers before entering the recv loop.
 
 Message framing (JSON):
 
   Request  {"id": "<uuid4-hex>", "type": "<method>", "payload": {...}}
   Reply    {"id": "<same>",       "type": "reply",    "ok": true|false,
             "payload": {...},     "error": "<str>"}    # error only when ok=false
-  Push     {"type": "<event>",   "payload": {...}}     # no id — fire-and-forget
+  Push     {"type": "<event>",   "payload": {...}}     # no id  fire-and-forget
 
 Types:
   remoteapp/receive       submit a RemoteApp to the peer for execution
@@ -47,7 +46,7 @@ class _SimpleWsSendAdapter:
     """
     Thin wrapper around a simple_websocket server socket that exposes
     only the send() method needed by _send_raw and _ping_loop.
-    recv() is NOT delegated here — the inbound recv loop reads from the
+    recv() is NOT delegated here  the inbound recv loop reads from the
     raw sock object directly to stay on the correct thread.
     """
 
@@ -132,7 +131,7 @@ def _handle_crd_schema_announce(peer_name: str, payload: dict):
         missing_local  = diff["missing_local"]
         missing_remote = diff["missing_remote"]
         if missing_local or missing_remote:
-            log.warning("CRD schema mismatch with %s — missing_remote=%s missing_local=%s",
+            log.warning("CRD schema mismatch with %s  missing_remote=%s missing_local=%s",
                         peer_name, missing_remote, missing_local)
         else:
             log.info("CRD schemas in sync with peer %s", peer_name)
@@ -160,7 +159,7 @@ class PeerChannel:
 
     def __init__(self, peer_name: str, peer_url: str, ca_pem: str = ""):
         self.peer_name = peer_name
-        self.peer_url  = peer_url   # peer's public URL — WS connects here
+        self.peer_url  = peer_url   # peer's public URL  WS connects here
         self.ca_pem    = ca_pem
         self.peer_version_hash: str = ""   # set when peer announces its version
         self.latency_ms: float | None = None   # round-trip time from last ping/pong
@@ -173,7 +172,7 @@ class PeerChannel:
         self.connected_event = threading.Event()   # set once the channel is ready to use
         self._ping_sent_at: float | None = None   # time.monotonic() when last ping was sent
 
-    # ── Public API ────────────────────────────────────────────
+    # -- Public API
 
     def register(self, msg_type: str, handler):
         """Register a handler for an incoming message type."""
@@ -214,13 +213,13 @@ class PeerChannel:
     def is_connected(self) -> bool:
         return self.connected_event.is_set()
 
-    # ── Inbound (server side) ─────────────────────────────────
+    # -- Inbound (server side)
 
     def attach_inbound(self, sock):
         """
         Called by the WS server handler (routes/ws.py) to hand off the
         already-authenticated server socket. Runs the recv loop in the CALLING
-        thread (the flask-sock handler thread) — this is required because
+        thread (the flask-sock handler thread)  this is required because
         simple_websocket does not support recv() from a different thread.
         Blocks until the connection closes.
         """
@@ -246,7 +245,7 @@ class PeerChannel:
         # Run the recv loop directly in this (handler) thread.
         self._inbound_recv_loop(sock)
 
-    # ── Outbound (client side) ────────────────────────────────
+    # -- Outbound (client side)
 
     def connect_and_maintain(self):
         """
@@ -262,7 +261,7 @@ class PeerChannel:
                 if not self._running:
                     return
                 delay = _RECONNECT_DELAY[min(attempt, len(_RECONNECT_DELAY) - 1)]
-                log.warning("Channel to %s: connect failed (%s) — retrying in %ds",
+                log.warning("Channel to %s: connect failed (%s)  retrying in %ds",
                             self.peer_name, exc, delay)
                 attempt += 1
                 # Notify once when we've exhausted the fast retries (after ~14s)
@@ -272,7 +271,7 @@ class PeerChannel:
                 time.sleep(delay)
                 continue
 
-            # Connected — reset backoff and clear failure flag
+            # Connected  reset backoff and clear failure flag
             attempt = 0
             _notified_failure = False
             self._recv_loop()
@@ -280,23 +279,25 @@ class PeerChannel:
             if not self._running:
                 return
             delay = _RECONNECT_DELAY[min(attempt, len(_RECONNECT_DELAY) - 1)]
-            log.info("Channel to %s dropped — reconnecting in %ds", self.peer_name, delay)
+            log.info("Channel to %s dropped  reconnecting in %ds", self.peer_name, delay)
             attempt += 1
             time.sleep(delay)
 
     def _connect(self):
         from porpulsion import tls, state
 
-        # WS goes to the peer's public URL (nginx in production, UI NodePort in dev).
+        # WS goes to the peer's public URL.
         ws_url = self.peer_url.replace("https://", "wss://").replace("http://", "ws://")
         ws_url = ws_url.rstrip("/") + "/ws"
 
-        # For WSS connections nginx (or the LB) presents a real TLS cert — let
-        # websocket-client verify it using the system CA bundle (certifi).
-        # For plain WS there's nothing to verify.
+        # For WSS connections use certifi's CA bundle  container images often lack
+        # system CAs. For plain WS there is nothing to verify.
         ssl_opts: dict = {}
+        if ws_url.startswith("wss://"):
+            import certifi
+            ssl_opts = {"ca_certs": certifi.where(), "cert_reqs": 2}
 
-        # Send our CA PEM base64-encoded — PEM contains newlines which would
+        # Send our CA PEM base64-encoded  PEM contains newlines which would
         # break HTTP header framing if sent raw.
         ca_b64 = base64.b64encode(state.AGENT_CA_PEM).decode()
         ws = websocket.WebSocket(sslopt=ssl_opts)
@@ -304,7 +305,7 @@ class PeerChannel:
             "X-Agent-Name": state.AGENT_NAME,
             "X-Agent-Ca":   ca_b64,
         })
-        # Reset timeout to None after handshake — the connect() timeout would
+        # Reset timeout to None after handshake  the connect() timeout would
         # otherwise persist and cause recv() to raise WebSocketTimeoutException
         # after _CONNECT_TIMEOUT seconds of inactivity, dropping the channel.
         ws.settimeout(None)
@@ -326,7 +327,7 @@ class PeerChannel:
         # Start keepalive ping thread
         threading.Thread(target=self._ping_loop, daemon=True).start()
 
-    # ── Recv loop (server / inbound side) ────────────────────
+    # -- Recv loop (server / inbound side)
 
     def _inbound_recv_loop(self, sock):
         """
@@ -370,7 +371,7 @@ class PeerChannel:
         for entry in self._pending.values():
             entry["event"].set()
 
-    # ── Recv loop (client / outbound side) ───────────────────
+    # -- Recv loop (client / outbound side)
 
     def _recv_loop(self):
         while self._running:
@@ -387,7 +388,7 @@ class PeerChannel:
             if raw is None:
                 continue
             if raw == "":
-                # Empty frame — websocket-client returns "" on clean close
+                # Empty frame  websocket-client returns "" on clean close
                 log.info("Channel to %s: empty recv (clean close)", self.peer_name)
                 break
             try:
@@ -416,7 +417,7 @@ class PeerChannel:
             self._pending[msg_id]["event"].set()
             return
 
-        # Incoming request — find a handler and send a reply
+        # Incoming request  find a handler and send a reply
         if msg_id:
             handler = self._handlers.get(msg_type)
             if handler:
@@ -483,7 +484,7 @@ class PeerChannel:
                 break
 
 
-# ── Convenience helpers used by route handlers ────────────────
+# -- Convenience helpers used by route handlers
 
 def get_channel(peer_name: str, wait: float = 8.0) -> "PeerChannel":
     """
@@ -528,7 +529,7 @@ def accept_channel(peer_name: str, sock) -> "PeerChannel":
     Called by the WS server endpoint when a peer connects to us.
 
     If we already have an active outbound channel to this peer (we are the
-    designated initiator), close it — the peer has reconnected inbound, so
+    designated initiator), close it  the peer has reconnected inbound, so
     we switch to serving their connection. This avoids both sides trying to
     own the channel simultaneously.
     """
