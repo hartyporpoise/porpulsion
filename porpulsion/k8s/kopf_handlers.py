@@ -144,7 +144,35 @@ def on_remoteapp_created(body, meta, status, namespace, **kwargs):
         get_channel(peer.name).call("remoteapp/receive", payload)
         log.info("kopf: forwarded new RemoteApp %s (%s) to peer %s", cr_name, app_id, peer.name)
     except Exception as e:
-        raise kopf.TemporaryError(f"failed to forward to peer {target_peer}: {e}", delay=5)
+        err_msg = str(e)
+        # Peer explicitly rejected the workload (quota, policy, disabled) — mark Failed, don't retry
+        _peer_rejection_phrases = (
+            "inbound workloads are disabled",
+            "Insufficient",
+            "quota",
+            "not permitted",
+            "blocked image",
+            "spec invalid",
+            "not allowed",
+        )
+        if any(p in err_msg for p in _peer_rejection_phrases):
+            log.warning("kopf: RemoteApp %s rejected by peer %s: %s", cr_name, target_peer, err_msg)
+            _patch_status(namespace, PLURAL, cr_name, {
+                "phase": "Failed", "appId": app_id,
+                "message": f"Rejected by {target_peer}: {err_msg}",
+            })
+            # Push status back to own channel_handlers so the UI updates immediately
+            try:
+                from porpulsion.channel_handlers import handle_remoteapp_status
+                handle_remoteapp_status({
+                    "id": app_id,
+                    "status": "Failed",
+                    "message": f"Rejected by {target_peer}: {err_msg}",
+                })
+            except Exception:
+                pass
+            raise kopf.PermanentError(err_msg)
+        raise kopf.TemporaryError(f"failed to forward to peer {target_peer}: {err_msg}", delay=5)
 
 
 @kopf.on.update(GROUP, VERSION, "remoteapps", field="spec")
