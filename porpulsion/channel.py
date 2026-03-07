@@ -279,6 +279,7 @@ class PeerChannel:
         peer_ca_pem   = payload.get("ca_pem", "")
         nonce         = payload.get("nonce", "")
         challenge_sig = payload.get("challenge_sig", "")
+        peer_self_url = payload.get("self_url", "")
 
         if not all([peer_name, peer_ca_pem, nonce, challenge_sig]):
             log.warning("Inbound WS: peer/hello missing required fields")
@@ -299,8 +300,14 @@ class PeerChannel:
                             peer_name)
                 return False
             # Mark that we've now received an inbound connection from this peer
+            changed = False
             if not existing.has_inbound:
                 existing.has_inbound = True
+                changed = True
+            if peer_self_url and not existing.url:
+                existing.url = peer_self_url
+                changed = True
+            if changed:
                 tls.save_peers(_state.NAMESPACE, _state.peers)
         else:
             # Unknown peer — they used our invite bundle (verified on their side).
@@ -310,7 +317,7 @@ class PeerChannel:
                 peer_ca_pem.encode() if isinstance(peer_ca_pem, str) else peer_ca_pem,
                 f"peer-ca-{peer_name}",
             )
-            _state.peers[peer_name] = Peer(name=peer_name, url=self.peer_url or "",
+            _state.peers[peer_name] = Peer(name=peer_name, url=peer_self_url or self.peer_url or "",
                                            ca_pem=peer_ca_pem, initiator=False, has_inbound=True)
             tls.save_peers(_state.NAMESPACE, _state.peers)
             log.info("Inbound WS: auto-registered new peer %r from hello frame", peer_name)
@@ -434,6 +441,7 @@ class PeerChannel:
                 "ca_pem":        state.AGENT_CA_PEM.decode(),
                 "nonce":         nonce,
                 "challenge_sig": challenge_sig,
+                "self_url":      state.SELF_URL,
             },
         }))
 
