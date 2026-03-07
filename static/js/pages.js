@@ -340,7 +340,7 @@
       renderOverviewPeers(peers);
       renderAllPeers(peers);
       populateTargetPeerSelect(peers);
-      _syncTunnelPeersFromData(peers, executing);
+      _syncTunnelPeersFromData(peers);
       renderApproval(approval);
       renderRecentApps(submitted, executing);
       renderApps(submitted, 'submitted-body', 'submitted-empty', 'submitted-count', false, 'submitted');
@@ -410,193 +410,72 @@
       toast('Saved', 'ok');
     }).catch(function (err) { toast(err.message, 'error'); });
   }
-  function _saveTunnelPeers() {
-    P.updateSettings({ allowed_tunnel_peers: _getTunnelAllowedValue() })
-      .catch(function (err) { toast(err.message, 'error'); });
-  }
   // ── Tunnel peer allowlist state ────────────────────────────────
-  // _tunnelState.denied: Set of denied entries (peer names or "peer/app-id")
-  // Empty denied set = all allowed (default). We track denials so "all on by default" is intuitive.
+  // peer-level only: denied = {peerName: true}. Empty = all allowed.
   var _tunnelState = {
-    expanded: {},    // keyed by peer name, true if app list is open
-    peers: [],       // [{name, apps:[{id,name}]}] from last refresh
-    denied: {},      // {peer: true} or {"peer/appid": true}
-    allowedRaw: '',  // last known allowed_tunnel_peers value from settings
-    peersKey: ''     // JSON snapshot of peers for change detection
+    peers: [],      // [{name}] inbound/bidirectional peers from last refresh
+    denied: {},     // {peerName: true}
+    allowedRaw: '', // last known allowed_tunnel_peers value from settings
+    peersKey: ''    // JSON snapshot for change detection
   };
-
-  function _tunnelIsDenied(key) {
-    return !!_tunnelState.denied[key];
-  }
-
-  function _tunnelSetDenied(key, denied) {
-    if (denied) _tunnelState.denied[key] = true;
-    else delete _tunnelState.denied[key];
-  }
 
   function _renderTunnelPeerList() {
     var list = el('tunnel-peer-list');
-    var empty = el('tunnel-peer-empty');
     if (!list) return;
-    if (!_tunnelState.peers.length) {
-      if (empty) empty.style.display = '';
-      list.querySelectorAll('.tunnel-peer-row').forEach(function (r) { r.remove(); });
-      return;
-    }
-    if (empty) empty.style.display = 'none';
-    // Re-render all peer rows
     list.querySelectorAll('.tunnel-peer-row').forEach(function (r) { r.remove(); });
     _tunnelState.peers.forEach(function (peer) {
-      var peerDenied = _tunnelIsDenied(peer.name);
+      var denied = !!_tunnelState.denied[peer.name];
       var row = document.createElement('div');
       row.className = 'tunnel-peer-row';
       row.dataset.peer = peer.name;
-      // Peer header row
-      var apps = peer.apps || [];
-      var hasApps = apps.length > 0;
-      var isExpanded = !!_tunnelState.expanded[peer.name];
-      var header = '<div class="tunnel-peer-header' + (hasApps ? ' has-apps' : '') + '"' + (hasApps ? ' role="button" tabindex="0" aria-expanded="' + (isExpanded ? 'true' : 'false') + '" title="Click to show/hide apps"' : '') + '>' +
-        '<label class="toggle tunnel-peer-toggle" title="' + (peerDenied ? 'Enable' : 'Disable') + ' all tunnels from ' + _esc(peer.name) + '" onclick="event.stopPropagation()">' +
-          '<input type="checkbox" class="tunnel-peer-chk" data-peer="' + _esc(peer.name) + '"' + (peerDenied ? '' : ' checked') + '>' +
+      row.innerHTML =
+        '<label class="toggle tunnel-peer-toggle">' +
+          '<input type="checkbox" class="tunnel-peer-chk" data-peer="' + _esc(peer.name) + '"' + (denied ? '' : ' checked') + '>' +
           '<span class="toggle-slider"></span>' +
         '</label>' +
-        '<span class="tunnel-peer-name">' + _esc(peer.name) + '</span>' +
-        (hasApps ? '<span class="tunnel-app-count">' + apps.length + ' app' + (apps.length !== 1 ? 's' : '') + '</span>' : '<span class="tunnel-app-count">no apps running</span>') +
-        (hasApps ? '<svg class="tunnel-peer-chevron" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="' + (isExpanded ? 'transform:rotate(180deg)' : '') + '"><path d="M3 5l4 4 4-4"/></svg>' : '') +
-      '</div>';
-      // App sub-rows — restore expanded state from _tunnelState.expanded
-      var appRows = hasApps ? '<div class="tunnel-app-list"' + (isExpanded ? '' : ' style="display:none;"') + '>' +
-        apps.map(function (app) {
-          var appKey = peer.name + '/' + app.id;
-          var appDenied = _tunnelIsDenied(appKey) || peerDenied;
-          return '<div class="tunnel-app-row">' +
-            '<label class="toggle tunnel-app-toggle" title="' + (appDenied ? 'Enable' : 'Disable') + ' tunnels for ' + _esc(app.name || app.id) + '">' +
-              '<input type="checkbox" class="tunnel-app-chk" data-peer="' + _esc(peer.name) + '" data-app-id="' + _esc(app.id) + '"' + (appDenied ? '' : ' checked') + (peerDenied ? ' disabled' : '') + '>' +
-              '<span class="toggle-slider"></span>' +
-            '</label>' +
-            '<span class="tunnel-app-name">' + _esc(app.name || app.id) + '</span>' +
-            '<span class="tunnel-app-id">' + _esc(app.id) + '</span>' +
-          '</div>';
-        }).join('') +
-      '</div>' : '';
-      row.innerHTML = header + appRows;
+        '<span class="tunnel-peer-name">' + _esc(peer.name) + '</span>';
       list.appendChild(row);
     });
-    // Bind events on new rows
     list.querySelectorAll('.tunnel-peer-chk').forEach(function (chk) {
       chk.addEventListener('change', function () {
-        var peerName = chk.dataset.peer;
-        _tunnelSetDenied(peerName, !chk.checked);
-        // Sync app checkboxes
-        var appChks = list.querySelectorAll('.tunnel-app-chk[data-peer="' + peerName + '"]');
-        appChks.forEach(function (ac) { ac.disabled = !chk.checked; if (!chk.checked) ac.checked = false; else ac.checked = !_tunnelIsDenied(peerName + '/' + ac.dataset.appId); });
-        _saveTunnelPeers();
-      });
-    });
-    list.querySelectorAll('.tunnel-app-chk').forEach(function (chk) {
-      chk.addEventListener('change', function () {
-        var appKey = chk.dataset.peer + '/' + chk.dataset.appId;
-        _tunnelSetDenied(appKey, !chk.checked);
-        _saveTunnelPeers();
-      });
-    });
-    // Click on .has-apps header to expand/collapse app list
-    list.querySelectorAll('.tunnel-peer-header.has-apps').forEach(function (header) {
-      function toggleExpand() {
-        var row = header.closest('.tunnel-peer-row');
-        var appList = row ? row.querySelector('.tunnel-app-list') : null;
-        if (!appList) return;
-        var open = appList.style.display !== 'none';
-        appList.style.display = open ? 'none' : '';
-        header.setAttribute('aria-expanded', open ? 'false' : 'true');
-        var chevron = header.querySelector('.tunnel-peer-chevron');
-        if (chevron) chevron.style.transform = open ? '' : 'rotate(180deg)';
-        // Persist expanded state so re-renders don't collapse it
-        var peerRow = header.closest('.tunnel-peer-row');
-        var peerName = peerRow ? peerRow.dataset.peer : null;
-        if (peerName) _tunnelState.expanded[peerName] = !open;
-      }
-      header.addEventListener('click', function (e) {
-        if (e.target.closest('.tunnel-peer-toggle')) return; // don't expand when clicking toggle
-        toggleExpand();
-      });
-      header.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleExpand(); }
+        if (chk.checked) delete _tunnelState.denied[chk.dataset.peer];
+        else _tunnelState.denied[chk.dataset.peer] = true;
+        P.updateSettings({ allowed_tunnel_peers: _getTunnelAllowedValue() })
+          .then(function () { toast('Saved', 'ok'); })
+          .catch(function (err) { toast(err.message, 'error'); });
       });
     });
   }
 
-  function _syncTunnelPeersFromData(peers, executing) {
-    // Only peers that have connected inbound to us can open tunnels
+  function _syncTunnelPeersFromData(peers) {
     var inbound = peers.filter(function (p) {
       return p.direction === 'incoming' || p.direction === 'bidirectional';
     });
-    var newPeers = inbound.map(function (peer) {
-      var peerApps = (executing || []).filter(function (a) { return a.source_peer === peer.name; })
-        .map(function (a) { return { id: a.id, name: a.name }; });
-      return { name: peer.name, apps: peerApps };
-    });
+    var newPeers = inbound.map(function (p) { return { name: p.name }; });
     var newKey = JSON.stringify(newPeers);
-    if (newKey === _tunnelState.peersKey) return; // nothing changed, skip re-render
+    if (newKey === _tunnelState.peersKey) return;
     _tunnelState.peers = newPeers;
     _tunnelState.peersKey = newKey;
-    // Re-apply the saved allowed value now that peers are known
     _loadTunnelDeniedFromValue(_tunnelState.allowedRaw);
   }
 
   function _loadTunnelDeniedFromValue(allowedStr) {
-    // allowedStr is comma-sep allowed list. Empty = all allowed (no denied).
-    // If set, anything NOT in the list is denied.
-    // We convert: denied = all peers - allowed
     _tunnelState.allowedRaw = allowedStr || '';
     _tunnelState.denied = {};
     var entries = (allowedStr || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
-    if (!entries.length) { _renderTunnelPeerList(); return; } // all allowed — still render the list
-    // Build a set of allowed entries
-    var allowedSet = {};
-    entries.forEach(function (e) { allowedSet[e] = true; });
-    // For each known peer, check if denied
-    _tunnelState.peers.forEach(function (peer) {
-      if (!allowedSet[peer.name]) {
-        // Check if any specific app entries allow this peer
-        var hasAppEntry = entries.some(function (e) { return e.indexOf(peer.name + '/') === 0; });
-        if (!hasAppEntry) {
-          _tunnelSetDenied(peer.name, true);
-        } else {
-          // Peer-level allowed via app entries; check which apps are denied
-          (peer.apps || []).forEach(function (app) {
-            var appKey = peer.name + '/' + app.id;
-            if (!allowedSet[appKey] && !allowedSet[peer.name]) {
-              _tunnelSetDenied(appKey, true);
-            }
-          });
-        }
-      }
-    });
+    if (entries[0] === '__none__') {
+      _tunnelState.peers.forEach(function (p) { _tunnelState.denied[p.name] = true; });
+    } else if (entries.length) {
+      var allowedSet = {};
+      entries.forEach(function (e) { allowedSet[e] = true; });
+      _tunnelState.peers.forEach(function (p) { if (!allowedSet[p.name]) _tunnelState.denied[p.name] = true; });
+    }
     _renderTunnelPeerList();
   }
 
   function _getTunnelAllowedValue() {
-    // Convert denied state back to allowed list format
-    // If nothing denied, return '' (all allowed)
     if (!Object.keys(_tunnelState.denied).length) return '';
-    var allowed = [];
-    _tunnelState.peers.forEach(function (peer) {
-      if (_tunnelIsDenied(peer.name)) return; // skip fully denied peers
-      // Check if any specific apps are denied for this peer
-      var deniedApps = (peer.apps || []).filter(function (app) { return _tunnelIsDenied(peer.name + '/' + app.id); });
-      if (!deniedApps.length) {
-        allowed.push(peer.name); // all apps allowed
-      } else {
-        // Only push the allowed apps specifically
-        (peer.apps || []).forEach(function (app) {
-          if (!_tunnelIsDenied(peer.name + '/' + app.id)) {
-            allowed.push(peer.name + '/' + app.id);
-          }
-        });
-      }
-    });
-    // If something is denied but nothing is allowed, use sentinel to mean "deny all"
+    var allowed = _tunnelState.peers.filter(function (p) { return !_tunnelState.denied[p.name]; }).map(function (p) { return p.name; });
     return allowed.length ? allowed.join(', ') : '__none__';
   }
 
