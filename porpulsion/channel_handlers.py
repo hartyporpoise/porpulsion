@@ -285,16 +285,17 @@ def handle_proxy_request(payload: dict, peer_name: str = "") -> dict:
     body    = base64.b64decode(payload.get("body", ""))
 
     agent = state.AGENT_NAME or "remote agent"
-    if not state.settings.allow_inbound_tunnels:
+    denied = not state.settings.allow_inbound_tunnels
+    if not denied:
+        allowed_raw = (state.settings.allowed_tunnel_peers or "").strip()
+        if allowed_raw:
+            if allowed_raw == "__none__":
+                denied = True
+            else:
+                allowed_tokens = {t.strip() for t in allowed_raw.split(",") if t.strip()}
+                denied = peer_name not in allowed_tokens
+    if denied:
         raise RuntimeError(f"'{agent}' has disabled inbound tunnels")
-
-    allowed_raw = (state.settings.allowed_tunnel_peers or "").strip()
-    if allowed_raw:
-        if allowed_raw == "__none__":
-            raise RuntimeError(f"'{agent}' does not allow tunnel access from any peer")
-        allowed_tokens = {t.strip() for t in allowed_raw.split(",") if t.strip()}
-        if peer_name not in allowed_tokens:
-            raise RuntimeError(f"'{agent}' does not allow tunnel access from '{peer_name}'")
 
     if get_ea_cr_by_app_id(state.NAMESPACE, app_id) is None:
         raise RuntimeError("app not found")

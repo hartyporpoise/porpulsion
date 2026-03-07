@@ -1843,41 +1843,16 @@ select { display: none; }
 }
 
 /* ── Tunnel / proxy page ─────────────────────────────────────── */
-.tunnel-peer-list {
-  border-radius: var(--radius-card);
-  overflow: hidden;
-  background: var(--surface);
-}
-.tunnel-peer-section {
+.tunnel-peer-list { margin-top: 0.25rem; }
+.tunnel-peer-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 0;
   border-bottom: var(--sep) solid var(--border);
+  font-size: 0.9375rem;
 }
-.tunnel-peer-section:last-child { border-bottom: none; }
-.tunnel-peer-header {
-  display: flex; align-items: center; gap: 0.75rem;
-  background: var(--surface);
-  padding: 0.75rem 1rem;
-  border-bottom: var(--sep) solid var(--border);
-  font-size: 0.9375rem; font-weight: 500;
-}
-.tunnel-peer-expand {
-  display: flex; align-items: center; justify-content: center;
-  width: 28px; height: 28px;
-  background: transparent; border: none; border-radius: 6px;
-  color: var(--muted); cursor: pointer; padding: 0; min-height: unset;
-  margin-left: auto; flex-shrink: 0;
-  transition: background 0.1s, color 0.1s;
-}
-.tunnel-peer-expand::before, .tunnel-peer-expand::after { display: none; }
-.tunnel-peer-expand:hover { background: var(--surface2); color: var(--text); opacity: 1; }
-.tunnel-peer-expand svg { transition: transform 0.18s; }
-.tunnel-peer-expand.expanded svg { transform: rotate(90deg); }
-.tunnel-app-row {
-  display: flex; align-items: center; gap: 0.75rem;
-  background: var(--surface);
-  padding: 0.625rem 1rem 0.625rem 2.5rem;
-  border-top: var(--sep) solid var(--border);
-  font-size: 0.875rem;
-}
+.tunnel-peer-row:last-child { border-bottom: none; }
+.tunnel-peer-name { flex: 1; color: var(--text); }
 
 /* ── Docs page ───────────────────────────────────────────────── */
 .docs-layout { max-width: 960px; }
