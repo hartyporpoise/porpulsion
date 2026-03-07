@@ -111,7 +111,7 @@
       var latency = (p.latency_ms != null) ? '<span class="peer-latency">' + p.latency_ms + ' ms</span>' : '';
       var chanHtml = (p.channel === 'connected')
         ? channelBadge(p.url) + latency
-        : '<span class="badge badge-pending">-</span>';
+        : '<span class="badge badge-failed">offline</span>';
       var dirBadge = directionBadge(p.direction);
       var actions = '<button class="btn-sm btn-danger peer-remove-btn">Remove</button>';
       return '<tr data-peer-url="' + _esc(p.url) + '" data-peer-name="' + _esc(p.name) + '">' +
