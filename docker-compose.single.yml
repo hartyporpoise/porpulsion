@@ -9,8 +9,7 @@ services:
       - k3s-data:/var/lib/rancher/k3s
     ports:
       - "6443:6443"
-      - "8080:30080"   # UI
-      - "8081:30081"   # peer server (/ws)
+      - "8080:30080"   # UI + /ws + /status
     networks:
       - porpulsion-net
 

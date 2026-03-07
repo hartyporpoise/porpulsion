@@ -24,12 +24,8 @@ spec:
           image: {{ .Values.agent.image }}
           imagePullPolicy: {{ .Values.agent.pullPolicy }}
           ports:
-            - name: ui
+            - name: http
               containerPort: {{ .Values.service.port }}
-            - name: peer-ws
-              containerPort: {{ .Values.service.peerPort }}
-            - name: internal
-              containerPort: {{ .Values.service.internalPort }}
           env:
             - name: AGENT_NAME
               value: {{ .Values.agent.agentName | quote }}
@@ -38,12 +34,12 @@ spec:
           readinessProbe:
             httpGet:
               path: /status
-              port: {{ .Values.service.internalPort }}
+              port: {{ .Values.service.port }}
             initialDelaySeconds: 2
             periodSeconds: 5
           livenessProbe:
             httpGet:
               path: /status
-              port: {{ .Values.service.internalPort }}
+              port: {{ .Values.service.port }}
             initialDelaySeconds: 5
             periodSeconds: 10

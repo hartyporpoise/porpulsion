@@ -6,7 +6,7 @@
 # -- Agent
 agent:
   # -- Container image for the porpulsion agent.
-  image: ghcr.io/hartyporpoise/porpulsion:0.5.0
+  image: ghcr.io/hartyporpoise/porpulsion:0.5.1
 
   # -- Image pull policy. Use `Always` when pushing to a remote registry.
   pullPolicy: IfNotPresent
@@ -31,38 +31,23 @@ agent:
   selfUrl: ""
 
 # -- Service
-# The Service exposes three ports:
-#   8000 (ui)        dashboard and management API. Session auth required.
-#                     Internal only; access via kubectl port-forward.
-#   8001 (peer-ws)   peer handshake (/peer) and WebSocket channel (/ws).
-#                     This is the only port your Ingress should forward to.
-#   8002 (internal)  health/readiness probes (/status). No auth. Never expose externally.
+# All traffic is served on a single port (8000):
+#   /          dashboard UI
+#   /api/*     management API (session auth required)
+#   /ws        peer WebSocket channel (peer/hello auth, no session required)
+#   /status    health/readiness probes (no auth)
 #
-#   kubectl port-forward svc/porpulsion 8000:8000   # dashboard
-#   kubectl port-forward svc/porpulsion 8001:8001   # peer channel (testing)
+#   kubectl port-forward svc/porpulsion 8000:8000
 
 service:
   # -- Service type. ClusterIP for production; NodePort for local dev.
   type: ClusterIP
 
-  # -- Port for the dashboard UI and management API. Session auth required.
+  # -- Port for all traffic.
   port: 8000
 
-  # -- NodePort for the dashboard UI. Only used when type=NodePort.
-  uiNodePort: ""
-
-  # -- Port for the peer-facing server: /peer (handshake) and /ws (WebSocket).
-  #    Expose this port via your Ingress.
-  peerPort: 8001
-
-  # -- NodePort for the peer-facing server. Only used when type=NodePort.
-  peerNodePort: ""
-
-  # -- Port for internal probes: /status. No auth. Never expose externally.
-  internalPort: 8002
-
-  # -- NodePort for the internal server. Only used when type=NodePort.
-  internalNodePort: ""
+  # -- NodePort. Only used when type=NodePort.
+  nodePort: ""
 
 # -- Agent runtime settings
 # These settings are configured at runtime via the dashboard UI or the /settings

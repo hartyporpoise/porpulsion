@@ -10,25 +10,10 @@ spec:
   selector:
     app: {{ include "porpulsion.fullname" . }}-agent
   ports:
-    # Dashboard UI — internal only, not exposed via Ingress.
-    - name: ui
+    # Single port for all traffic: dashboard, API, /ws (peers), /status (probes).
+    - name: http
       port: {{ .Values.service.port }}
       targetPort: {{ .Values.service.port }}
-      {{- if and (eq .Values.service.type "NodePort") .Values.service.uiNodePort }}
-      nodePort: {{ .Values.service.uiNodePort }}
-      {{- end }}
-    # Peer-facing port: /peer (handshake) and /ws (WebSocket channel).
-    # This is the only port that should be exposed via the Ingress.
-    - name: peer-ws
-      port: {{ .Values.service.peerPort }}
-      targetPort: {{ .Values.service.peerPort }}
-      {{- if and (eq .Values.service.type "NodePort") .Values.service.peerNodePort }}
-      nodePort: {{ .Values.service.peerNodePort }}
-      {{- end }}
-    # Internal port: /status and probes only, no auth. Never exposed externally.
-    - name: internal
-      port: {{ .Values.service.internalPort }}
-      targetPort: {{ .Values.service.internalPort }}
-      {{- if and (eq .Values.service.type "NodePort") .Values.service.internalNodePort }}
-      nodePort: {{ .Values.service.internalNodePort }}
+      {{- if and (eq .Values.service.type "NodePort") .Values.service.nodePort }}
+      nodePort: {{ .Values.service.nodePort }}
       {{- end }}

@@ -312,10 +312,11 @@ def handle_proxy_request(payload: dict, peer_name: str = "") -> dict:
 
 def handle_peer_bidirectional(payload: dict):
     """The accepting peer is telling us they received our inbound connection.
-    Mark our peer entry for them as has_inbound=True so direction shows bidirectional."""
+    Mark our peer entry as has_inbound=True and store the remote_addr they saw us from."""
     from porpulsion import state, tls
 
-    peer_name = payload.get("name", "")
+    peer_name   = payload.get("name", "")
+    remote_addr = payload.get("remote_addr", "")
     if not peer_name:
         return
     peer = state.peers.get(peer_name)
@@ -323,6 +324,10 @@ def handle_peer_bidirectional(payload: dict):
         peer.has_inbound = True
         tls.save_peers(state.NAMESPACE, state.peers)
         log.info("Peer %s confirmed bidirectional connection", peer_name)
+    # Store on the live channel so the dashboard can show our outbound IP as seen by the peer
+    ch = state.peer_channels.get(peer_name)
+    if ch and remote_addr and not ch.peer_remote_addr:
+        ch.peer_remote_addr = remote_addr
 
 
 def handle_peer_disconnect(payload: dict):

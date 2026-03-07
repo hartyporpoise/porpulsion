@@ -3,6 +3,11 @@ Porpulsion agent entrypoint.
 
 Initialises runtime config (TLS, invite token, env vars) into the shared
 state module, registers Flask blueprints, and starts the HTTP server.
+
+All traffic is served on a single port (8000) via gunicorn gthread:
+  - Dashboard, API (/api/*): session auth required
+  - Peer WebSocket (/ws): open to peers, auth via peer/hello frame
+  - Health probes (/status): no auth
 """
 import hashlib
 import logging
@@ -12,6 +17,7 @@ import socket
 import threading
 
 from flask import Flask, Response, jsonify
+from flask_sock import Sock
 
 from porpulsion import state, tls
 from porpulsion.log_buffer import install_log_handler
@@ -23,6 +29,7 @@ from porpulsion.routes import logs as logs_bp
 from porpulsion.routes import notifications as notifications_bp
 from porpulsion.routes import ui as ui_bp
 from porpulsion.routes import auth as auth_bp
+from porpulsion.routes.ws import peer_ws
 
 logging.basicConfig(
     level=logging.INFO,
@@ -153,6 +160,11 @@ app.config["SESSION_PERMANENT"] = False
 app.config["SESSION_USE_SIGNER"] = True
 _Session(app)
 
+# Peer WebSocket endpoint — open to peers, auth handled inside the channel via
+# the peer/hello frame. No session required.
+_sock = Sock(app)
+_sock.route("/ws")(peer_ws)
+
 app.register_blueprint(auth_bp.bp)
 app.register_blueprint(peers_bp.bp, url_prefix="/api")
 app.register_blueprint(workloads_bp.bp, url_prefix="/api")
@@ -162,10 +174,22 @@ app.register_blueprint(logs_bp.bp, url_prefix="/api")
 app.register_blueprint(notifications_bp.bp, url_prefix="/api")
 app.register_blueprint(ui_bp.bp)
 
+
+# -- Health probe (no auth — must be reachable by kubelet)
+
+@app.route("/status")
+def status():
+    from porpulsion.k8s.store import list_remoteapp_crs, list_executingapp_crs
+    return jsonify({
+        "agent": state.AGENT_NAME,
+        "peers": [p.to_dict() for p in state.peers.values()],
+        "local_apps": len(list_remoteapp_crs(state.NAMESPACE)),
+        "remote_apps": len(list_executingapp_crs(state.NAMESPACE)),
+    })
+
+
 # -- API auth guard
-# Port 8001 (peer_server) handles all inter-agent traffic.
-# Port 8002 (internal_server) handles probes - no auth needed there.
-# Everything on port 8000 under /api/ is dashboard-only and requires a session.
+# /ws and /status are open. Everything under /api/ and /static/js/ requires auth.
 
 @app.before_request
 def _require_api_auth():
@@ -184,7 +208,6 @@ def _require_api_auth():
         _adapter = app.url_map.bind(request.host)
         try:
             _adapter.match(request.path, method=request.method)
-            # Route matched - fall through to auth check below
         except Exception as _e:
             _ename = type(_e).__name__
             if _ename == "NotFound":
@@ -212,7 +235,6 @@ def _require_api_auth():
     # For static assets, return 404 (asset simply won't load; user sees login page)
     from flask import abort
     abort(404)
-
 
 
 @app.route("/api/openapi.json")
@@ -256,14 +278,6 @@ if __name__ == "__main__":
 
     level = getattr(logging, state.settings.log_level.upper(), logging.INFO)
     logging.getLogger().setLevel(level)
-
-    # Ports 8001 (peer WS) and 8002 (internal probes) run as gunicorn child processes.
-    # They must be forked here, before any threads exist in this process, so the fork
-    # is clean. The main gunicorn for port 8000 starts last and blocks.
-    from porpulsion.peer_server import run_in_process as _start_peer_server
-    from porpulsion.internal_server import run_in_process as _start_internal_server
-    _start_peer_server()
-    _start_internal_server()
 
     import gunicorn.app.base
 
