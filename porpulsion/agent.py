@@ -176,7 +176,7 @@ def _require_api_auth():
         return
     # HTTP Basic Auth (curl / scripts) - only honoured for /api/ paths
     if request.path.startswith("/api/"):
-        # Probe URL map to distinguish unknown routes (†’ 404) from known-but-auth-gated (†’ 401).
+        # Probe URL map to distinguish unknown routes (-> 404) from known-but-auth-gated (-> 401).
         # We must do this ourselves because before_request fires before route matching.
         _adapter = app.url_map.bind(request.host)
         try:
@@ -186,7 +186,7 @@ def _require_api_auth():
             _ename = type(_e).__name__
             if _ename == "NotFound":
                 return jsonify({"error": "not found"}), 404
-            # MethodNotAllowed / RequestRedirect †’ route exists, fall through to auth
+            # MethodNotAllowed / RequestRedirect -> route exists, fall through to auth
 
         auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Basic "):

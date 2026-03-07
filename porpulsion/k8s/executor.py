@@ -398,7 +398,7 @@ def run_workload(remote_app, callback_url, peer=None, cr_body=None):
         if res is not None:
             req = res.requests
             lim = res.limits
-            # _DictWrapper †’ plain dict; plain dict stays as-is
+            # _DictWrapper -> plain dict; plain dict stays as-is
             if isinstance(req, object) and hasattr(req, "to_dict"):
                 req = req.to_dict()
             if isinstance(lim, object) and hasattr(lim, "to_dict"):

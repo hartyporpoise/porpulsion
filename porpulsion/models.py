@@ -53,10 +53,10 @@ class _DictWrapper:
 def _wrap(value, prop_schema: dict | None = None):
     """
     Wrap a raw JSON value according to its CRD schema type.
-    - object  †’ _DictWrapper (with nested wrapping of its properties)
-    - array of objects †’ list of _DictWrapper
-    - array of scalars †’ plain list
-    - scalar †’ value as-is
+    - object  -> _DictWrapper (with nested wrapping of its properties)
+    - array of objects -> list of _DictWrapper
+    - array of scalars -> plain list
+    - scalar -> value as-is
     When schema is None we infer from the value type.
     """
     if value is None:

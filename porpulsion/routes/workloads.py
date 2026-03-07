@@ -52,8 +52,8 @@ _MEMORY_SUFFIXES = {
 def _parse_quantity(q: str) -> float:
     """
     Parse a Kubernetes quantity string into a normalised float.
-    CPU: returns cores (e.g. "250m" †’ 0.25, "1" †’ 1.0).
-    Memory: returns bytes (e.g. "64Mi" †’ 67108864, "1Gi" †’ 1073741824).
+    CPU: returns cores (e.g. "250m" -> 0.25, "1" -> 1.0).
+    Memory: returns bytes (e.g. "64Mi" -> 67108864, "1Gi" -> 1073741824).
     Returns 0.0 for empty/None.
     """
     if not q:
@@ -281,7 +281,7 @@ def create_remoteapp():
         if cr_name:
             ra.cr_name = cr_name
         # The CR watcher (agent.py) will forward to the peer once the CR is ready
-        log.info("Created RemoteApp CR %s for app %s (%s) †’ peer %s",
+        log.info("Created RemoteApp CR %s for app %s (%s) -> peer %s",
                  cr_name or "?", ra.name, ra.id, peer.name)
         return ra
 

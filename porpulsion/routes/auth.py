@@ -39,8 +39,8 @@ _RATE_LOCK = threading.Lock()
 _RATE_WINDOW = 60          # sliding window in seconds
 _LOCKOUT_FAILURES = 10     # max failures before lockout
 _LOCKOUT_SECONDS = 300     # 5-minute lockout
-_rate_failures: dict[str, deque] = {}   # ip †’ deque of failure timestamps
-_rate_lockout:  dict[str, float] = {}   # ip †’ lockout-expiry timestamp
+_rate_failures: dict[str, deque] = {}   # ip -> deque of failure timestamps
+_rate_lockout:  dict[str, float] = {}   # ip -> lockout-expiry timestamp
 
 
 def _is_rate_limited(ip: str) -> bool:
@@ -216,7 +216,7 @@ def login():
         return render_template("auth/login.html",
                                error="Could not reach the cluster - check permissions.")
 
-    # No users yet †’ first-run signup
+    # No users yet -> first-run signup
     if not users:
         return redirect(url_for("auth.signup"))
 

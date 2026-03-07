@@ -103,7 +103,7 @@ def handle_remoteapp_status(payload: dict):
             add_notification(
                 level="error",
                 title=f"Workload failed: {d['name']}",
-                message=f"{d['name']!r} on {d['target_peer']} †’ {status}.",
+                message=f"{d['name']!r} on {d['target_peer']} -> {status}.",
             )
     else:
         log.debug("Status update for unknown app %s: %s", app_id, status)
@@ -312,7 +312,7 @@ def handle_proxy_request(payload: dict, peer_name: str = "") -> dict:
 
 def handle_peer_disconnect(payload: dict):
     """Peer is telling us it's disconnecting. If reason='removed', they intentionally
-    removed us â€” wipe them from our state too. Otherwise keep them for reconnect."""
+    removed us  - wipe them from our state too. Otherwise keep them for reconnect."""
     from porpulsion import state, tls
     from porpulsion.notifications import add_notification
     from porpulsion.k8s.store import (
@@ -328,7 +328,7 @@ def handle_peer_disconnect(payload: dict):
     intentional_removal = (reason == "removed")
 
     if intentional_removal:
-        # They deleted us â€” remove completely from both sides
+        # They deleted us  - remove completely from both sides
         state.peers.pop(peer_name, None)
         tls.save_peers(state.NAMESPACE, state.peers)
 
@@ -350,11 +350,11 @@ def handle_peer_disconnect(payload: dict):
                 except Exception as e:
                     log.debug("Could not delete ExecutingApp CR %s: %s", d["cr_name"], e)
 
-        log.info("Peer %s removed us â€” wiped from state and storage", peer_name)
+        log.info("Peer %s removed us  - wiped from state and storage", peer_name)
         add_notification(level="warn", title=f"Peer removed: {peer_name}",
                          message=f"Peer {peer_name!r} removed this agent. The peering has been torn down on both sides.")
     else:
-        # Transient disconnect â€” keep for reconnect
+        # Transient disconnect  - keep for reconnect
         affected = []
         for cr in list_remoteapp_crs(state.NAMESPACE):
             d = cr_to_dict(cr, "submitted")
@@ -369,7 +369,7 @@ def handle_peer_disconnect(payload: dict):
         log.info("Peer %s disconnected (via channel)  kept in peer list for reconnect", peer_name)
         msg = f"Peer {peer_name!r} disconnected."
         if affected:
-            msg += f" {len(affected)} workload(s) marked Failed: {', '.join(affected[:3])}{'¦' if len(affected) > 3 else ''}."
+            msg += f" {len(affected)} workload(s) marked Failed: {', '.join(affected[:3])}{'...' if len(affected) > 3 else ''}."
         add_notification(level="warn", title=f"Peer disconnected: {peer_name}", message=msg)
 
     # Always close and remove the channel entry
