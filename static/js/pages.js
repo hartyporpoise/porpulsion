@@ -418,9 +418,10 @@
   // _tunnelState.denied: Set of denied entries (peer names or "peer/app-id")
   // Empty denied set = all allowed (default). We track denials so "all on by default" is intuitive.
   var _tunnelState = {
-    expanded: {}, // keyed by peer name, true if app list is open
-    peers: [],      // [{name, apps:[{id,name}]}] from last refresh
-    denied: {}      // {peer: true} or {"peer/appid": true}
+    expanded: {},    // keyed by peer name, true if app list is open
+    peers: [],       // [{name, apps:[{id,name}]}] from last refresh
+    denied: {},      // {peer: true} or {"peer/appid": true}
+    allowedRaw: ''   // last known allowed_tunnel_peers value from settings
   };
 
   function _tunnelIsDenied(key) {
@@ -532,13 +533,15 @@
         .map(function (a) { return { id: a.id, name: a.name }; });
       return { name: peer.name, apps: peerApps };
     });
-    _renderTunnelPeerList();
+    // Re-apply the saved allowed value now that peers are known
+    _loadTunnelDeniedFromValue(_tunnelState.allowedRaw);
   }
 
   function _loadTunnelDeniedFromValue(allowedStr) {
     // allowedStr is comma-sep allowed list. Empty = all allowed (no denied).
     // If set, anything NOT in the list is denied.
     // We convert: denied = all peers - allowed
+    _tunnelState.allowedRaw = allowedStr || '';
     _tunnelState.denied = {};
     var entries = (allowedStr || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
     if (!entries.length) return; // all allowed
@@ -1904,6 +1907,7 @@
     if (tunnelsSaveBtn) {
       tunnelsSaveBtn.addEventListener('click', function () {
         var payload = {
+          allow_inbound_tunnels: (el('setting-inbound-tunnels') || {}).checked || false,
           allowed_tunnel_peers: _getTunnelAllowedValue(),
         };
         P.updateSettings(payload).then(function () { toast('Tunnel settings saved', 'ok'); }).catch(function (err) { toast(err.message, 'error'); });
