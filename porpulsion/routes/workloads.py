@@ -165,7 +165,7 @@ def _check_resource_quota(spec: RemoteAppSpec, source_peer: str = "") -> str | N
         return (f"Requested {req_replicas} replicas exceeds this cluster's per-app limit "
                 f"of {s.max_replicas_per_app}")
 
-    # Aggregate quota checks  query ExecutingApp CRs for current usage
+    # Aggregate quota checks - query ExecutingApp CRs for current usage
     active_crs = [
         cr for cr in list_executingapp_crs(state.NAMESPACE)
         if (cr.get("status") or {}).get("phase") not in ("Failed", "Timeout", "Deleted")
@@ -325,7 +325,7 @@ def approve_remoteapp(app_id):
     entry = state.pending_approval.pop(app_id)
     tls.save_state_configmap(state.NAMESPACE, state.settings, state.pending_approval)
     log.info("Approved app %s (%s) from %s", entry["name"], app_id, entry["source_peer"])
-    # Create the ExecutingApp CR  the CR watcher drives workload execution
+    # Create the ExecutingApp CR - the CR watcher drives workload execution
     from porpulsion.k8s.store import create_executingapp_cr
     create_executingapp_cr(
         state.NAMESPACE, app_id, entry["name"], entry["spec"], entry["source_peer"],
@@ -368,13 +368,13 @@ def delete_remoteapp(app_id):
     cr_name = d["cr_name"]
 
     if side == "submitted":
-        # Delete the CR  the CR watcher (DELETED) notifies the peer to delete its EA CR,
+        # Delete the CR - the CR watcher (DELETED) notifies the peer to delete its EA CR,
         # which then triggers workload cleanup on the executing side
         delete_remoteapp_cr(state.NAMESPACE, cr_name)
         return jsonify({"ok": True})
 
     if side == "executing":
-        # Delete the CR  the CR watcher (DELETED) handles workload cleanup and peer notification
+        # Delete the CR - the CR watcher (DELETED) handles workload cleanup and peer notification
         delete_executingapp_cr(state.NAMESPACE, cr_name)
         return jsonify({"ok": True})
 
@@ -399,7 +399,7 @@ def scale_remoteapp(app_id):
     d = cr_to_dict(cr, side)
 
     if side == "submitted":
-        # Update replicas in the RemoteApp CR  the CR watcher (MODIFIED) forwards to the peer
+        # Update replicas in the RemoteApp CR - the CR watcher (MODIFIED) forwards to the peer
         spec = dict(d.get("spec") or {})
         spec["replicas"] = replicas
         spec["targetPeer"] = d["target_peer"]
@@ -524,7 +524,7 @@ def update_remoteapp_spec(app_id):
     if compat_err:
         return jsonify({"error": compat_err}), 422
 
-    # Update the RemoteApp CR  the CR watcher (MODIFIED) forwards to the peer
+    # Update the RemoteApp CR - the CR watcher (MODIFIED) forwards to the peer
     create_remoteapp_cr(
         state.NAMESPACE, app_id, d["name"],
         {**new_spec, "targetPeer": d["target_peer"]},
@@ -556,7 +556,7 @@ def get_app_configmap(app_id, name):
         return jsonify({"error": "app not found"}), 404
     d = cr_to_dict(cr, side)
     if side == "submitted":
-        # Read from local CR spec  kept in sync by patch_cr_volume_data on every save
+        # Read from local CR spec - kept in sync by patch_cr_volume_data on every save
         spec = d.get("spec", {})
         for cm in (spec.get("configMaps") or []):
             if cm.get("name") == name:

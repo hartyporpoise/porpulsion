@@ -6,7 +6,7 @@ ExecutingApp CRs are created by the receiving side (the peer that runs the workl
 
 Both CRDs share the same spec schema (charts/porpulsion/files/schema.yaml), baked
 into the Docker image at build time. This is the single source of truth for spec
-fields, types, and defaults  no k8s API call is needed to discover the schema.
+fields, types, and defaults - no k8s API call is needed to discover the schema.
 """
 import base64 as _b64
 import datetime
@@ -35,7 +35,7 @@ except config.ConfigException:
 
 _crd_api = client.CustomObjectsApi()
 
-# CRD availability  checked lazily, separately for each plural
+# CRD availability - checked lazily, separately for each plural
 _crd_available: bool | None = None
 _crd_lock = threading.Lock()
 
@@ -55,7 +55,7 @@ def load_spec_schema() -> dict | None:
     """
     Load and cache the RemoteApp spec schema from schema.yaml (baked into the image).
     Called once at agent startup. Returns the property dict or None if unavailable.
-    Subsequent calls return the cached value immediately  no I/O.
+    Subsequent calls return the cached value immediately - no I/O.
     """
     global _spec_schema, _spec_schema_loaded
     if _spec_schema_loaded:
@@ -68,7 +68,7 @@ def load_spec_schema() -> dict | None:
             log.info("Loaded RemoteApp spec schema from %s: %d fields",
                      _SCHEMA_FILE.name, len(_spec_schema or {}))
         except Exception as e:
-            log.warning("Could not load schema.yaml (%s): %s  using passthrough mode",
+            log.warning("Could not load schema.yaml (%s): %s - using passthrough mode",
                         _SCHEMA_FILE, e)
         _spec_schema_loaded = True
     return _spec_schema
@@ -500,7 +500,7 @@ def patch_cr_volume_data(namespace: str, app_id: str, kind: str, vol_name: str,
     data: plaintext key†’value dict. ConfigMap values stored as-is; secret
           values are base64-encoded in the CR (decoded by executor on apply).
     """
-    # Find the CR  could be either type
+    # Find the CR - could be either type
     plural, cr = None, None
     ea = get_ea_cr_by_app_id(namespace, app_id)
     if ea is not None:
@@ -592,14 +592,14 @@ def bootstrap_cr_status(namespace: str, plural: str, cr_name: str, meta: dict,
     or None if already bootstrapped or skipped.
 
     CRs created by porpulsion code carry the porpulsion.io/app-id label and
-    patch their own status  this function skips those to avoid races.
+    patch their own status - this function skips those to avoid races.
     Called from kopf on.create handlers.
     """
     import uuid as _uuid
 
     labels = meta.get("labels") or {}
     if labels.get("porpulsion.io/app-id"):
-        return None  # created by our code  skip
+        return None  # created by our code - skip
 
     if existing_status.get("appId"):
         return None  # already bootstrapped

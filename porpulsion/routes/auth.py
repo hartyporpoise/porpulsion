@@ -1,5 +1,5 @@
 """
-Authentication routes  signup, login, logout.
+Authentication routes - signup, login, logout.
 
 Users are stored in the porpulsion-users Kubernetes Secret as a JSON object:
   { "username": { "hash": "<bcrypt hash>" }, ... }
@@ -113,7 +113,7 @@ def _load_users() -> dict:
         return {}
     except ApiException as exc:
         if exc.status == 404:
-            return {}  # Secret doesn't exist yet  genuine first run
+            return {}  # Secret doesn't exist yet - genuine first run
         log.error("Could not read users secret (status %s): %s", exc.status, exc)
         raise _LoadError(str(exc)) from exc
     except Exception as exc:
@@ -163,7 +163,7 @@ def signup():
     try:
         users = _load_users()
     except _LoadError:
-        return render_template("auth/login.html", error="Could not reach the cluster  check permissions.")
+        return render_template("auth/login.html", error="Could not reach the cluster - check permissions.")
 
     # If users already exist and this visitor is not logged in, go to login
     if users and not session.get("user"):
@@ -200,7 +200,7 @@ def signup():
                     return redirect(url_for("auth.users"))
             except Exception as exc:
                 log.error("Failed to save user: %s", exc)
-                error = "Could not save user  check cluster permissions."
+                error = "Could not save user - check cluster permissions."
 
     return render_template("auth/signup.html", adding=adding, error=error, success=None)
 
@@ -214,7 +214,7 @@ def login():
         users = _load_users()
     except _LoadError:
         return render_template("auth/login.html",
-                               error="Could not reach the cluster  check permissions.")
+                               error="Could not reach the cluster - check permissions.")
 
     # No users yet †’ first-run signup
     if not users:
@@ -265,7 +265,7 @@ def users():
     try:
         all_users = _load_users()
     except _LoadError:
-        return _render_users({}, error="Could not load users  check cluster permissions.")
+        return _render_users({}, error="Could not load users - check cluster permissions.")
     return _render_users(all_users)
 
 
@@ -344,7 +344,7 @@ def users_edit():
         log.info("User '%s' edited (new name: '%s') by '%s'", original, new_name, session["user"])
     except Exception as exc:
         log.error("Failed to save user edit: %s", exc)
-        return _render_users(all_users, edit_target=original, edit_error="Could not save  check cluster permissions.")
+        return _render_users(all_users, edit_target=original, edit_error="Could not save - check cluster permissions.")
 
     # If the current user renamed themselves, update the session
     if original == session.get("user") and new_name != original:

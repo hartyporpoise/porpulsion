@@ -6,7 +6,7 @@ Handlers for request-type messages return a dict payload (sent as the reply).
 Handlers for push-type messages return None.
 
 All inbound peer authentication has already been done by the WS endpoint
-before the socket is handed to the channel  these handlers trust the caller.
+before the socket is handed to the channel - these handlers trust the caller.
 """
 import base64
 import logging
@@ -70,7 +70,7 @@ def handle_remoteapp_receive(payload: dict) -> dict:
         )
         return {"id": app_id, "status": "pending_approval"}
 
-    # Create ExecutingApp CR  the CR watcher drives workload execution from here
+    # Create ExecutingApp CR - the CR watcher drives workload execution from here
     cr_name = create_executingapp_cr(
         state.NAMESPACE, app_id, payload["name"], spec.to_dict(), source_peer,
     )
@@ -120,7 +120,7 @@ def handle_remoteapp_delete(payload: dict) -> dict:
         raise RuntimeError("app not found")
 
     d = cr_to_dict(ea_cr, "executing")
-    # Delete the CR  the CR watcher (DELETED) handles workload cleanup and peer notification
+    # Delete the CR - the CR watcher (DELETED) handles workload cleanup and peer notification
     delete_executingapp_cr(state.NAMESPACE, d["cr_name"])
     log.info("Deleted executing app %s (via channel)", app_id)
     return {"ok": True}
@@ -261,7 +261,7 @@ def handle_remoteapp_spec_update(payload: dict) -> dict:
     except Exception as _ve:
         log.debug("CRD spec validation skipped: %s", _ve)
 
-    # Update the ExecutingApp CR  the CR watcher drives the re-deploy
+    # Update the ExecutingApp CR - the CR watcher drives the re-deploy
     create_executingapp_cr(state.NAMESPACE, app_id, d["name"], parsed.to_dict(), d["source_peer"])
     return {"ok": True}
 

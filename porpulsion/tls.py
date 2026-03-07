@@ -3,7 +3,7 @@ TLS certificate generation and management for porpulsion agents.
 
 Each agent auto-generates a private CA on first boot, persisted to the
 porpulsion-credentials Kubernetes Secret. During peering the CA cert is
-exchanged  peers store each other's CA and use it as the trust anchor
+exchanged - peers store each other's CA and use it as the trust anchor
 for the WebSocket channel (authenticated by CA fingerprint). This gives
 full mutual authentication with no external dependencies.
 """
@@ -197,7 +197,7 @@ def load_or_generate_ca(agent_name: str, namespace: str) -> tuple[bytes, bytes]:
             _log.info("Loaded existing CA cert from Secret")
             return ca_cert_pem, ca_key_pem
     except Exception:
-        pass  # Secret missing  generate fresh
+        pass  # Secret missing - generate fresh
 
     _log.info("Generating new CA for %s", agent_name)
     ca_cert_pem, ca_key_pem, _, _ = generate_ca_and_leaf_cert(agent_name)
@@ -319,7 +319,7 @@ def save_state_configmap(namespace: str, settings,
     Persist settings and pending_approval to the porpulsion-state ConfigMap
     (fire-and-forget thread).
 
-    Note: local_apps and remote_apps are no longer persisted here  they live in
+    Note: local_apps and remote_apps are no longer persisted here - they live in
     k8s CRs (RemoteApp / ExecutingApp) and are read directly from k8s.
     """
     import json

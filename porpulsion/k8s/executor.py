@@ -87,7 +87,7 @@ def _apply_configmap_by_name(name: str, data: dict, cr_body=None) -> None:
     except client.ApiException as e:
         if e.status == 409:
             if not data:
-                log.info("ConfigMap %s already exists with no spec data  preserving live content", name)
+                log.info("ConfigMap %s already exists with no spec data - preserving live content", name)
             else:
                 core_v1.replace_namespaced_config_map(name=name, namespace=NAMESPACE, body=body)
                 log.info("Updated ConfigMap %s", name)
@@ -135,7 +135,7 @@ def _apply_secret_by_name(name: str, plaintext_data: dict, cr_body=None) -> None
     except client.ApiException as e:
         if e.status == 409:
             if not plaintext_data:
-                log.info("Secret %s already exists with no spec data  preserving live content", name)
+                log.info("Secret %s already exists with no spec data - preserving live content", name)
             else:
                 core_v1.replace_namespaced_secret(name=name, namespace=NAMESPACE, body=body)
                 log.info("Updated Secret %s", name)
@@ -342,7 +342,7 @@ def run_workload(remote_app, callback_url, peer=None, cr_body=None):
                 sec_data = sec_spec.data
                 if hasattr(sec_data, "to_dict"):
                     sec_data = sec_data.to_dict()
-                # CR spec stores secret values as base64  decode to plaintext for k8s string_data
+                # CR spec stores secret values as base64 - decode to plaintext for k8s string_data
                 if sec_data:
                     sec_data = {k: base64.b64decode(v).decode() if isinstance(v, str) else v
                                 for k, v in sec_data.items()}
@@ -358,7 +358,7 @@ def run_workload(remote_app, callback_url, peer=None, cr_body=None):
             ))
             volume_mounts.append(client.V1VolumeMount(name=vol_name, mount_path=sec_spec.mountPath))
 
-        # PVCs  check total quota first
+        # PVCs - check total quota first
         total_pvc_limit = state.settings.max_pvc_storage_total_gb
         if total_pvc_limit > 0 and spec.pvcs:
             total_requested_gb = sum(_parse_storage_gb(p.storage) for p in spec.pvcs if p.name and p.mountPath)

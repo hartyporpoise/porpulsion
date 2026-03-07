@@ -41,5 +41,5 @@ invite_token: str = ""
 # peer_name -> PeerChannel (live WebSocket connection to that peer)
 peer_channels: "dict[str, PeerChannel]" = {}
 
-# In-app notifications  newest first, capped at 50
+# In-app notifications - newest first, capped at 50
 notifications: list[dict] = []

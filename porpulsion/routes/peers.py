@@ -44,7 +44,7 @@ def list_peers():
 @bp.route("/peer", methods=["POST"])
 def accept_peer():
     """
-    Peering endpoint  two steps:
+    Peering endpoint - two steps:
 
     Step 1 (invite): initiator sends our invite token + their cert.
     Step 2 (confirm): called by accept_inbound() when operator clicks Accept.
@@ -78,8 +78,8 @@ def accept_peer():
             state.peers[peer_name] = Peer(name=peer_name, url=peer_url, ca_pem=peer_ca)
             state.pending_peers.pop(peer_url, None)
             tls.save_peers(state.NAMESPACE, state.peers)
-            log.info("Peering confirmed by %s  fully connected", peer_name)
-            # We are the initiator  open outbound WS channel to the accepting peer
+            log.info("Peering confirmed by %s - fully connected", peer_name)
+            # We are the initiator - open outbound WS channel to the accepting peer
             open_channel_to(peer_name, peer_url, ca_pem=peer_ca)
             return jsonify({"name": state.AGENT_NAME, "status": "peered",
                             "ca": state.AGENT_CA_PEM.decode()})
@@ -93,7 +93,7 @@ def accept_peer():
 
     state.invite_token = secrets.token_hex(32)
     tls.persist_token(state.NAMESPACE, state.invite_token)
-    log.info("Invite token consumed  queuing inbound request from %s", peer_name)
+    log.info("Invite token consumed - queuing inbound request from %s", peer_name)
 
     req_id = uuid.uuid4().hex[:12]
     state.pending_inbound[req_id] = {
@@ -129,7 +129,7 @@ def accept_inbound(req_id):
 
     _urllib3.disable_warnings(_urllib3.exceptions.InsecureRequestWarning)
     session = _req.Session()
-    session.verify = False  # no CA pinned yet at this stage  bootstrap trust
+    session.verify = False  # no CA pinned yet at this stage - bootstrap trust
 
     try:
         resp = session.post(
@@ -146,7 +146,7 @@ def accept_inbound(req_id):
             state.peers[peer_name] = Peer(name=peer_name, url=peer_url, ca_pem=their_ca)
             tls.save_peers(state.NAMESPACE, state.peers)
             log.info("Accepted and confirmed peering with %s", peer_name)
-            # We are the acceptor  the initiator will open the WS channel to us,
+            # We are the acceptor - the initiator will open the WS channel to us,
             # so we don't need to connect outbound here.
             return jsonify({"ok": True, "peer": peer_name})
         log.warning("accept_inbound: initiator returned %s: %s", resp.status_code, resp.text[:200])
@@ -226,7 +226,7 @@ def peer_disconnect():
         # The channel's connect_and_maintain loop retries automatically.
         state.peer_channels.pop(peer_name, None)
         removed = True
-        log.info("Peer %s disconnected us  peer kept for reconnect", peer_name)
+        log.info("Peer %s disconnected us - peer kept for reconnect", peer_name)
         # Mark all RemoteApp CRs targeting this peer as Failed
         from porpulsion.k8s.store import list_remoteapp_crs, cr_to_dict, update_remoteapp_cr_status
         for cr in list_remoteapp_crs(state.NAMESPACE):
