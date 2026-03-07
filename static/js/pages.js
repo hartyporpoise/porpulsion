@@ -526,9 +526,11 @@
   }
 
   function _syncTunnelPeersFromData(peers, executing) {
-    // Build peer+app map from confirmed peers (have channel field) and their executing apps on this cluster
-    var connected = peers.filter(function (p) { return 'channel' in p; });
-    _tunnelState.peers = connected.map(function (peer) {
+    // Only peers that have connected inbound to us can open tunnels
+    var inbound = peers.filter(function (p) {
+      return p.direction === 'incoming' || p.direction === 'bidirectional';
+    });
+    _tunnelState.peers = inbound.map(function (peer) {
       var peerApps = (executing || []).filter(function (a) { return a.source_peer === peer.name; })
         .map(function (a) { return { id: a.id, name: a.name }; });
       return { name: peer.name, apps: peerApps };
@@ -544,7 +546,7 @@
     _tunnelState.allowedRaw = allowedStr || '';
     _tunnelState.denied = {};
     var entries = (allowedStr || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
-    if (!entries.length) return; // all allowed
+    if (!entries.length) { _renderTunnelPeerList(); return; } // all allowed — still render the list
     // Build a set of allowed entries
     var allowedSet = {};
     entries.forEach(function (e) { allowedSet[e] = true; });
