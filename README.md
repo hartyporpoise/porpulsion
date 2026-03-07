@@ -44,16 +44,14 @@ Starts two k3s clusters and a Helm runner in Docker, builds and loads the image,
 **Single cluster** (useful for testing peering from a second machine or another local install):
 
 ```sh
-make deploy-single   # prompts for an agent name
-make redeploy-single # rebuild + upgrade (keeps running cluster)
-make teardown-single # destroy
+make deploy-single   # start cluster, build, helm install (generates a random agent name)
+make teardown-single # destroy cluster and clear the saved agent name
 ```
 
 ### Makefile targets
 
 ```sh
 make deploy     # Full deploy from scratch (start clusters, build, helm install)
-make redeploy   # Rebuild image + helm upgrade (clusters keep running)
 make teardown   # Destroy everything (docker-compose down -v)
 make status     # Show pods and peer status for both clusters
 make logs       # Tail live agent logs from both clusters

@@ -11,7 +11,7 @@ import pathlib
 import socket
 import threading
 
-from flask import Flask, render_template, Response, jsonify
+from flask import Flask, Response, jsonify
 
 from porpulsion import state, tls
 from porpulsion.log_buffer import install_log_handler
@@ -120,6 +120,9 @@ def _reconnect_persisted_peers():
     _time.sleep(3)  # let the server fully start before connecting outbound
     from porpulsion.channel import open_channel_to
     for _p in state.peers.values():
+        if not _p.url:
+            log.debug("Skipping reconnect for incoming-only peer %s (no URL)", _p.name)
+            continue
         log.info("Re-opening WS channel to persisted peer %s", _p.name)
         open_channel_to(_p.name, _p.url, _p.ca_pem)
 
@@ -224,7 +227,6 @@ def openapi_yaml():
     """Serve generated OpenAPI 3 spec (YAML)."""
     from porpulsion.openapi_spec import get_openapi_yaml
     return Response(get_openapi_yaml(), mimetype="application/x-yaml")
-
 
 
 # -- Main
