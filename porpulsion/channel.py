@@ -251,9 +251,16 @@ class PeerChannel:
         """
         from porpulsion import state as _state, tls
 
-        # Capture the remote IP from the WSGI environ before reading any frames
+        # Capture the remote IP from the WSGI environ before reading any frames.
+        # Priority: CF-Connecting-IP > X-Real-IP > X-Forwarded-For (first) > REMOTE_ADDR
         try:
-            self.peer_remote_addr = sock.environ.get("REMOTE_ADDR", "")
+            env = sock.environ
+            self.peer_remote_addr = (
+                env.get("HTTP_CF_CONNECTING_IP")
+                or env.get("HTTP_X_REAL_IP")
+                or (env.get("HTTP_X_FORWARDED_FOR", "").split(",")[0].strip() or None)
+                or env.get("REMOTE_ADDR", "")
+            )
         except Exception:
             pass
 
