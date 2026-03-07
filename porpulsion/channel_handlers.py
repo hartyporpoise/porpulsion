@@ -289,6 +289,8 @@ def handle_proxy_request(payload: dict, peer_name: str = "") -> dict:
 
     allowed_raw = (state.settings.allowed_tunnel_peers or "").strip()
     if allowed_raw:
+        if allowed_raw == "__none__":
+            raise RuntimeError(f"tunnel from peer '{peer_name}' is not permitted")
         allowed_tokens = {t.strip() for t in allowed_raw.split(",") if t.strip()}
         if peer_name not in allowed_tokens and f"{peer_name}/{app_id}" not in allowed_tokens:
             raise RuntimeError(f"tunnel from peer '{peer_name}' is not permitted")
