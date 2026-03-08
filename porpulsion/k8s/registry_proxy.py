@@ -31,8 +31,17 @@ to:
     localhost:5100/<peer_name>/registry.example.com/myapp:latest
 """
 import base64
+<<<<<<< Updated upstream
+=======
+import datetime
+import hashlib
+import hmac
+import json
+>>>>>>> Stashed changes
 import logging
 import queue
+import ssl
+import tempfile
 import threading
 import uuid
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -234,25 +243,202 @@ def get_peer_secret(peer_name: str) -> str:
 _server: HTTPServer | None = None
 _server_lock = threading.Lock()
 
+# PEM bytes of the proxy's self-signed CA — set once by start_proxy()
+_proxy_ca_pem: bytes | None = None
+
+_PULL_SECRET_NAME = "porpulsion-registry-ca"
+
+
+def _generate_proxy_tls(namespace: str) -> tuple[bytes, bytes, bytes]:
+    """
+    Generate (or load cached) a self-signed CA + leaf TLS cert for the proxy.
+
+    The CA cert is stored in the porpulsion-credentials Secret under the key
+    'registry-proxy-ca.crt' so it survives pod restarts and can be retrieved
+    for the imagePullSecret without regenerating.
+
+    Returns (ca_cert_pem, leaf_cert_pem, leaf_key_pem) as bytes.
+    """
+    from cryptography import x509
+    from cryptography.x509.oid import NameOID
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from porpulsion import tls as _tls
+
+    core_v1 = _tls._k8s_core_v1()
+
+    # Try to load existing proxy CA from the credentials secret
+    try:
+        secret = core_v1.read_namespaced_secret("porpulsion-credentials", namespace)
+        d = secret.data or {}
+        if "registry-proxy-ca.crt" in d and "registry-proxy.crt" in d and "registry-proxy.key" in d:
+            log.debug("Loaded existing registry proxy TLS certs from Secret")
+            return (
+                base64.b64decode(d["registry-proxy-ca.crt"]),
+                base64.b64decode(d["registry-proxy.crt"]),
+                base64.b64decode(d["registry-proxy.key"]),
+            )
+    except Exception:
+        pass
+
+    log.info("Generating registry proxy TLS cert for namespace %s", namespace)
+    svc_dns = f"porpulsion-registry.{namespace}.svc.cluster.local"
+    now = datetime.datetime.now(datetime.timezone.utc)
+
+    # Self-signed CA
+    ca_key = ec.generate_private_key(ec.SECP256R1())
+    ca_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "porpulsion-registry-ca")])
+    ca_cert = (
+        x509.CertificateBuilder()
+        .subject_name(ca_name).issuer_name(ca_name)
+        .public_key(ca_key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now)
+        .not_valid_after(now + datetime.timedelta(days=3650))
+        .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
+        .sign(ca_key, hashes.SHA256())
+    )
+    ca_cert_pem = ca_cert.public_bytes(serialization.Encoding.PEM)
+    ca_key_pem_bytes = ca_key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.TraditionalOpenSSL,
+        serialization.NoEncryption(),
+    )
+
+    # Leaf cert signed by the CA, valid for the ClusterIP service DNS name
+    leaf_key = ec.generate_private_key(ec.SECP256R1())
+    leaf_cert = (
+        x509.CertificateBuilder()
+        .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, svc_dns)]))
+        .issuer_name(ca_name)
+        .public_key(leaf_key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now)
+        .not_valid_after(now + datetime.timedelta(days=3650))
+        .add_extension(x509.SubjectAlternativeName([x509.DNSName(svc_dns)]), critical=False)
+        .sign(ca_key, hashes.SHA256())
+    )
+    leaf_cert_pem = leaf_cert.public_bytes(serialization.Encoding.PEM)
+    leaf_key_pem = leaf_key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.TraditionalOpenSSL,
+        serialization.NoEncryption(),
+    )
+
+    # Persist to credentials secret so certs survive restarts
+    try:
+        _tls._patch_secret(core_v1, namespace, "porpulsion-credentials", {
+            "registry-proxy-ca.crt": base64.b64encode(ca_cert_pem).decode(),
+            "registry-proxy.crt":    base64.b64encode(leaf_cert_pem).decode(),
+            "registry-proxy.key":    base64.b64encode(leaf_key_pem).decode(),
+        })
+    except Exception as exc:
+        log.warning("Could not persist registry proxy TLS to Secret: %s", exc)
+
+    return ca_cert_pem, leaf_cert_pem, leaf_key_pem
+
+
+def ensure_pull_secret(namespace: str) -> str:
+    """
+    Create (or update) a kubernetes.io/dockerconfigjson Secret containing the
+    registry proxy's CA cert so containerd trusts the proxy's TLS certificate.
+
+    Returns the Secret name ('porpulsion-registry-ca').
+    """
+    global _proxy_ca_pem
+    if _proxy_ca_pem is None:
+        return _PULL_SECRET_NAME  # proxy not started yet, caller will retry
+
+    from porpulsion import tls as _tls
+    from kubernetes import client as k8s_client
+
+    svc_host = f"porpulsion-registry.{namespace}.svc.cluster.local:{_PROXY_PORT}"
+
+    # dockerconfigjson format — no credentials needed, just the registry entry
+    # so containerd knows to use our CA for TLS verification.
+    docker_config = {
+        "auths": {
+            svc_host: {
+                "auth": base64.b64encode(b"porpulsion:porpulsion").decode(),
+            }
+        }
+    }
+    ca_b64 = base64.b64encode(_proxy_ca_pem).decode()
+
+    core_v1 = _tls._k8s_core_v1()
+    secret = k8s_client.V1Secret(
+        metadata=k8s_client.V1ObjectMeta(name=_PULL_SECRET_NAME, namespace=namespace),
+        type="kubernetes.io/dockerconfigjson",
+        data={
+            ".dockerconfigjson": base64.b64encode(
+                json.dumps(docker_config).encode()
+            ).decode(),
+            # Extra key carrying the CA PEM — consumed by the DaemonSet if present,
+            # but primarily here for documentation/debugging.
+            "ca.crt": ca_b64,
+        },
+    )
+    try:
+        core_v1.create_namespaced_secret(namespace, secret)
+        log.info("Created imagePullSecret %s", _PULL_SECRET_NAME)
+    except k8s_client.ApiException as e:
+        if e.status == 409:
+            core_v1.replace_namespaced_secret(_PULL_SECRET_NAME, namespace, secret)
+            log.debug("Updated imagePullSecret %s", _PULL_SECRET_NAME)
+        else:
+            log.warning("Could not create imagePullSecret: %s", e)
+    return _PULL_SECRET_NAME
+
 
 def start_proxy() -> int:
     """
-    Start the OCI proxy server on localhost if not already running.
-    Returns the port it is listening on.
+    Start the OCI pull-through proxy over HTTPS using a self-signed cert.
+
+    The cert is signed by a per-agent CA stored in the porpulsion-credentials
+    Secret. The CA is distributed to workload pods via an imagePullSecret
+    (porpulsion-registry-ca) so containerd trusts the proxy's TLS certificate
+    without any node-level configuration.
+
     Idempotent — safe to call multiple times.
+    Returns the port the proxy is listening on.
     """
-    global _server
+    global _server, _proxy_ca_pem
     with _server_lock:
         if _server is not None:
             return _server.server_address[1]
 
+<<<<<<< Updated upstream
         server = HTTPServer(("127.0.0.1", _PROXY_PORT), _OciHandler)
+=======
+        from porpulsion import state
+        ca_pem, leaf_cert_pem, leaf_key_pem = _generate_proxy_tls(state.NAMESPACE)
+        _proxy_ca_pem = ca_pem
+
+        # Write cert + key to temp files (ssl.SSLContext requires file paths)
+        cert_file = tempfile.NamedTemporaryFile(delete=False, suffix=".crt")
+        cert_file.write(leaf_cert_pem)
+        cert_file.flush()
+
+        key_file = tempfile.NamedTemporaryFile(delete=False, suffix=".key")
+        key_file.write(leaf_key_pem)
+        key_file.flush()
+
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain(cert_file.name, key_file.name)
+
+        server = HTTPServer(("0.0.0.0", _PROXY_PORT), _OciHandler)
+        server.socket = ctx.wrap_socket(server.socket, server_side=True)
+>>>>>>> Stashed changes
         _server = server
 
     t = threading.Thread(target=server.serve_forever, daemon=True,
                          name="registry-proxy")
     t.start()
+<<<<<<< Updated upstream
     log.info("Registry pull-through proxy started on localhost:%d", _PROXY_PORT)
+=======
+    log.info("Registry pull-through proxy started on 0.0.0.0:%d (HTTPS)", _PROXY_PORT)
+>>>>>>> Stashed changes
     return _PROXY_PORT
 
 

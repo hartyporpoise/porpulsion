@@ -485,6 +485,8 @@ def run_workload(remote_app, callback_url, peer=None, cr_body=None):
         # ref so kubelet pulls via the local OCI proxy that streams blobs from the
         # submitting peer over the WS channel. registrySecret is optional — used
         # only when the registry also requires authentication.
+        # Note: the pull secret (porpulsion-registry-ca) is injected into spec.imagePullSecrets
+        # at CR creation time (channel_handlers / approve path), so we just read it from spec here.
         registry_proxy  = bool(getattr(spec, "registryProxy", False))
         registry_secret = getattr(spec, "registrySecret", None) or ""
         if registry_proxy and remote_app.source_peer:
@@ -498,8 +500,9 @@ def run_workload(remote_app, callback_url, peer=None, cr_body=None):
             except Exception as _rp_exc:
                 log.warning("Failed to start registry proxy: %s — using original image ref", _rp_exc)
 
-        pull_secrets = [client.V1LocalObjectReference(name=s) for s in spec.imagePullSecrets] \
-            if spec.imagePullSecrets else None
+        pull_secret_names = list(spec.imagePullSecrets or [])
+        pull_secrets = [client.V1LocalObjectReference(name=s) for s in pull_secret_names] \
+            if pull_secret_names else None
 
         # -- Readiness probe
         readiness_probe = None

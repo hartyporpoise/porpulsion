@@ -316,10 +316,21 @@ def approve_remoteapp(app_id):
     entry = state.pending_approval.pop(app_id)
     tls.save_state_configmap(state.NAMESPACE, state.settings, state.pending_approval)
     log.info("Approved app %s (%s) from %s", entry["name"], app_id, entry["source_peer"])
+    spec_dict = entry["spec"]
+    source_peer = entry["source_peer"]
+    if spec_dict.get("registryProxy") and source_peer:
+        try:
+            from porpulsion.k8s.registry_proxy import ensure_pull_secret
+            pull_secret_name = ensure_pull_secret(state.NAMESPACE)
+            existing = spec_dict.get("imagePullSecrets") or []
+            if pull_secret_name not in existing:
+                spec_dict["imagePullSecrets"] = existing + [pull_secret_name]
+        except Exception as _rp_exc:
+            log.warning("Could not ensure registry pull secret: %s", _rp_exc)
     # Create the ExecutingApp CR - the CR watcher drives workload execution
     from porpulsion.k8s.store import create_executingapp_cr
     create_executingapp_cr(
-        state.NAMESPACE, app_id, entry["name"], entry["spec"], entry["source_peer"],
+        state.NAMESPACE, app_id, entry["name"], spec_dict, source_peer,
     )
     return jsonify({"ok": True})
 
