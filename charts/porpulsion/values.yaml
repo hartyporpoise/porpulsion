@@ -6,7 +6,7 @@
 # -- Agent
 agent:
   # -- Container image for the porpulsion agent.
-  image: ghcr.io/hartyporpoise/porpulsion:0.5.7
+  image: ghcr.io/hartyporpoise/porpulsion:0.5.8
 
   # -- Image pull policy. Use `Always` when pushing to a remote registry.
   pullPolicy: IfNotPresent
@@ -22,6 +22,15 @@ agent:
   #    When true, the Role gains PVC create/delete permissions.
   #    Defaults to false  enable only on clusters where you trust peers to claim storage.
   allowPvcs: false
+
+  # -- CPU/memory requests and limits for the agent container.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
 
   # -- Externally reachable URL for this agent (e.g. https://porpulsion.example.com).
   #    Peer agents use this address for the initial peering handshake and the

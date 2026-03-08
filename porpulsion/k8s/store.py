@@ -86,14 +86,15 @@ def _check_crd_available(namespace: str) -> bool:
             _crd_available = True
         except ApiException as e:
             if e.status in (404, 403):
+                # CRD genuinely absent — latch False permanently
                 log.warning("RemoteApp CRD not available (status %s)  CR operations disabled", e.status)
                 _crd_available = False
             else:
-                _crd_available = False
+                # Transient error — leave None so we retry on next call
+                log.warning("RemoteApp CRD check transient error (status %s)  will retry", e.status)
         except Exception as e:
-            log.warning("CRD check failed: %s", e)
-            _crd_available = False
-    return _crd_available
+            log.warning("RemoteApp CRD check failed: %s  will retry", e)
+    return bool(_crd_available)
 
 
 def _check_ea_crd_available(namespace: str) -> bool:
@@ -111,11 +112,10 @@ def _check_ea_crd_available(namespace: str) -> bool:
                 log.warning("ExecutingApp CRD not available (status %s)  EA CR operations disabled", e.status)
                 _ea_crd_available = False
             else:
-                _ea_crd_available = False
+                log.warning("ExecutingApp CRD check transient error (status %s)  will retry", e.status)
         except Exception as e:
-            log.warning("ExecutingApp CRD check failed: %s", e)
-            _ea_crd_available = False
-    return _ea_crd_available
+            log.warning("ExecutingApp CRD check failed: %s  will retry", e)
+    return bool(_ea_crd_available)
 
 
 

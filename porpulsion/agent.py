@@ -16,7 +16,7 @@ import pathlib
 import socket
 import threading
 
-from flask import Flask, Response, jsonify
+from flask import Flask, Response, jsonify, request
 from flask_sock import Sock
 
 from porpulsion import state, tls
@@ -99,10 +99,13 @@ from porpulsion.k8s.store import load_spec_schema as _load_spec_schema  # noqa: 
 _load_spec_schema()
 
 for _p in tls.load_peers(state.NAMESPACE):
+    # Migrate old format: initiator(bool) + has_inbound(bool) → direction(str)
+    if "direction" not in _p:
+        _ini, _inb = _p.get("initiator", False), _p.get("has_inbound", False)
+        _p["direction"] = "bidirectional" if (_ini and _inb) else ("outgoing" if _ini else "incoming")
     state.peers[_p["name"]] = Peer(
         name=_p["name"], url=_p["url"], ca_pem=_p.get("ca_pem", ""),
-        initiator=_p.get("initiator", False),
-        has_inbound=_p.get("has_inbound", False))
+        direction=_p["direction"])
 
 _saved = tls.load_state_configmap(state.NAMESPACE)
 if "settings" in _saved:
@@ -127,8 +130,8 @@ def _reconnect_persisted_peers():
     _time.sleep(3)  # let the server fully start before connecting outbound
     from porpulsion.channel import open_channel_to
     for _p in state.peers.values():
-        if not _p.url:
-            log.debug("Skipping reconnect for incoming-only peer %s (no URL)", _p.name)
+        if not _p.url or _p.direction == "incoming":
+            log.debug("Skipping reconnect for incoming peer %s (no outbound URL)", _p.name)
             continue
         log.info("Re-opening WS channel to persisted peer %s", _p.name)
         open_channel_to(_p.name, _p.url, _p.ca_pem)
@@ -152,10 +155,12 @@ app.secret_key = _session_secret
 
 # Server-side sessions - each browser tab gets its own independent session ID,
 # so logging in/out in one tab doesn't affect other tabs.
-import tempfile as _tempfile
+import pathlib as _pathlib
 from flask_session import Session as _Session
+_session_dir = _pathlib.Path("/tmp/porpulsion-sessions")
+_session_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
 app.config["SESSION_TYPE"] = "filesystem"
-app.config["SESSION_FILE_DIR"] = _tempfile.mkdtemp(prefix="porpulsion-sessions-")
+app.config["SESSION_FILE_DIR"] = str(_session_dir)
 app.config["SESSION_PERMANENT"] = False
 app.config["SESSION_USE_SIGNER"] = True
 _Session(app)
@@ -186,6 +191,30 @@ def status():
         "local_apps": len(list_remoteapp_crs(state.NAMESPACE)),
         "remote_apps": len(list_executingapp_crs(state.NAMESPACE)),
     })
+
+
+# -- CSRF protection
+# Inject `csrf_token()` into every Jinja2 template and validate the token on
+# all HTML form POSTs (routes that are not under /api/).
+
+from porpulsion.csrf import generate_token as _csrf_generate, validate_token as _csrf_validate
+
+@app.context_processor
+def _csrf_context():
+    return {"csrf_token": _csrf_generate}
+
+_CSRF_PROTECTED_PATHS = ("/login", "/logout", "/users/add", "/users/edit", "/users/remove", "/signup")
+
+@app.before_request
+def _ensure_csrf_token():
+    """Eagerly create the CSRF token on GETs so it's in the session before the response is sent."""
+    if request.method == "GET" and not request.path.startswith("/api/") and request.path != "/status":
+        _csrf_generate()
+
+@app.before_request
+def _check_csrf():
+    if request.method == "POST" and any(request.path == p for p in _CSRF_PROTECTED_PATHS):
+        _csrf_validate()
 
 
 # -- API auth guard
@@ -301,14 +330,16 @@ if __name__ == "__main__":
 
     worker_threads = int(os.environ.get("GUNICORN_THREADS", "4"))
     _StandaloneApp(app, {
-        "bind":         "0.0.0.0:8000",
-        "workers":      1,
-        "worker_class": "gthread",
-        "threads":      worker_threads,
-        "timeout":      120,
-        "keepalive":    5,
-        "loglevel":     "warning",
-        "accesslog":    "-",
-        "errorlog":     "-",
-        "post_fork":    _post_fork,
+        "bind":            "0.0.0.0:8000",
+        "workers":         1,
+        "worker_class":    "gthread",
+        "threads":         worker_threads,
+        "timeout":         120,
+        "keepalive":       5,
+        "loglevel":        "warning",
+        "accesslog":       "-",
+        "errorlog":        "-",
+        "worker_tmp_dir":         "/tmp",
+        "control_socket_disable": True,
+        "post_fork":              _post_fork,
     }).run()

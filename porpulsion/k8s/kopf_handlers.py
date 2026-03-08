@@ -123,7 +123,7 @@ def on_remoteapp_created(body, meta, status, namespace, **kwargs):
         log.warning("kopf: RemoteApp %s targets peer %r which is not connected", cr_name, target_peer)
         raise kopf.TemporaryError(f"peer {target_peer!r} not connected", delay=5)
 
-    if not peer.initiator:
+    if not peer.can_deploy():
         msg = (f"Cannot deploy to '{target_peer}' — they connected to us (incoming only). "
                "Paste their invite bundle to enable bidirectional peering.")
         log.warning("kopf: RemoteApp %s rejected: %s", cr_name, msg)
@@ -218,7 +218,8 @@ def on_remoteapp_deleted(body, meta, status, **kwargs):
 
     peer = state.peers.get(target_peer)
     if not peer:
-        log.warning("kopf: RemoteApp %s deleted but peer %r not connected - skipping", cr_name, target_peer)
+        # Peer removed entirely - nothing to notify; let the CR delete proceed
+        log.warning("kopf: RemoteApp %s deleted but peer %r unknown - cannot notify", cr_name, target_peer)
         return
 
     try:
@@ -226,4 +227,5 @@ def on_remoteapp_deleted(body, meta, status, **kwargs):
         get_channel(peer.name).call("remoteapp/delete", {"id": app_id})
         log.info("kopf: notified peer %s to delete EA for RemoteApp %s (%s)", peer.name, cr_name, app_id)
     except Exception as e:
-        log.warning("kopf: failed to notify peer of RA deletion: %s", e)
+        # Peer exists but channel is down - retry so the delete reaches them when reconnected
+        raise kopf.TemporaryError(f"failed to notify peer {target_peer} of RA deletion: {e}", delay=10)

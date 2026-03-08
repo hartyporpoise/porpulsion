@@ -190,22 +190,21 @@ class Peer:
     url: str
     ca_pem: str = ""  # PEM CA cert received from this peer during handshake (internal only)
     connected_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
-    initiator: bool = True   # True if we opened the outbound channel (pasted their bundle)
-    has_inbound: bool = False  # True once they've connected inbound to us
+    # "outgoing"      — we opened the channel (pasted their bundle)
+    # "incoming"      — they connected to us (we haven't pasted their bundle)
+    # "bidirectional" — both sides have connected
+    direction: str = "outgoing"
     # CRD schema diff set on connect: {"missing_local": [...], "missing_remote": [...]}
     # missing_remote = fields this peer lacks; missing_local = fields we lack
     crd_diff: dict = field(default_factory=dict)
 
-    def direction(self) -> str:
-        if self.initiator and self.has_inbound:
-            return "bidirectional"
-        if self.initiator:
-            return "outgoing"
-        return "incoming"
+    def can_deploy(self) -> bool:
+        """True when we have an outbound channel to this peer (can submit workloads)."""
+        return self.direction in ("outgoing", "bidirectional")
 
     def to_dict(self):
         d = {"name": self.name, "url": self.url, "connected_at": self.connected_at,
-             "direction": self.direction()}
+             "direction": self.direction}
         if self.crd_diff:
             d["crd_diff"] = self.crd_diff
         return d

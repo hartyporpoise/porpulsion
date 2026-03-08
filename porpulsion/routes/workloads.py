@@ -289,10 +289,10 @@ def create_remoteapp():
         peer = state.peers.get(target_peer_name)
         if not peer:
             return jsonify({"error": f"peer '{target_peer_name}' not found or not connected"}), 400
-        if not peer.initiator:
-            return jsonify({"error": f"'{target_peer_name}' connected to us — can only deploy to peers you initiated"}), 403
+        if not peer.can_deploy():
+            return jsonify({"error": f"'{target_peer_name}' is incoming-only — paste their invite bundle to enable deploying to them"}), 403
     else:
-        peer = next((p for p in state.peers.values() if p.initiator), None)
+        peer = next((p for p in state.peers.values() if p.can_deploy()), None)
         if not peer:
             return jsonify({"error": "no outgoing peers to deploy to"}), 503
 
@@ -427,7 +427,7 @@ def remoteapp_detail(app_id):
     d = cr_to_dict(cr, side)
 
     if side == "submitted":
-        peer = state.peers.get(d["target_peer"]) or next(iter(state.peers.values()), None)
+        peer = state.peers.get(d["target_peer"])
         if not peer:
             return jsonify({"error": "peer not connected", "app": d}), 200
         try:
@@ -466,7 +466,7 @@ def remoteapp_logs(app_id):
     d = cr_to_dict(cr, side)
 
     if side == "submitted":
-        peer = state.peers.get(d["target_peer"]) or next(iter(state.peers.values()), None)
+        peer = state.peers.get(d["target_peer"])
         if not peer:
             return jsonify({"error": "peer not connected", "lines": []}), 200
         try:

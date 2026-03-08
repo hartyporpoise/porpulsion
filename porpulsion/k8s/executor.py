@@ -593,6 +593,9 @@ def run_workload(remote_app, callback_url, peer=None, cr_body=None):
                 log.info("Updated service %s", deploy_name)
             else:
                 log.warning("Failed to create service %s: %s", deploy_name, e.reason)
+                _report_status(remote_app, callback_url,
+                               f"Failed: service creation error: {e.reason}", peer=peer)
+                return
 
         _report_status(remote_app, callback_url, "Running", peer=peer)
 

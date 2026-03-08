@@ -315,8 +315,8 @@ def handle_proxy_request(payload: dict, peer_name: str = "") -> dict:
 # -- Peer lifecycle
 
 def handle_peer_bidirectional(payload: dict):
-    """The accepting peer is telling us they received our inbound connection.
-    Mark our peer entry as has_inbound=True and store the remote_addr they saw us from."""
+    """The accepting peer is telling us they connected our inbound.
+    Upgrade our direction to bidirectional and record the remote_addr they saw us from."""
     from porpulsion import state, tls
 
     peer_name   = payload.get("name", "")
@@ -324,8 +324,8 @@ def handle_peer_bidirectional(payload: dict):
     if not peer_name:
         return
     peer = state.peers.get(peer_name)
-    if peer and not peer.has_inbound:
-        peer.has_inbound = True
+    if peer and peer.direction == "outgoing":
+        peer.direction = "bidirectional"
         tls.save_peers(state.NAMESPACE, state.peers)
         log.info("Peer %s confirmed bidirectional connection", peer_name)
     # Store on the live channel so the dashboard can show our outbound IP as seen by the peer
@@ -396,7 +396,14 @@ def handle_peer_disconnect(payload: dict):
             msg += f" {len(affected)} workload(s) marked Failed: {', '.join(affected[:3])}{'...' if len(affected) > 3 else ''}."
         add_notification(level="warn", title=f"Peer disconnected: {peer_name}", message=msg)
 
-    # Always close and remove the channel entry
-    ch = state.peer_channels.pop(peer_name, None)
+    # Remove the channel entry and tear it down.
+    # For intentional removals: full close (sets _running=False, kills reconnect loop).
+    # For transient disconnects: disconnect only (clears _ws so connect_and_maintain
+    # will reconnect naturally without terminating the daemon thread).
+    with state.peer_channels_lock:
+        ch = state.peer_channels.pop(peer_name, None)
     if ch:
-        ch.close()
+        if intentional_removal:
+            ch.close()
+        else:
+            ch.disconnect()

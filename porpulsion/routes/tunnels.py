@@ -1,6 +1,8 @@
 import base64
+import gzip
 import logging
 import re
+import zlib
 
 from flask import Blueprint, request, jsonify, Response
 
@@ -16,7 +18,7 @@ _PROXY_METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]
 # Hop-by-hop headers that must not be forwarded
 _HOP_BY_HOP = {"host", "transfer-encoding", "connection", "keep-alive",
                "proxy-authenticate", "proxy-authorization", "te", "trailers",
-               "upgrade", "content-encoding"}
+               "upgrade"}
 
 
 # -- User-facing proxy (submitting side)
@@ -38,7 +40,7 @@ def proxy_remoteapp(app_id, port, subpath):
         return jsonify({"error": "app not found"}), 404
 
     d = cr_to_dict(cr, side)
-    peer = state.peers.get(d["target_peer"]) or next(iter(state.peers.values()), None)
+    peer = state.peers.get(d["target_peer"])
     if not peer:
         return jsonify({"error": "peer not connected"}), 503
 
@@ -62,13 +64,31 @@ def proxy_remoteapp(app_id, port, subpath):
     scheme = request.headers.get("X-Forwarded-Proto", request.scheme)
     proxy_prefix = f"{scheme}://{request.host}/api/remoteapp/{app_id}/proxy/{port}"
     resp_headers = {}
+    content_encoding = ""
     for k, v in result.get("headers", {}).items():
+        if k.lower() == "content-encoding":
+            content_encoding = v.lower().strip()
+            continue  # strip hop-by-hop; we decompress below
         if k.lower() in _HOP_BY_HOP:
             continue
         if k.lower() == "location":
             v = re.sub(r'^https?://[^/]*', proxy_prefix, v)
         resp_headers[k] = v
     body = base64.b64decode(result.get("body", ""))
+    # Decompress the body since we stripped content-encoding from the headers
+    if content_encoding == "gzip":
+        try:
+            body = gzip.decompress(body)
+        except Exception:
+            pass
+    elif content_encoding in ("deflate", "zlib"):
+        try:
+            body = zlib.decompress(body)
+        except Exception:
+            try:
+                body = zlib.decompress(body, -zlib.MAX_WBITS)  # raw deflate
+            except Exception:
+                pass
     content_type = resp_headers.get("Content-Type", "")
     if "text/html" in content_type and b"<head" in body:
         base_tag = f'<base href="{proxy_prefix}/">'.encode()

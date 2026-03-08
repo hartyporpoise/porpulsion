@@ -254,11 +254,10 @@ def load_or_generate_ca(agent_name: str, namespace: str) -> tuple[bytes, bytes]:
 def save_peers(namespace: str, peers: dict) -> None:
     """
     Persist the peers dict to the porpulsion-peers Secret (fire-and-forget thread).
-    Serialises each peer as {name, url, ca_pem, initiator, has_inbound}.
+    Serialises each peer as {name, url, ca_pem, direction}.
     """
     peer_list = [
-        {"name": p.name, "url": p.url, "ca_pem": p.ca_pem,
-         "initiator": p.initiator, "has_inbound": p.has_inbound}
+        {"name": p.name, "url": p.url, "ca_pem": p.ca_pem, "direction": p.direction}
         for p in peers.values()
     ]
     json_str = json.dumps(peer_list)
