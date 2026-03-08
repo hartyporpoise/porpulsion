@@ -44,13 +44,24 @@
     return '<span class="badge ' + cls + '">' + dot + (status || 'unknown') + '</span>';
   }
 
-  function timeAgo(iso) {
+  function _timeAgoText(iso) {
     if (!iso) return '';
     var diff = (Date.now() - new Date(iso).getTime()) / 1000;
     if (diff < 60) return Math.floor(diff) + 's ago';
     if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
     return Math.floor(diff / 3600) + 'h ago';
   }
+
+  function timeAgo(iso) {
+    if (!iso) return '';
+    return '<span class="time-ago-span" data-ts="' + iso + '">' + _timeAgoText(iso) + '</span>';
+  }
+
+  setInterval(function () {
+    document.querySelectorAll('.time-ago-span').forEach(function (el) {
+      el.textContent = _timeAgoText(el.dataset.ts);
+    });
+  }, 30000);
 
   function setSecret(id, value) {
     var el = document.getElementById(id);

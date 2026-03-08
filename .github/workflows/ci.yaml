@@ -9,6 +9,9 @@ name: CI
 #       [minor]            - minor bump appVersion + version + values.yaml image tag
 #       [major]            - major bump appVersion + version + values.yaml image tag
 #       [chart]            - patch bump version only (no appVersion / image tag change)
+#     The bump commit does NOT use [skip ci] — version-bump only runs on pull_request
+#     events so there is no re-trigger risk, and [skip ci] in the body causes GitHub
+#     to skip the push-to-main workflow when the PR is squash-merged.
 #     If the PR already has a bump commit it is amended so version only moves
 #     forward once per PR regardless of how many times the branch is pushed.
 #
@@ -159,7 +162,7 @@ jobs:
               git commit --amend --no-edit
               git push --force-with-lease origin "${{ github.head_ref }}"
             else
-              git commit -m "chore: bump to app=${{ steps.versions.outputs.new_app }} chart=${{ steps.versions.outputs.new_chart_version }} [skip ci]"
+              git commit -m "chore: bump to app=${{ steps.versions.outputs.new_app }} chart=${{ steps.versions.outputs.new_chart_version }}"
               git push origin "${{ github.head_ref }}"
             fi
           fi
