@@ -251,10 +251,16 @@ def load_or_generate_ca(agent_name: str, namespace: str) -> tuple[bytes, bytes]:
 
 # -- Peer persistence
 
+_save_peers_lock = threading.Lock()
+_save_peers_seq = 0
+
+
 def save_peers(namespace: str, peers: dict) -> None:
     """
     Persist the peers dict to the porpulsion-peers Secret (fire-and-forget thread).
     Serialises each peer as {name, url, ca_pem, direction}.
+    Uses a sequence counter to ensure a stale background thread never overwrites
+    a newer write that already completed.
     """
     peer_list = [
         {"name": p.name, "url": p.url, "ca_pem": p.ca_pem, "direction": p.direction}
@@ -262,7 +268,16 @@ def save_peers(namespace: str, peers: dict) -> None:
     ]
     json_str = json.dumps(peer_list)
 
+    global _save_peers_seq
+    with _save_peers_lock:
+        _save_peers_seq += 1
+        my_seq = _save_peers_seq
+
     def _write():
+        with _save_peers_lock:
+            if my_seq < _save_peers_seq:
+                _log.debug("save_peers: skipping stale write (seq %d < %d)", my_seq, _save_peers_seq)
+                return
         try:
             core_v1 = _k8s_core_v1()
             _patch_secret(core_v1, namespace, _PEERS_SECRET, {

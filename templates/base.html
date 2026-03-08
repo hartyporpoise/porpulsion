@@ -191,6 +191,14 @@
   <script src="https://unpkg.com/htmx.org@1.9.10"></script>
   <script src="https://unpkg.com/htmx.org@1.9.10/dist/ext/json-enc.js"></script>
   <script src="https://unpkg.com/alpinejs@3.13.3/dist/cdn.min.js" defer></script>
+  <!-- Monaco AMD loader — loaded eagerly so the editor is available on any page instantly -->
+  <script src="https://unpkg.com/monaco-editor@0.52.2/min/vs/loader.js"></script>
+  <script>
+    // Configure the AMD loader immediately after it loads, before any page JS runs.
+    if (window.require && window.require.config) {
+      window.require.config({ paths: { vs: 'https://unpkg.com/monaco-editor@0.52.2/min/vs' } });
+    }
+  </script>
   <script src="{{ url_for('static', filename='js/api.js') }}"></script>
   <script src="{{ url_for('static', filename='js/app.js') }}"></script>
   <script src="{{ url_for('static', filename='js/setup-vscode-editor.js') }}"></script>

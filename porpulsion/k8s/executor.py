@@ -358,12 +358,26 @@ def run_workload(remote_app, callback_url, peer=None, cr_body=None):
             ))
             volume_mounts.append(client.V1VolumeMount(name=vol_name, mount_path=sec_spec.mountPath))
 
-        # PVCs - check total quota first
+        # PVCs - check aggregate quota first (sum of all existing PVCs + this app's new ones)
         total_pvc_limit = state.settings.max_pvc_storage_total_gb
         if total_pvc_limit > 0 and spec.pvcs:
-            total_requested_gb = sum(_parse_storage_gb(p.storage) for p in spec.pvcs if p.name and p.mountPath)
+            this_app_gb = sum(_parse_storage_gb(p.storage) for p in spec.pvcs if p.name and p.mountPath)
+            try:
+                existing_pvcs = core_v1.list_namespaced_persistent_volume_claim(NAMESPACE)
+                existing_gb = sum(
+                    _parse_storage_gb(
+                        (pvc.spec.resources.requests or {}).get("storage", "0")
+                    )
+                    for pvc in existing_pvcs.items
+                    # Exclude PVCs that already belong to this app (redeploy case)
+                    if not pvc.metadata.name.startswith(f"{deploy_name}-pvc-")
+                )
+            except Exception as exc:
+                log.warning("Could not list existing PVCs for quota check: %s", exc)
+                existing_gb = 0.0
+            total_requested_gb = existing_gb + this_app_gb
             if total_requested_gb > total_pvc_limit:
-                _report_status(remote_app, callback_url, f"Failed: app requests {total_requested_gb:.1f}Gi total PVC storage but cluster limit is {total_pvc_limit}Gi", peer=peer)
+                _report_status(remote_app, callback_url, f"Failed: total PVC storage would be {total_requested_gb:.1f}Gi but cluster limit is {total_pvc_limit}Gi", peer=peer)
                 return
 
         for pvc_spec in (spec.pvcs or []):
@@ -466,6 +480,24 @@ def run_workload(remote_app, callback_url, peer=None, cr_body=None):
 
         # -- imagePullPolicy / imagePullSecrets
         pull_policy = spec.imagePullPolicy
+
+        # Registry pull-through proxy: if registryProxy is true, rewrite the image
+        # ref so kubelet pulls via the local OCI proxy that streams blobs from the
+        # submitting peer over the WS channel. registrySecret is optional — used
+        # only when the registry also requires authentication.
+        registry_proxy  = bool(getattr(spec, "registryProxy", False))
+        registry_secret = getattr(spec, "registrySecret", None) or ""
+        if registry_proxy and remote_app.source_peer:
+            try:
+                from porpulsion.k8s.registry_proxy import start_proxy, proxy_image_ref, register_peer_secret
+                start_proxy()
+                register_peer_secret(remote_app.source_peer, registry_secret)
+                image = proxy_image_ref(remote_app.source_peer, image)
+                log.info("Registry proxy active for %s: image rewritten to %s",
+                         remote_app.id, image)
+            except Exception as _rp_exc:
+                log.warning("Failed to start registry proxy: %s — using original image ref", _rp_exc)
+
         pull_secrets = [client.V1LocalObjectReference(name=s) for s in spec.imagePullSecrets] \
             if spec.imagePullSecrets else None
 

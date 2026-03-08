@@ -1,4 +1,7 @@
+import ipaddress
 import logging
+import socket
+import urllib.parse
 
 from flask import Blueprint, request, jsonify
 
@@ -7,6 +10,39 @@ from porpulsion.models import Peer
 from porpulsion.channel import open_channel_to
 
 log = logging.getLogger("porpulsion.routes.peers")
+
+
+def _is_private_ip(host: str) -> bool:
+    """Return True if host resolves to (or is) a private/link-local/loopback address."""
+    try:
+        addr = ipaddress.ip_address(host)
+        return addr.is_private or addr.is_loopback or addr.is_link_local
+    except ValueError:
+        pass
+    # It's a hostname — resolve it
+    try:
+        infos = socket.getaddrinfo(host, None)
+        for _, _, _, _, sockaddr in infos:
+            ip = sockaddr[0]
+            try:
+                addr = ipaddress.ip_address(ip)
+                if addr.is_private or addr.is_loopback or addr.is_link_local:
+                    return True
+            except ValueError:
+                continue
+    except OSError:
+        pass
+    return False
+
+
+def _check_reachable(host: str, port: int, timeout: float = 3.0) -> bool:
+    """Try a TCP connect to host:port. Returns True if successful."""
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
 
 bp = Blueprint("peers", __name__)
 
@@ -82,6 +118,22 @@ def connect_peer():
     peer_name = parsed["agent_name"]
     peer_url  = parsed["url"].rstrip("/")
     peer_ca   = parsed["ca_pem"]
+
+    # Reachability check for private IPs — reject early rather than hanging on connect
+    try:
+        parsed_url = urllib.parse.urlparse(peer_url)
+        host = parsed_url.hostname or ""
+        default_port = 443 if parsed_url.scheme == "https" else 80
+        port = parsed_url.port or default_port
+        if host and _is_private_ip(host):
+            if not _check_reachable(host, port, timeout=3.0):
+                return jsonify({
+                    "error": f"Cannot reach {host}:{port} — the peer URL resolves to a private "
+                             f"address that is not reachable from this agent. Check that the URL "
+                             f"is correct and the peer is online."
+                }), 400
+    except Exception as exc:
+        log.debug("Reachability pre-check failed for %s: %s", peer_url, exc)
 
     # Check for existing peer entries
     for existing in state.peers.values():

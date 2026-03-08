@@ -213,7 +213,7 @@
 
   // Re-open edit modal if server returned an error
   {% if edit_target %}
-  openEditModal('{{ edit_target }}');
+  openEditModal({{ edit_target | tojson }});
   {% endif %}
 
   function updatePwBar(val) {

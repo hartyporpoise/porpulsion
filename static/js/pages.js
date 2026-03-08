@@ -165,7 +165,7 @@
     if (crdDiff && ((crdDiff.missing_local && crdDiff.missing_local.length) || (crdDiff.missing_remote && crdDiff.missing_remote.length))) {
       var parts = [];
       if (crdDiff.missing_remote && crdDiff.missing_remote.length) parts.push('peer missing: ' + crdDiff.missing_remote.join(', '));
-      if (crdDiff.missing_local && crdDiff.missing_local.length) parts.push('we missing: ' + crdDiff.missing_local.join(', '));
+      if (crdDiff.missing_local && crdDiff.missing_local.length) parts.push('missing: ' + crdDiff.missing_local.join(', '));
       crdRow = '<div class="detail-row"><span class="label">CRD diff</span><span class="text-sm" style="color:var(--yellow);">' + _esc(parts.join(' | ')) + '</span></div>';
     }
 
@@ -546,7 +546,7 @@
     var titleEl = el('dialog-title');
     var bodyEl = el('dialog-body');
     var actionsEl = el('dialog-actions');
-    if (!backdrop) { callback(); return; }
+    if (!backdrop) { return; }
     titleEl.textContent = title;
     bodyEl.textContent = body;
     actionsEl.innerHTML = '';
@@ -577,7 +577,7 @@
     var bodyEl   = el('dialog-body');
     var inputEl  = el('dialog-input');
     var actionsEl = el('dialog-actions');
-    if (!backdrop) { callback(); return; }
+    if (!backdrop) { return; }
 
     titleEl.textContent = 'Remove peer "' + peerName + '"?';
 
@@ -1720,7 +1720,7 @@
         var mo = new MutationObserver(function () { syncLabel(); });
         mo.observe(sel, { childList: true, subtree: false });
       }
-      sel._ddRebuild = buildOptions;
+      sel._ddRebuild = function () { buildOptions(); syncLabel(); };
       syncLabel();
       if (sel.id) { trigger.setAttribute('aria-controls', 'dd-panel-' + sel.id); panel.id = 'dd-panel-' + sel.id; }
       if (sel.hasAttribute('aria-label')) trigger.setAttribute('aria-label', sel.getAttribute('aria-label'));
@@ -1801,6 +1801,188 @@
       });
     }
 
+    // ── Registry credentials ──────────────────────────────────────
+    var TRASH_SVG  = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>';
+    var PENCIL_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
+    var EYE_OPEN_SVG   = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+    var EYE_CLOSED_SVG = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
+
+    var _regIsEdit = false; // tracks whether modal is open for add vs edit
+
+    function openRegModal(s) {
+      // s = null → add mode; s = credential object → edit mode
+      _regIsEdit = !!s;
+      var modal    = el('reg-secret-modal');
+      var titleEl  = el('reg-secret-modal-title');
+      var lblEl    = el('reg-secret-label');
+      var hintEl   = el('reg-secret-label-hint');
+      var pwdEl    = el('reg-secret-password');
+      var pwdHint  = el('reg-secret-pwd-hint');
+      var saveBtn  = el('reg-secret-save-btn');
+
+      // Reset all fields
+      ['reg-secret-label','reg-secret-server','reg-secret-username','reg-secret-password'].forEach(function (id) {
+        var f = el(id); if (f) f.value = '';
+      });
+      // Reset password visibility
+      if (pwdEl) pwdEl.type = 'password';
+      var eyeBtn2 = el('reg-secret-pwd-eye');
+      if (eyeBtn2) eyeBtn2.innerHTML = EYE_OPEN_SVG;
+
+      if (_regIsEdit) {
+        if (titleEl) titleEl.textContent = 'Edit credential';
+        if (saveBtn) saveBtn.textContent = 'Update credential';
+        if (lblEl) { lblEl.value = s.label; lblEl.readOnly = true; lblEl.style.opacity = '0.55'; }
+        if (hintEl) hintEl.style.display = 'none';
+        el('reg-secret-server').value   = s.server;
+        el('reg-secret-username').value = s.username;
+        if (pwdEl) pwdEl.value = s.password || '';
+        if (pwdHint) pwdHint.style.display = 'none';
+      } else {
+        if (titleEl) titleEl.textContent = 'Add credential';
+        if (saveBtn) saveBtn.textContent = 'Save credential';
+        if (lblEl) { lblEl.readOnly = false; lblEl.style.opacity = ''; }
+        if (hintEl) hintEl.style.display = '';
+        if (pwdHint) pwdHint.style.display = 'none';
+      }
+
+      if (modal) modal.classList.add('open');
+      // Focus first editable field
+      setTimeout(function () {
+        var first = _regIsEdit ? el('reg-secret-server') : el('reg-secret-label');
+        if (first) first.focus();
+      }, 60);
+    }
+
+    function closeRegModal() {
+      var modal = el('reg-secret-modal');
+      if (modal) modal.classList.remove('open');
+    }
+
+    function renderRegSecrets(list) {
+      var wrap = el('reg-secrets-list');
+      if (!wrap) return;
+      if (!list || !list.length) {
+        wrap.innerHTML = '<p class="text-sm text-muted" style="margin:0;">No credentials saved yet.</p>';
+        return;
+      }
+      wrap.innerHTML = '';
+      list.forEach(function (s) {
+        var row = document.createElement('div');
+        row.className = 'health-row';
+        row.style.cssText = 'display:flex;align-items:center;gap:0.75rem;padding:0.6rem 0;border-bottom:1px solid var(--border);';
+        row.innerHTML =
+          '<span style="flex:1;font-weight:500;">' + _esc(s.label) + '</span>' +
+          '<span class="mono text-sm" style="color:var(--muted);">' + _esc(s.server) + '</span>' +
+          '<span class="mono text-sm" style="color:var(--muted2);">' + _esc(s.username) + '</span>';
+
+        var editBtn = document.createElement('button');
+        editBtn.type = 'button';
+        editBtn.className = 'btn-icon';
+        editBtn.title = 'Edit credential';
+        editBtn.innerHTML = PENCIL_SVG;
+        editBtn.addEventListener('click', function () { openRegModal(s); });
+
+        var delBtn = document.createElement('button');
+        delBtn.type = 'button';
+        delBtn.className = 'btn-icon btn-icon-danger';
+        delBtn.title = 'Delete credential';
+        delBtn.innerHTML = TRASH_SVG;
+        delBtn.addEventListener('click', function () {
+          showConfirm(
+            'Delete credential?',
+            'Remove "' + s.label + '" (' + s.server + ')? Apps using this credential will fail to pull.',
+            'Delete',
+            'btn-danger',
+            function () {
+              P.deleteRegistrySecret(s.name)
+                .then(loadRegSecrets)
+                .catch(function (err) { toast(err.message || 'Delete failed', 'error'); });
+            }
+          );
+        });
+        row.appendChild(editBtn);
+        row.appendChild(delBtn);
+        wrap.appendChild(row);
+      });
+    }
+
+    function loadRegSecrets() {
+      if (!el('reg-secrets-list')) return;
+      P.listRegistrySecrets()
+        .then(renderRegSecrets)
+        .catch(function () {});
+    }
+
+    // Password eye toggle
+    var pwdEyeBtn = el('reg-secret-pwd-eye');
+    if (pwdEyeBtn) {
+      pwdEyeBtn.addEventListener('click', function () {
+        var pwdEl  = el('reg-secret-password');
+        if (!pwdEl) return;
+        var showing = pwdEl.type === 'text';
+        pwdEl.type  = showing ? 'password' : 'text';
+        pwdEyeBtn.innerHTML = showing ? EYE_OPEN_SVG : EYE_CLOSED_SVG;
+      });
+    }
+
+    // Add button
+    var regAddBtn = el('reg-secret-add-btn');
+    if (regAddBtn) {
+      regAddBtn.addEventListener('click', function () { openRegModal(null); });
+    }
+
+    // Cancel / close
+    var regCancel = el('reg-secret-cancel-btn');
+    if (regCancel) { regCancel.addEventListener('click', closeRegModal); }
+    var regModalClose = el('reg-secret-modal-close');
+    if (regModalClose) { regModalClose.addEventListener('click', closeRegModal); }
+    var regModal = el('reg-secret-modal');
+    if (regModal) {
+      regModal.addEventListener('click', function (e) {
+        if (e.target === regModal) closeRegModal();
+      });
+    }
+
+    // Save
+    var regSave = el('reg-secret-save-btn');
+    if (regSave) {
+      regSave.addEventListener('click', function () {
+        var lblEl    = el('reg-secret-label');
+        var label    = (lblEl ? lblEl.value : '').trim();
+        var server   = ((el('reg-secret-server')   || {}).value || '').trim();
+        var username = ((el('reg-secret-username') || {}).value || '').trim();
+        var password = ((el('reg-secret-password') || {}).value || '').trim();
+
+        if (!label || !server || !username) {
+          toast('Label, server and username are required', 'error'); return;
+        }
+        if (!_regIsEdit && !password) {
+          toast('Password is required', 'error'); return;
+        }
+        if (!_regIsEdit && !/^[A-Za-z0-9]([A-Za-z0-9\-_.]*[A-Za-z0-9])?$/.test(label)) {
+          toast('Label must use only letters, numbers, hyphens, underscores and dots — no spaces', 'error'); return;
+        }
+        regSave.disabled = true; regSave.textContent = 'Saving…';
+        var payload = { label: label, server: server, username: username };
+        if (password) payload.password = password;
+        P.createRegistrySecret(payload)
+          .then(function () {
+            regSave.disabled = false;
+            closeRegModal();
+            loadRegSecrets();
+            toast(_regIsEdit ? 'Credential updated' : 'Credential saved', 'ok');
+          })
+          .catch(function (err) {
+            regSave.disabled = false;
+            regSave.textContent = _regIsEdit ? 'Update credential' : 'Save credential';
+            toast(err.message || 'Save failed', 'error');
+          });
+      });
+    }
+
+    loadRegSecrets();
+
   window.PorpulsionPages = {
     refresh: refresh,
     loadInvite: loadInvite,
@@ -1813,7 +1995,6 @@
   };
 
   refresh();
-  initDeploySpecEditor();
   loadInvite();
   loadSettings();
   initNumSpinners();
