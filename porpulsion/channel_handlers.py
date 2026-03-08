@@ -117,7 +117,8 @@ def handle_remoteapp_delete(payload: dict) -> dict:
     app_id = payload.get("id", "")
     ea_cr = get_ea_cr_by_app_id(state.NAMESPACE, app_id)
     if ea_cr is None:
-        raise RuntimeError("app not found")
+        log.info("handle_remoteapp_delete: EA for %s already gone — treating as success", app_id)
+        return {"ok": True}
 
     d = cr_to_dict(ea_cr, "executing")
     # Delete the CR - the CR watcher (DELETED) handles workload cleanup and peer notification
