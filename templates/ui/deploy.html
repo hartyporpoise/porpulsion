@@ -93,12 +93,13 @@
     </div>
 
     <!-- Command & Args -->
-    <div class="card" style="margin-bottom:1rem;">
-      <div class="card-header">
+    <div class="card collapsed" style="margin-bottom:1rem;" id="card-cmd-args">
+      <div class="card-header card-header-collapsible" data-collapse="card-cmd-args" role="button" tabindex="0" aria-expanded="false">
         <h2>Command &amp; Args</h2>
         <span class="card-header-sub">Override container ENTRYPOINT / CMD</span>
+        <svg class="card-collapse-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
       </div>
-      <div class="card-body">
+      <div class="card-body card-collapsible-body">
         <div class="form-group" style="margin-bottom:0.75rem;">
           <label class="form-label" for="deploy-command">Command (ENTRYPOINT override)</label>
           <input type="text" id="deploy-command" placeholder='e.g. /bin/sh  or  ["/bin/sh", "-c"]' autocomplete="off" spellcheck="false">
@@ -138,12 +139,13 @@
     </div>
 
     <!-- Registry Proxy -->
-    <div class="card" style="margin-bottom:1rem;">
-      <div class="card-header">
+    <div class="card collapsed" style="margin-bottom:1rem;" id="card-registry-proxy">
+      <div class="card-header card-header-collapsible" data-collapse="card-registry-proxy" role="button" tabindex="0" aria-expanded="false">
         <h2>Registry Proxy</h2>
         <span class="card-header-sub">Forward image pulls through the submitting peer</span>
+        <svg class="card-collapse-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
       </div>
-      <div class="card-body">
+      <div class="card-body card-collapsible-body">
         <div class="toggle-row" style="border:none;padding:0;margin-bottom:0.75rem;">
           <div class="toggle-info">
             <div class="toggle-label">Enable registry proxy</div>
@@ -951,6 +953,20 @@
   el('deploy-submit-btn').addEventListener('click', handleSubmit);
   var yamlSubmitBtn = el('deploy-submit-btn-yaml');
   if (yamlSubmitBtn) yamlSubmitBtn.addEventListener('click', handleSubmit);
+
+  // ── Collapsible card sections ─────────────────────────────────
+  document.querySelectorAll('.card-header-collapsible').forEach(function (hdr) {
+    function toggle() {
+      var card = document.getElementById(hdr.dataset.collapse);
+      if (!card) return;
+      var isCollapsed = card.classList.toggle('collapsed');
+      hdr.setAttribute('aria-expanded', String(!isCollapsed));
+    }
+    hdr.addEventListener('click', toggle);
+    hdr.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
+    });
+  });
 })();
 </script>
 {% endblock %}

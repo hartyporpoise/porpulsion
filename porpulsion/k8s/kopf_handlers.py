@@ -222,10 +222,15 @@ def on_remoteapp_deleted(body, meta, status, **kwargs):
         log.warning("kopf: RemoteApp %s deleted but peer %r unknown - cannot notify", cr_name, target_peer)
         return
 
+    # If the RA status is already Deleted the EA was already cleaned up on the peer
+    if status.get("status") == "Deleted":
+        log.info("kopf: RemoteApp %s already Deleted - skipping peer notification", cr_name)
+        return
+
     try:
         from porpulsion.channel import get_channel
         get_channel(peer.name).call("remoteapp/delete", {"id": app_id})
         log.info("kopf: notified peer %s to delete EA for RemoteApp %s (%s)", peer.name, cr_name, app_id)
     except Exception as e:
-        # Peer exists but channel is down - retry so the delete reaches them when reconnected
+        # Any failure (channel down etc.) — retry so the delete reaches them when reconnected
         raise kopf.TemporaryError(f"failed to notify peer {target_peer} of RA deletion: {e}", delay=10)

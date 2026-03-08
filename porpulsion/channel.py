@@ -340,17 +340,9 @@ class PeerChannel:
             if changed:
                 tls.save_peers(_state.NAMESPACE, _state.peers)
         else:
-            # Unknown peer — they used our invite bundle (verified on their side).
-            # Key-possession check above is sufficient to trust them.
-            from porpulsion.models import Peer
-            tls.write_temp_pem(
-                peer_ca_pem.encode() if isinstance(peer_ca_pem, str) else peer_ca_pem,
-                f"peer-ca-{peer_name}",
-            )
-            _state.peers[peer_name] = Peer(name=peer_name, url=peer_self_url or self.peer_url or "",
-                                           ca_pem=peer_ca_pem, direction="incoming")
-            tls.save_peers(_state.NAMESPACE, _state.peers)
-            log.info("Inbound WS: auto-registered new peer %r from hello frame", peer_name)
+            # Unknown peer — reject; peers must be registered via the explicit invite flow.
+            log.warning("Inbound WS: rejecting unknown peer %r (not in peer list)", peer_name)
+            return False
 
         # Update channel metadata in case accept_channel used a placeholder
         self.peer_name = peer_name
