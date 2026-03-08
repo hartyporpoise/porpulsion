@@ -387,7 +387,7 @@ def ensure_pull_secret(namespace: str) -> str:
     """
     global _proxy_ca_pem
     if _proxy_ca_pem is None:
-        return _PULL_SECRET_NAME  # proxy not started yet, caller will retry
+        raise RuntimeError("registry proxy not started — cannot create pull secret")
 
     from porpulsion import tls as _tls
     from kubernetes import client as k8s_client
@@ -413,8 +413,6 @@ def ensure_pull_secret(namespace: str) -> str:
             ".dockerconfigjson": base64.b64encode(
                 json.dumps(docker_config).encode()
             ).decode(),
-            # Extra key carrying the CA PEM — consumed by the DaemonSet if present,
-            # but primarily here for documentation/debugging.
             "ca.crt": ca_b64,
         },
     )
