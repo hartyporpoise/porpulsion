@@ -1,13 +1,18 @@
 """
 OCI Distribution Spec v2 pull-through proxy.
 
-Runs on the *executing* side as a localhost HTTP server (default port 5100).
-Kubelet is configured to mirror the source registry to this proxy via
-/etc/rancher/k3s/registries.yaml (k3s) or a similar mirror config.
+Runs on the *executing* side, bound to 0.0.0.0:5100, and exposed via a
+dedicated ClusterIP-only Service (porpulsion-registry).  Kubelet on the
+worker node reaches it via the in-cluster DNS name:
+    porpulsion-registry.<namespace>.svc.cluster.local:5100
+
+Using a separate ClusterIP Service (not the main service) ensures this port
+is never exposed outside the cluster regardless of how the main service is
+configured (NodePort, LoadBalancer, etc.).
 
 Pull flow:
   kubelet
-    → GET localhost:5100/v2/<name>/manifests/<ref>
+    → GET porpulsion.<ns>.svc.cluster.local:5100/v2/<name>/manifests/<ref>
       → registry/manifest WS call to the submitting peer
         → peer fetches from real registry (using its stored credentials)
           → manifest JSON returned
@@ -20,17 +25,25 @@ Blob chunking:
   as a sequence of registry/blob-chunk push messages followed by a final
   registry/blob-end message (which also carries the full digest for verification).
 
-One proxy instance serves all peers — the peer name is embedded in the URL path
-as the first segment after /v2/:
-    /v2/<peer_name>/<image_name>/manifests/<ref>
-    /v2/<peer_name>/<image_name>/blobs/<digest>
+One proxy instance serves all peers — the URL path carries both an auth token
+and the peer name:
+    /v2/<token>/<peer_name>/<image_name>/manifests/<ref>
+    /v2/<token>/<peer_name>/<image_name>/blobs/<digest>
+
+Token:
+    HMAC-SHA256(key=sha256(peer_ca_pem), msg=peer_name)
+    Computed by proxy_image_ref() on the executing side (which holds the CA).
+    Verified by the proxy on every request before any registry call is made.
+    Stateless — no extra storage required.
 
 The executing side's image ref is rewritten from:
     registry.example.com/myapp:latest
 to:
-    localhost:5100/<peer_name>/registry.example.com/myapp:latest
+    porpulsion-registry.<ns>.svc.cluster.local:5100/<token>/<peer_name>/registry.example.com/myapp:latest
 """
 import base64
+import hashlib
+import hmac
 import logging
 import queue
 import threading
@@ -45,6 +58,20 @@ _BLOB_TIMEOUT = 120   # seconds to wait for blob transfer completion
 # Transfer state: transfer_id -> Queue of (seq, b64_chunk, done, error)
 _transfers: dict[str, queue.Queue] = {}
 _transfers_lock = threading.Lock()
+
+
+def _peer_token(peer_name: str, ca_pem: str) -> str:
+    """
+    Derive a per-peer auth token from the peer's CA PEM.
+
+    token = HMAC-SHA256(key=SHA256(ca_pem_bytes), msg=peer_name_bytes)
+
+    Only the executing side (which holds the peer CA) can compute this.
+    An attacker who knows only the peer_name cannot forge the token without
+    the CA, making the URL self-authenticating.
+    """
+    key = hashlib.sha256(ca_pem.encode() if isinstance(ca_pem, str) else ca_pem).digest()
+    return hmac.new(key, peer_name.encode(), hashlib.sha256).hexdigest()
 
 
 def _get_channel(peer_name: str):
@@ -80,20 +107,38 @@ class _OciHandler(BaseHTTPRequestHandler):
             return
 
         # Must start with /v2/
-        if not parts or parts[0] != "v2" or len(parts) < 4:
+        # Expected: /v2/<token>/<peer_name>/<image...>/manifests|blobs/<ref>
+        if not parts or parts[0] != "v2" or len(parts) < 5:
             self._send_error(400, "bad path")
             return
 
-        # parts[1] = peer_name
-        # parts[2..n-2] = image name (may contain slashes)
+        # parts[1] = token
+        # parts[2] = peer_name
+        # parts[3..n-2] = image name (may contain slashes)
         # parts[n-2] = "manifests" or "blobs"
         # parts[n-1] = ref or digest
-        peer_name = parts[1]
+        token     = parts[1]
+        peer_name = parts[2]
         endpoint  = parts[-2]   # "manifests" or "blobs"
         ref       = parts[-1]
-        # image name = everything between peer and endpoint, rejoined
-        image_parts = parts[2:-2]
+        # image name = everything between peer_name and endpoint, rejoined
+        image_parts = parts[3:-2]
         image_name  = "/".join(image_parts)
+
+        # Reject requests for unknown peers
+        from porpulsion import state
+        peer = state.peers.get(peer_name)
+        if peer is None:
+            log.warning("registry-proxy: rejected request for unknown peer %r", peer_name)
+            self._send_error(403, "forbidden")
+            return
+
+        # Verify the HMAC token — proves the caller holds the peer CA
+        expected = _peer_token(peer_name, peer.ca_pem)
+        if not hmac.compare_digest(token, expected):
+            log.warning("registry-proxy: invalid token for peer %r", peer_name)
+            self._send_error(403, "forbidden")
+            return
 
         if endpoint == "manifests":
             self._handle_manifest(peer_name, image_name, ref)
@@ -246,13 +291,13 @@ def start_proxy() -> int:
         if _server is not None:
             return _server.server_address[1]
 
-        server = HTTPServer(("127.0.0.1", _PROXY_PORT), _OciHandler)
+        server = HTTPServer(("0.0.0.0", _PROXY_PORT), _OciHandler)
         _server = server
 
     t = threading.Thread(target=server.serve_forever, daemon=True,
                          name="registry-proxy")
     t.start()
-    log.info("Registry pull-through proxy started on localhost:%d", _PROXY_PORT)
+    log.info("Registry pull-through proxy started on 0.0.0.0:%d", _PROXY_PORT)
     return _PROXY_PORT
 
 
@@ -266,13 +311,20 @@ def stop_proxy() -> None:
 
 def proxy_image_ref(peer_name: str, image: str) -> str:
     """
-    Rewrite an image reference so kubelet pulls via the local OCI proxy.
+    Rewrite an image reference so kubelet pulls via the in-cluster OCI proxy.
+
+    The URL embeds an HMAC token derived from the peer's CA PEM so that the
+    proxy can verify the request is legitimate even if port 5100 is accidentally
+    exposed — an attacker without the CA cannot forge the token.
 
     registry.example.com/myapp:latest
-      → localhost:5100/<peer_name>/registry.example.com/myapp:latest
-
-    docker.io/library/nginx:latest
-      → localhost:5100/<peer_name>/docker.io/library/nginx:latest
+      → porpulsion-registry.<ns>.svc.cluster.local:5100/<token>/<peer_name>/registry.example.com/myapp:latest
     """
+    from porpulsion import state
     port = start_proxy()
-    return f"localhost:{port}/{peer_name}/{image}"
+    peer = state.peers.get(peer_name)
+    if peer is None:
+        raise ValueError(f"proxy_image_ref: unknown peer {peer_name!r}")
+    token = _peer_token(peer_name, peer.ca_pem)
+    svc_host = f"porpulsion-registry.{state.NAMESPACE}.svc.cluster.local"
+    return f"{svc_host}:{port}/{token}/{peer_name}/{image}"

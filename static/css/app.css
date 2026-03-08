@@ -747,6 +747,28 @@ td a.app-open-link:hover { color: var(--accent); }
   color: var(--muted2);
   margin-left: 0.35rem;
 }
+.peer-latency.lat-good   { color: var(--green); }
+.peer-latency.lat-warn   { color: var(--yellow); }
+.peer-latency.lat-bad    { color: var(--red); }
+
+/* ── Stat tile shimmer skeleton ─────────────────────────────── */
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+.stat-value.loading {
+  display: inline-block;
+  width: 2.5rem; height: 2.5rem;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--surface3) 25%, var(--surface4) 50%, var(--surface3) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease infinite;
+  color: transparent;
+  vertical-align: middle;
+}
+@media (prefers-reduced-motion: reduce) {
+  .stat-value.loading { animation: none; background: var(--surface3); }
+}
 
 /* ── Buttons ─────────────────────────────────────────────────── */
 button {
@@ -2399,6 +2421,31 @@ button:focus-visible, a:focus-visible {
 /* ── Selection ───────────────────────────────────────────────── */
 ::selection { background: var(--accent-glow); color: var(--text); }
 [data-theme="dark"] ::selection { background: rgba(59,130,246,0.3); }
+
+/* ── Collapsible card sections (deploy form advanced) ────────── */
+.card-header-collapsible {
+  cursor: pointer;
+  user-select: none;
+}
+.card-header-collapsible:hover { background: rgba(255,255,255,0.015); }
+[data-theme="light"] .card-header-collapsible:hover { background: rgba(0,0,0,0.015); }
+.card-collapse-chevron {
+  margin-left: auto;
+  color: var(--muted2);
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}
+.card.collapsed .card-collapse-chevron { transform: rotate(-90deg); }
+.card.collapsed .card-collapsible-body { display: none; }
+.card-header-sub { font-size: 0.75rem; color: var(--muted2); font-weight: 400; margin-left: 0.5rem; }
+
+/* ── Mobile: hide low-priority table columns ─────────────────── */
+@media (max-width: 640px) {
+  .col-hide-mobile { display: none; }
+}
+@media (max-width: 900px) {
+  .col-hide-tablet { display: none; }
+}
 
 /* ── Peers page ──────────────────────────────────────────────── */
 .peers-top-grid {

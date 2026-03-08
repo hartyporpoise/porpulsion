@@ -117,19 +117,19 @@
         : '<span class="badge badge-failed">offline</span>';
       var dirBadge = directionBadge(p.direction);
       var latencyCell = (p.latency_ms != null)
-        ? '<span class="peer-latency">' + p.latency_ms + ' ms</span>'
-        : '<span class="text-muted" style="font-size:0.8rem;">-</span>';
+        ? '<span class="peer-latency ' + (p.latency_ms < 50 ? 'lat-good' : p.latency_ms < 200 ? 'lat-warn' : 'lat-bad') + '">' + p.latency_ms + ' ms</span>'
+        : '<span class="text-muted" style="font-size:0.8rem;">—</span>';
       var actions = '<span class="btn-row">' +
         '<button type="button" class="btn-icon peer-info-btn" title="Info" aria-label="Info">' + ICON_INFO + '</button>' +
         '<button type="button" class="btn-icon btn-icon-danger peer-remove-btn" title="Remove" aria-label="Remove">' + ICON_TRASH + '</button>' +
         '</span>';
       return '<tr data-peer-url="' + _esc(p.url) + '" data-peer-name="' + _esc(p.name) + '">' +
         '<td><strong>' + _esc(p.name) + '</strong></td>' +
-        '<td class="mono">' + _esc(p.url || '') + '</td>' +
-        '<td>' + dirBadge + '</td>' +
+        '<td class="mono col-hide-tablet">' + _esc(p.url || '') + '</td>' +
+        '<td class="col-hide-mobile">' + dirBadge + '</td>' +
         '<td>' + chanHtml + '</td>' +
-        '<td>' + latencyCell + '</td>' +
-        '<td class="time-ago">' + timeAgo(p.connected_at) + '</td>' +
+        '<td class="col-hide-mobile">' + latencyCell + '</td>' +
+        '<td class="time-ago col-hide-tablet">' + timeAgo(p.connected_at) + '</td>' +
         '<td>' + actions + '</td></tr>';
     }).join('');
   }
@@ -225,9 +225,9 @@
       var peerVal = a[peerKey] || '—';
       return '<tr' + (isDead ? ' style="opacity:0.55;"' : '') + ' data-app-id="' + _esc(a.id) + '" data-app-name="' + _esc(a.name) + '"' + typeAttr + '>' +
         '<td><a href="#" class="app-open-link">' + _esc(a.name) + '</a></td>' +
-        '<td class="mono">' + _esc(a.id) + '</td><td>' + statusBadge(a.status) + '</td>' +
-        '<td class="text-muted text-sm">' + _esc(peerVal) + '</td>' +
-        '<td class="time-ago">' + timeAgo(a.updated_at) + '</td>' +
+        '<td class="mono col-hide-mobile">' + _esc(a.id) + '</td><td>' + statusBadge(a.status) + '</td>' +
+        '<td class="text-muted text-sm col-hide-tablet">' + _esc(peerVal) + '</td>' +
+        '<td class="time-ago col-hide-tablet">' + timeAgo(a.updated_at) + '</td>' +
         '<td><span class="btn-row"><button type="button" class="btn-icon app-detail-btn" title="Detail" aria-label="Detail"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="8.5"/><line x1="12" y1="12" x2="12" y2="16"/></svg></button><button type="button" class="btn-icon btn-icon-danger app-delete-btn" title="Delete" aria-label="Delete"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></button></span></td></tr>';
     }).join('');
   }
@@ -314,16 +314,18 @@
       var connected = peers.filter(function (p) { return 'channel' in p; });
       var wsUp = connected.filter(function (p) { return p.channel === 'connected'; }).length;
 
-      var statPeers = el('stat-peers');
-      if (statPeers) statPeers.textContent = connected.length;
-      var statSubmitted = el('stat-submitted');
-      if (statSubmitted) statSubmitted.textContent = submitted.length;
-      var statExecuting = el('stat-executing');
-      if (statExecuting) statExecuting.textContent = executing.length;
+      function setStat(id, val) {
+        var e = el(id);
+        if (!e) return;
+        e.classList.remove('loading');
+        e.textContent = val;
+      }
+      setStat('stat-peers', connected.length);
+      setStat('stat-submitted', submitted.length);
+      setStat('stat-executing', executing.length);
 
       var healthy = submitted.concat(executing).filter(function (a) { return a.status === 'Ready' || a.status === 'Running'; }).length;
-      var statHealthy = el('stat-healthy');
-      if (statHealthy) statHealthy.textContent = healthy;
+      setStat('stat-healthy', healthy);
       var statHealthySub = el('stat-healthy-sub');
       if (statHealthySub) statHealthySub.textContent = healthy === 1 ? 'app ready' : 'apps ready';
 
@@ -1164,10 +1166,10 @@
           '<div class="detail-block"><h4>Spec</h4>' +
             '<div class="detail-row"><span class="label">Image</span><span class="mono">' + _esc(spec.image || '—') + '</span></div>' +
             '<div class="detail-row"><span class="label">Replicas</span><span>' + (spec.replicas || 1) + '</span></div>' +
-            (spec.ports && spec.ports.length ? '<div class="detail-row"><span class="label">Ports</span><span>' + spec.ports.map(function (p) { return (p.name ? p.name + ':' : '') + p.port; }).join(', ') + '</span></div>' : '') +
-            ((spec.configMaps || []).length ? '<div class="detail-row"><span class="label">ConfigMaps</span><span>' + spec.configMaps.map(function (c) { return c.name; }).join(', ') + '</span></div>' : '') +
-            ((spec.secrets || []).length ? '<div class="detail-row"><span class="label">Secrets</span><span>' + spec.secrets.map(function (s) { return s.name; }).join(', ') + '</span></div>' : '') +
-            ((spec.pvcs || []).length ? '<div class="detail-row"><span class="label">PVCs</span><span>' + spec.pvcs.map(function (p) { return p.name + ' (' + p.storage + ')'; }).join(', ') + '</span></div>' : '') +
+            (spec.ports && spec.ports.length ? '<div class="detail-row"><span class="label">Ports</span><span>' + spec.ports.map(function (p) { return (p.name ? _esc(p.name) + ':' : '') + p.port; }).join(', ') + '</span></div>' : '') +
+            ((spec.configMaps || []).length ? '<div class="detail-row"><span class="label">ConfigMaps</span><span>' + spec.configMaps.map(function (c) { return _esc(c.name); }).join(', ') + '</span></div>' : '') +
+            ((spec.secrets || []).length ? '<div class="detail-row"><span class="label">Secrets</span><span>' + spec.secrets.map(function (s) { return _esc(s.name); }).join(', ') + '</span></div>' : '') +
+            ((spec.pvcs || []).length ? '<div class="detail-row"><span class="label">PVCs</span><span>' + spec.pvcs.map(function (p) { return _esc(p.name) + ' (' + _esc(p.storage) + ')'; }).join(', ') + '</span></div>' : '') +
           '</div>' +
         '</div>';
       if ((spec.ports || []).length) {
