@@ -31,13 +31,10 @@ to:
     localhost:5100/<peer_name>/registry.example.com/myapp:latest
 """
 import base64
-<<<<<<< Updated upstream
-=======
 import datetime
 import hashlib
 import hmac
 import json
->>>>>>> Stashed changes
 import logging
 import queue
 import ssl
@@ -407,9 +404,6 @@ def start_proxy() -> int:
         if _server is not None:
             return _server.server_address[1]
 
-<<<<<<< Updated upstream
-        server = HTTPServer(("127.0.0.1", _PROXY_PORT), _OciHandler)
-=======
         from porpulsion import state
         ca_pem, leaf_cert_pem, leaf_key_pem = _generate_proxy_tls(state.NAMESPACE)
         _proxy_ca_pem = ca_pem
@@ -428,17 +422,12 @@ def start_proxy() -> int:
 
         server = HTTPServer(("0.0.0.0", _PROXY_PORT), _OciHandler)
         server.socket = ctx.wrap_socket(server.socket, server_side=True)
->>>>>>> Stashed changes
         _server = server
 
     t = threading.Thread(target=server.serve_forever, daemon=True,
                          name="registry-proxy")
     t.start()
-<<<<<<< Updated upstream
-    log.info("Registry pull-through proxy started on localhost:%d", _PROXY_PORT)
-=======
     log.info("Registry pull-through proxy started on 0.0.0.0:%d (HTTPS)", _PROXY_PORT)
->>>>>>> Stashed changes
     return _PROXY_PORT
 
 
