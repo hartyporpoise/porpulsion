@@ -68,5 +68,5 @@ def update_settings():
                 return jsonify({"error": f"{fld} must be an integer"}), 400
 
     log.info("Settings updated: %s", state.settings.to_dict())
-    tls.save_state_configmap(state.NAMESPACE, state.settings)
+    tls.save_state_configmap(state.NAMESPACE, state.settings, state.pending_approval)
     return jsonify(state.settings.to_dict())

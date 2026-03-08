@@ -93,15 +93,12 @@ def connect_peer():
             except Exception:
                 pass
         if url_match or ca_match or existing.name == peer_name:
-            # Already bidirectional — block
-            if existing.initiator and existing.has_inbound:
+            if existing.direction == "bidirectional":
                 return jsonify({"error": f"Already fully peered with \"{existing.name}\""}), 409
-            # We are the initiator — already have outbound, block re-connect
-            if existing.initiator:
+            if existing.direction == "outgoing":
                 return jsonify({"error": f"Already peered with \"{existing.name}\""}), 409
-            # They connected inbound first; we are now upgrading to bidirectional.
-            # Update URL and CA from the bundle (inbound auto-register had no URL).
-            existing.initiator = True
+            # direction == "incoming": they connected first, we're now peering back → bidirectional
+            existing.direction = "bidirectional"
             existing.url = peer_url
             existing.ca_pem = peer_ca
             tls.save_peers(state.NAMESPACE, state.peers)
@@ -150,19 +147,21 @@ def remove_peer(peer_name):
 
     tls.save_state_configmap(state.NAMESPACE, state.settings)
 
-    # -- 3. Notify peer and close the channel
+    # -- 3. Persist removal first (so restart is consistent even if we crash mid-cleanup)
     state.peers.pop(peer_name)
+    tls.save_peers(state.NAMESPACE, state.peers)
     log.info("Removed peer %s", peer_name)
 
+    # -- 4. Notify peer and close the channel
     try:
         get_channel(peer_name, wait=2.0).push("peer/disconnect",
                                               {"name": state.AGENT_NAME, "reason": "removed"})
     except Exception as exc:
         log.debug("Could not notify %s of disconnection: %s", peer_name, exc)
 
-    ch = state.peer_channels.pop(peer_name, None)
+    with state.peer_channels_lock:
+        ch = state.peer_channels.pop(peer_name, None)
     if ch:
         ch.close()
 
-    tls.save_peers(state.NAMESPACE, state.peers)
     return jsonify({"ok": True, "removed": peer_name})

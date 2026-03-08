@@ -195,6 +195,7 @@ class PeerChannel:
         self._recv_thread: threading.Thread | None = None
         self.connected_event = threading.Event()   # set once the channel is ready to use
         self._ping_sent_at: float | None = None   # time.monotonic() when last ping was sent
+        self._ping_gen: int = 0  # incremented on each new connection; old ping threads exit
 
     # -- Public API
 
@@ -224,7 +225,7 @@ class PeerChannel:
         self._send_raw({"type": msg_type, "payload": payload})
 
     def close(self):
-        """Gracefully shut down the channel."""
+        """Permanently shut down the channel (sets _running=False; kills reconnect loop)."""
         self._running = False
         with self._lock:
             if self._ws:
@@ -233,6 +234,18 @@ class PeerChannel:
                 except Exception:
                     pass
                 self._ws = None
+
+    def disconnect(self):
+        """Drop the current socket without stopping the reconnect loop.
+        connect_and_maintain will re-establish the connection automatically."""
+        with self._lock:
+            if self._ws:
+                try:
+                    self._ws.close()
+                except Exception:
+                    pass
+                self._ws = None
+        self.connected_event.clear()
 
     def is_connected(self) -> bool:
         return self.connected_event.is_set()
@@ -307,9 +320,7 @@ class PeerChannel:
 
         # Check against known peers or auto-register from hello CA
         existing = _state.peers.get(peer_name)
-        # Track whether this inbound upgrades an outgoing-only peer to bidirectional.
-        # Must be captured BEFORE we set has_inbound=True below.
-        is_bidirectional_upgrade = existing is not None and not existing.has_inbound
+        is_bidirectional_upgrade = False
         if existing:
             stored_fp    = tls.cert_fingerprint(existing.ca_pem) if existing.ca_pem else ""
             presented_fp = tls.cert_fingerprint(peer_ca_pem)
@@ -317,10 +328,11 @@ class PeerChannel:
                 log.warning("Inbound WS: CA fingerprint mismatch for known peer %r — closing",
                             peer_name)
                 return False
-            # Mark that we've now received an inbound connection from this peer
+            # Upgrade direction if this inbound completes a bidirectional pair
             changed = False
-            if not existing.has_inbound:
-                existing.has_inbound = True
+            if existing.direction == "outgoing":
+                existing.direction = "bidirectional"
+                is_bidirectional_upgrade = True
                 changed = True
             if peer_self_url and not existing.url:
                 existing.url = peer_self_url
@@ -336,7 +348,7 @@ class PeerChannel:
                 f"peer-ca-{peer_name}",
             )
             _state.peers[peer_name] = Peer(name=peer_name, url=peer_self_url or self.peer_url or "",
-                                           ca_pem=peer_ca_pem, initiator=False, has_inbound=True)
+                                           ca_pem=peer_ca_pem, direction="incoming")
             tls.save_peers(_state.NAMESPACE, _state.peers)
             log.info("Inbound WS: auto-registered new peer %r from hello frame", peer_name)
 
@@ -366,10 +378,11 @@ class PeerChannel:
         # ── Register in peer_channels now (before blocking recv loop) ─────
         # Must happen here so is_connected() returns True while the connection
         # is live. accept_channel() runs after attach_inbound returns (too late).
-        old = _state.peer_channels.get(peer_name)
-        if old and old is not self:
-            old.close()
-        _state.peer_channels[peer_name] = self
+        with _state.peer_channels_lock:
+            old = _state.peer_channels.get(peer_name)
+            if old and old is not self:
+                old.close()
+            _state.peer_channels[peer_name] = self
 
         # ── Hand off to normal channel operation ──────────────────────────
         with self._lock:
@@ -382,19 +395,24 @@ class PeerChannel:
             pass
 
         # If this inbound connection upgrades a previously outgoing-only peer to
-        # bidirectional, notify the initiator so they can update their side too.
-        # Include the remote_addr so the initiator knows its own outbound IP as seen here.
+        # bidirectional, notify them over their outbound channel so they can update
+        # their direction too. We send on the outbound channel (not self, which is
+        # the inbound socket they just connected on — they already know about that).
         if is_bidirectional_upgrade:
             try:
-                self.push("peer/bidirectional", {
-                    "name":        _state.AGENT_NAME,
-                    "remote_addr": self.peer_remote_addr,
-                })
+                outbound = _state.peer_channels.get(peer_name)
+                if outbound and outbound is not self:
+                    outbound.push("peer/bidirectional", {
+                        "name":        _state.AGENT_NAME,
+                        "remote_addr": self.peer_remote_addr,
+                    })
             except Exception:
                 pass
 
         _push_crd_schema(self)
-        threading.Thread(target=self._ping_loop, daemon=True).start()
+        self._ping_gen += 1
+        _gen = self._ping_gen
+        threading.Thread(target=self._ping_loop, args=(_gen,), daemon=True).start()
         self._inbound_recv_loop(sock)
         return True
 
@@ -518,8 +536,10 @@ class PeerChannel:
         # Share our CRD spec properties so the peer can flag schema mismatches
         _push_crd_schema(self)
 
-        # Start keepalive ping thread
-        threading.Thread(target=self._ping_loop, daemon=True).start()
+        # Start keepalive ping thread (generation-tagged so stale threads self-exit)
+        self._ping_gen += 1
+        _gen = self._ping_gen
+        threading.Thread(target=self._ping_loop, args=(_gen,), daemon=True).start()
 
     # -- Recv loop (server / inbound side)
 
@@ -668,9 +688,12 @@ class PeerChannel:
                 self._ws = None
             raise RuntimeError(f"channel send failed: {exc}") from exc
 
-    def _ping_loop(self):
-        while self._running and self._ws is not None:
+    def _ping_loop(self, gen: int):
+        """Keepalive loop. Exits when _running is False, ws drops, or gen is stale."""
+        while self._running and self._ws is not None and self._ping_gen == gen:
             time.sleep(_PING_INTERVAL)
+            if not self._running or self._ping_gen != gen:
+                break
             try:
                 self._ping_sent_at = time.monotonic()
                 self.push("ping", {})
@@ -704,13 +727,13 @@ def open_channel_to(peer_name: str, peer_url: str, ca_pem: str = "") -> "PeerCha
     in a daemon thread. Replaces any existing channel for this peer.
     """
     from porpulsion import state
-    old = state.peer_channels.get(peer_name)
-    if old:
-        old.close()
-
-    ch = PeerChannel(peer_name, peer_url, ca_pem)
-    _register_handlers(ch)
-    state.peer_channels[peer_name] = ch
+    with state.peer_channels_lock:
+        old = state.peer_channels.get(peer_name)
+        if old:
+            old.close()
+        ch = PeerChannel(peer_name, peer_url, ca_pem)
+        _register_handlers(ch)
+        state.peer_channels[peer_name] = ch
 
     t = threading.Thread(target=ch.connect_and_maintain, daemon=True,
                          name=f"ws-chan-{peer_name}")
@@ -745,9 +768,9 @@ def accept_channel(sock) -> "PeerChannel | None":
     # if it still points to this (now-dead) channel — don't clobber a live
     # outbound channel that open_channel_to may have registered in the meantime.
     peer_name = ch.peer_name
-    current = state.peer_channels.get(peer_name)
-    if current is ch:
-        state.peer_channels.pop(peer_name, None)
+    with state.peer_channels_lock:
+        if state.peer_channels.get(peer_name) is ch:
+            state.peer_channels.pop(peer_name, None)
     return ch
 
 

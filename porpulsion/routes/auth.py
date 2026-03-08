@@ -368,6 +368,9 @@ def users_remove():
     if target == session.get("user"):
         # Don't let users delete themselves
         return redirect(url_for("auth.users"))
+    if len(all_users) <= 1:
+        # Refuse to delete the last account — would lock everyone out
+        return redirect(url_for("auth.users"))
 
     all_users.pop(target, None)
     try:

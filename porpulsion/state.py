@@ -5,6 +5,7 @@ All route modules import from here so they share the same live dicts.
 Config constants (AGENT_NAME, SELF_URL, etc.) are set once at startup
 by porpulsion/agent.py and read by routes at call time.
 """
+import threading
 from typing import TYPE_CHECKING
 from porpulsion.models import Peer, TunnelRequest, AgentSettings
 if TYPE_CHECKING:
@@ -38,7 +39,11 @@ tunnel_requests: dict[str, TunnelRequest] = {}  # pending/approved/rejected tunn
 settings: AgentSettings = AgentSettings()
 
 # peer_name -> PeerChannel (live WebSocket connection to that peer)
+# Access must be guarded by peer_channels_lock when adding/removing entries.
+# Simple reads (get, iteration) from the same thread are safe without the lock,
+# but any structural mutation (open, replace, remove) must hold the lock.
 peer_channels: "dict[str, PeerChannel]" = {}
+peer_channels_lock: threading.Lock = threading.Lock()
 
 # In-app notifications - newest first, capped at 50
 notifications: list[dict] = []

@@ -23,6 +23,15 @@ agent:
   #    Defaults to false  enable only on clusters where you trust peers to claim storage.
   allowPvcs: false
 
+  # -- CPU/memory requests and limits for the agent container.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
   # -- Externally reachable URL for this agent (e.g. https://porpulsion.example.com).
   #    Peer agents use this address for the initial peering handshake and the
   #    persistent WebSocket channel (/ws). Should be your Ingress or

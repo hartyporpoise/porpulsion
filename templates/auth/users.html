@@ -54,6 +54,7 @@
         </div>
         {% endif %}
         <form method="post" action="/users/add" autocomplete="off">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
           <div class="form-group">
             <label class="form-label" for="new-username">Username</label>
             <input class="form-input" type="text" id="new-username" name="username"
@@ -84,6 +85,7 @@
 <!-- Hidden forms for remove/edit — submitted by dialog callbacks -->
 <form id="remove-form" method="post" action="/users/remove" style="display:none;">
   <input type="hidden" id="remove-username" name="username">
+  <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
 </form>
 
 <!-- Edit user modal -->
@@ -103,6 +105,7 @@
       </div>
       {% endif %}
       <form method="post" action="/users/edit" autocomplete="off" id="edit-user-form">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" id="edit-original" name="original_username">
         <div class="form-group">
           <label class="form-label">Username</label>

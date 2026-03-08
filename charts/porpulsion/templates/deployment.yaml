@@ -35,11 +35,15 @@ spec:
             httpGet:
               path: /status
               port: {{ .Values.service.port }}
-            initialDelaySeconds: 2
+            initialDelaySeconds: 10
             periodSeconds: 5
+            failureThreshold: 3
           livenessProbe:
             httpGet:
               path: /status
               port: {{ .Values.service.port }}
-            initialDelaySeconds: 5
+            initialDelaySeconds: 15
             periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.agent.resources | nindent 12 }}
