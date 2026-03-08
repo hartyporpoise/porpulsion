@@ -512,15 +512,17 @@ class PeerChannel:
             ws.close()
             raise RuntimeError(f"unexpected first frame type from {self.peer_name}: {ack.get('type')!r}")
 
-        # Verify the acceptor's key possession
+        # Verify the acceptor's key possession — all three fields are required
         ack_payload = ack.get("payload", {})
         peer_ca_pem = ack_payload.get("ca_pem", self.ca_pem)
         peer_nonce  = ack_payload.get("nonce", "")
         peer_sig    = ack_payload.get("challenge_sig", "")
-        if peer_nonce and peer_sig and peer_ca_pem:
-            if not tls.verify_challenge(peer_nonce, peer_sig, peer_ca_pem):
-                ws.close()
-                raise RuntimeError(f"hello-ack challenge verification failed for {self.peer_name}")
+        if not peer_nonce or not peer_sig or not peer_ca_pem:
+            ws.close()
+            raise RuntimeError(f"hello-ack missing challenge fields from {self.peer_name}")
+        if not tls.verify_challenge(peer_nonce, peer_sig, peer_ca_pem):
+            ws.close()
+            raise RuntimeError(f"hello-ack challenge verification failed for {self.peer_name}")
 
         with self._lock:
             self._ws = ws
@@ -788,6 +790,9 @@ def _register_handlers(ch: "PeerChannel"):
         handle_proxy_request,
         handle_peer_disconnect,
         handle_peer_bidirectional,
+        handle_registry_manifest,
+        handle_registry_blob,
+        handle_registry_blob_chunk,
     )
     ch.register("remoteapp/receive",       handle_remoteapp_receive)
     ch.register("remoteapp/status",        handle_remoteapp_status)
@@ -798,8 +803,18 @@ def _register_handlers(ch: "PeerChannel"):
     ch.register("remoteapp/spec-update",   handle_remoteapp_spec_update)
     ch.register("remoteapp/config-patch",  handle_remoteapp_config_patch)
     # Wrap proxy handler so it can enforce the per-peer tunnel allowlist.
-    def _proxy_handler(payload, _peer=ch.peer_name):
-        return handle_proxy_request(payload, peer_name=_peer)
-    ch.register("proxy/request",         _proxy_handler)
-    ch.register("peer/disconnect",       handle_peer_disconnect)
-    ch.register("peer/bidirectional",    handle_peer_bidirectional)
+    # Use a reference to ch (not ch.peer_name) so inbound channels that start
+    # with peer_name="_pending_" still resolve the real name after attach_inbound.
+    def _proxy_handler(payload, _ch=ch):
+        return handle_proxy_request(payload, peer_name=_ch.peer_name)
+    ch.register("proxy/request",           _proxy_handler)
+    ch.register("peer/disconnect",         handle_peer_disconnect)
+    ch.register("peer/bidirectional",      handle_peer_bidirectional)
+    # Registry pull-through: requests run on the submitting side; chunks arrive on executing side.
+    def _manifest_handler(payload, _ch=ch):
+        return handle_registry_manifest(payload, peer_name=_ch.peer_name)
+    def _blob_handler(payload, _ch=ch):
+        return handle_registry_blob(payload, peer_name=_ch.peer_name)
+    ch.register("registry/manifest",       _manifest_handler)
+    ch.register("registry/blob",           _blob_handler)
+    ch.register("registry/blob-chunk",     handle_registry_blob_chunk)

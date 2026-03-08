@@ -78,6 +78,10 @@
     deleteNotification: function (id) { return del(API_BASE + '/notifications/' + id); },
     clearNotifications: function () { return del(API_BASE + '/notifications'); },
 
+    listRegistrySecrets: function () { return getJson(API_BASE + '/registry-secrets'); },
+    createRegistrySecret: function (body) { return postJson(API_BASE + '/registry-secrets', body); },
+    deleteRegistrySecret: function (name) { return del(API_BASE + '/registry-secrets/' + encodeURIComponent(name)); },
+
     getLogs: function (tail) { return getJson(API_BASE + '/logs' + (tail ? '?tail=' + tail : '')); },
     getAppLogs: function (appId, tail, order) {
       return getJson(API_BASE + '/remoteapp/' + encodeURIComponent(appId) + '/logs?tail=' + (tail || 200) + '&order=' + (order || 'pod'));

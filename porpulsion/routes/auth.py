@@ -233,7 +233,10 @@ def login():
         if user and _verify_password(password, user["hash"]):
             _clear_failures(ip)
             session["user"] = username
-            next_url = request.args.get("next") or url_for("ui.index")
+            next_url = request.args.get("next") or ""
+            # Only allow relative paths (no scheme/host) to prevent open redirect
+            if not next_url or not next_url.startswith("/") or next_url.startswith("//"):
+                next_url = url_for("ui.index")
             return redirect(next_url)
         _record_failure(ip)
         error = "Invalid username or password."

@@ -501,13 +501,16 @@ def update_remoteapp_spec(app_id):
     new_spec = data.get("spec")
     if new_spec is None:
         return jsonify({"error": "spec is required"}), 400
+    # Encode secrets if the spec was provided as a dict (not via spec_yaml, which encodes above)
+    if "spec_yaml" not in data:
+        new_spec = _encode_spec_secrets(new_spec)
 
     cr, side = get_cr_by_app_id(state.NAMESPACE, app_id)
     if cr is None or side != "submitted":
         return jsonify({"error": "app not found"}), 404
 
     d = cr_to_dict(cr, side)
-    peer = state.peers.get(d["target_peer"]) or next(iter(state.peers.values()), None)
+    peer = state.peers.get(d["target_peer"])
     if not peer:
         return jsonify({"error": "peer not connected"}), 503
 

@@ -36,39 +36,44 @@
     var yamlEl = el('app-spec-yaml');
     var fallbackEl = el('app-spec-yaml-fallback');
     var hostEl = el('app-spec-editor');
-    if (!yamlEl) return;
+    if (!yamlEl || !hostEl) return;
 
     if (!yamlEl.value.trim()) yamlEl.value = DEFAULT_DEPLOY_SPEC;
-    if (fallbackEl) {
-      fallbackEl.value = yamlEl.value;
-      fallbackEl.style.display = 'block';
-    }
-    if (hostEl) hostEl.style.display = 'none';
 
-    if (deploySpecEditor || deployEditorInitStarted) return;
-
-    if (!window.require || !window.require.config) {
-      useFallbackEditor(yamlEl, fallbackEl, hostEl);
+    // Already created — just ensure fallback is hidden and host visible
+    if (deploySpecEditor) {
+      hostEl.style.display = 'block';
+      if (fallbackEl) fallbackEl.style.display = 'none';
       return;
     }
 
+    // Already in progress — nothing to do, callback will finish the job
+    if (deployEditorInitStarted) return;
     deployEditorInitStarted = true;
-    window.require.config({ paths: { vs: 'https://unpkg.com/monaco-editor@0.52.2/min/vs' } });
-    window.require(['vs/editor/editor.main'], function () {
-      var monaco = window.monaco;
+
+    // Show fallback while Monaco loads; keep host hidden until editor is ready
+    if (fallbackEl) { fallbackEl.value = yamlEl.value; fallbackEl.style.display = 'block'; }
+    hostEl.style.display = 'none';
+
+    // Kick off hints fetch in parallel — don't block editor creation on it
+    loadDeployHints('/api/openapi.json').then(function (hints) {
+      hintSchema = hints || {};
+    }).catch(function () { hintSchema = {}; });
+
+    _ensureMonacoLoaded(function (monaco) {
       deployEditorInitStarted = false;
       if (!monaco) {
         useFallbackEditor(yamlEl, fallbackEl, hostEl);
         return;
       }
 
-      loadDeployHints('/api/openapi.json').then(function (hints) {
-        hintSchema = hints || {};
-      }).catch(function () {
-        hintSchema = {};
-      }).then(function () {
-        registerYamlHints(monaco);
-        deploySpecEditor = monaco.editor.create(hostEl, {
+      registerYamlHints(monaco);
+
+      // Show host, hide fallback, then create editor so Monaco reads real dimensions
+      hostEl.style.display = 'block';
+      if (fallbackEl) fallbackEl.style.display = 'none';
+
+      deploySpecEditor = monaco.editor.create(hostEl, {
         value: yamlEl.value || DEFAULT_DEPLOY_SPEC,
         language: 'yaml',
         theme: getDeploySpecTheme(),
@@ -80,24 +85,22 @@
         insertSpaces: true,
         detectIndentation: false,
         quickSuggestions: true,
-        suggestOnTriggerCharacters: true
+        quickSuggestionsDelay: 0,
+        suggestOnTriggerCharacters: true,
+        fixedOverflowWidgets: true,
+        overflowWidgetsDomNode: document.body
       });
 
       deploySpecEditor.addAction({
         id: 'porpulsion.toggleLineComment',
         label: 'Toggle YAML line comment',
         keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Slash],
-        run: function (editor) {
-          return editor.getAction('editor.action.commentLine').run();
-        }
+        run: function (editor) { return editor.getAction('editor.action.commentLine').run(); }
       });
 
       deploySpecEditor.onDidChangeModelContent(function () {
-        var text = deploySpecEditor.getValue();
-        yamlEl.value = text;
+        yamlEl.value = deploySpecEditor.getValue();
       });
-      hostEl.style.display = 'block';
-      if (fallbackEl) fallbackEl.style.display = 'none';
       yamlEl.value = deploySpecEditor.getValue();
 
       if (!deployThemeObserver && window.MutationObserver) {
@@ -106,10 +109,6 @@
         });
         deployThemeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
       }
-      });
-    }, function () {
-      deployEditorInitStarted = false;
-      useFallbackEditor(yamlEl, fallbackEl, hostEl);
     });
   }
 
@@ -215,20 +214,20 @@
 
   function _ensureMonacoLoaded(callback) {
     if (window.monaco) { callback(window.monaco); return; }
-    if (window.require && window.require.config) {
-      window.require.config({ paths: { vs: 'https://unpkg.com/monaco-editor@0.52.2/min/vs' } });
+    if (window.require) {
+      // require.config is pre-called in base.html; just load the main bundle
       window.require(['vs/editor/editor.main'], function () {
-        callback(window.monaco);
+        callback(window.monaco || null);
       }, function () { callback(null); });
       return;
     }
-    // Lazily load Monaco loader script
+    // Fallback: loader.js wasn't on the page — inject it
     var s = document.createElement('script');
     s.src = 'https://unpkg.com/monaco-editor@0.52.2/min/vs/loader.js';
     s.onload = function () {
       window.require.config({ paths: { vs: 'https://unpkg.com/monaco-editor@0.52.2/min/vs' } });
       window.require(['vs/editor/editor.main'], function () {
-        callback(window.monaco);
+        callback(window.monaco || null);
       }, function () { callback(null); });
     };
     s.onerror = function () { callback(null); };
@@ -280,7 +279,9 @@
         lineNumbers: 'off',
         folding: false,
         glyphMargin: false,
-        quickSuggestions: true
+        quickSuggestions: true,
+        fixedOverflowWidgets: true,
+        overflowWidgetsDomNode: document.body
       });
       _modalSpecEditors[hostId] = editor;
       if (onChange) {
@@ -314,9 +315,25 @@
     return fallbackEl ? fallbackEl.value : '';
   }
 
+  function getDeploySpecValue() {
+    if (deploySpecEditor) return deploySpecEditor.getValue();
+    var yamlEl = el('app-spec-yaml');
+    var fallbackEl = el('app-spec-yaml-fallback');
+    if (yamlEl && yamlEl.value.trim()) return yamlEl.value;
+    if (fallbackEl && fallbackEl.value.trim()) return fallbackEl.value;
+    return '';
+  }
+
   window.PorpulsionVscodeEditor = {
     initDeploySpecEditor: initDeploySpecEditor,
     setDeploySpecValue: setDeploySpecValue,
+    getDeploySpecValue: getDeploySpecValue,
+    layoutDeployEditor: function () {
+      var hostEl = el('app-spec-editor');
+      if (deploySpecEditor && hostEl) {
+        deploySpecEditor.layout({ width: hostEl.offsetWidth, height: hostEl.offsetHeight });
+      }
+    },
     getDefaultDeploySpec: function () { return DEFAULT_DEPLOY_SPEC; },
     registerYamlHints: registerYamlHints,
     initModalSpecEditor: initModalSpecEditor,

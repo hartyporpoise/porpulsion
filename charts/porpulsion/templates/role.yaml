@@ -36,7 +36,7 @@ rules:
     resourceNames: ["porpulsion-credentials", "porpulsion-peers", "porpulsion-users"]
     verbs: ["get", "patch"]
 
-  # -- Secrets  remoteapp-managed secrets (create + full lifecycle)
+  # -- Secrets  registry credential secrets (list + full lifecycle via label selector)
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["create", "list"]

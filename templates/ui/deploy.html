@@ -5,7 +5,15 @@
 <!-- PAGE: Deploy (route: /deploy) -->
 <section id="deploy-page" data-page="deploy">
 
-  <!-- ── Visual form ─────────────────────────────────────────────────── -->
+  <!-- ── Mode toggle ─────────────────────────────────────────────── -->
+  <div style="margin-bottom:1rem;">
+    <div class="seg-ctrl" id="deploy-mode-ctrl" style="width:auto;">
+      <button class="seg-btn active" data-mode="form" type="button">Form</button>
+      <button class="seg-btn" data-mode="yaml" type="button">YAML</button>
+    </div>
+  </div>
+
+  <!-- ── Visual form ─────────────────────────────────────────────── -->
   <div id="deploy-form-wrap">
 
     <!-- Target -->
@@ -129,28 +137,85 @@
       </div>
     </div>
 
-    <!-- Submit -->
-    <div class="flex-end" style="margin-bottom:1.5rem;gap:0.5rem;">
-      <button type="button" class="btn-sm btn-outline" id="deploy-preview-btn">Preview YAML</button>
+    <!-- Registry Proxy -->
+    <div class="card" style="margin-bottom:1rem;">
+      <div class="card-header">
+        <h2>Registry Proxy</h2>
+        <span class="card-header-sub">Forward image pulls through the submitting peer</span>
+      </div>
+      <div class="card-body">
+        <div class="toggle-row" style="border:none;padding:0;margin-bottom:0.75rem;">
+          <div class="toggle-info">
+            <div class="toggle-label">Enable registry proxy</div>
+            <div class="toggle-desc">Forward image pulls through this agent — use for registries only reachable from this cluster</div>
+          </div>
+          <label class="toggle" style="flex-shrink:0;">
+            <input type="checkbox" id="deploy-registry-proxy">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div id="deploy-registry-proxy-fields" style="display:none;">
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="deploy-registry-secret">Registry credential (optional)</label>
+            <select id="deploy-registry-secret">
+              <option value="">— none (unauthenticated) —</option>
+            </select>
+            <span class="form-hint">Select a saved registry credential, or leave empty for network-restricted but unauthenticated registries.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="margin-top:1rem;margin-bottom:1.5rem;">
       <button type="button" id="deploy-submit-btn">Deploy to Peer</button>
     </div>
 
-  </div>
+  </div><!-- /#deploy-form-wrap -->
 
-<!-- YAML preview modal -->
-<div id="yaml-preview-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="yaml-preview-title">
-  <div class="modal-inner">
-    <div class="modal-header">
-      <span class="modal-title" id="yaml-preview-title">Spec Preview</span>
-      <button type="button" class="modal-close" id="yaml-preview-close" aria-label="Close">
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M1 1l12 12M13 1L1 13"/></svg>
-      </button>
+  <!-- ── YAML editor wrap ────────────────────────────────────────── -->
+  <div id="deploy-yaml-wrap" style="display:none;">
+
+    <!-- Target + name (visible in yaml mode too) -->
+    <div class="card" style="margin-bottom:1rem;">
+      <div class="card-header"><h2>Deploy RemoteApp</h2></div>
+      <div class="card-body">
+        <div class="form-row-2">
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="deploy-name-yaml">App name <span class="req">*</span></label>
+            <input type="text" id="deploy-name-yaml" placeholder="e.g. my-nginx" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="deploy-target-peer-yaml">Target peer <span class="req">*</span></label>
+            <select id="deploy-target-peer-yaml">
+              <option value="" disabled hidden selected>— select peer —</option>
+            </select>
+          </div>
+        </div>
+      </div>
     </div>
-    <div class="modal-body" style="padding:0;">
-      <pre id="deploy-yaml-pre" class="spec-pre" style="margin:0;border-radius:0;max-height:65vh;overflow:auto;"></pre>
+
+    <!-- Monaco editor -->
+    <div class="card" style="margin-bottom:1rem;overflow:visible;">
+      <div class="card-header"><h2>Spec</h2></div>
+      <div class="card-body" style="padding:0;overflow:visible;">
+        <!-- Backing textarea — always kept in sync by setup-vscode-editor.js -->
+        <textarea id="app-spec-yaml" style="display:none;" aria-hidden="true"></textarea>
+        <!-- Monaco host -->
+        <div id="app-spec-editor" style="height:60vh;min-height:400px;width:100%;"></div>
+        <!-- Fallback textarea (shown if Monaco fails to load) -->
+        <textarea id="app-spec-yaml-fallback"
+          rows="22"
+          spellcheck="false"
+          style="display:none;width:100%;box-sizing:border-box;background:var(--surface2);border:none;padding:1rem;font-family:monospace;font-size:0.8rem;color:var(--text);resize:vertical;outline:none;"
+          placeholder="image: nginx:latest&#10;replicas: 1&#10;ports:&#10;  - port: 80"></textarea>
+      </div>
     </div>
-  </div>
-</div>
+
+    <div style="margin-bottom:1.5rem;">
+      <button type="button" id="deploy-submit-btn-yaml">Deploy to Peer</button>
+    </div>
+
+  </div><!-- /#deploy-yaml-wrap -->
 
 </section>
 {% endblock %}
@@ -192,33 +257,58 @@
     return b;
   }
 
-  // ── Populate peer select ──────────────────────────────────────
-  function populatePeers(peers) {
-    var sel = el('deploy-target-peer');
-    if (!sel) return;
-    // Remove old peer options (keep placeholder)
-    var toRemove = [];
-    for (var i = 0; i < sel.options.length; i++) {
-      var opt = sel.options[i];
-      if (opt.value !== '') toRemove.push(opt);
-    }
-    toRemove.forEach(function (o) { sel.removeChild(o); });
+  // ── Populate peer selects ─────────────────────────────────────
+  var _confirmedPeers = [];
 
-    // Only show outgoing/bidirectional peers — incoming-only peers cannot receive deployments
-    var confirmed = peers.filter(function (p) {
+  function populatePeers(peers) {
+    _confirmedPeers = peers.filter(function (p) {
       return 'channel' in p && (p.direction === 'outgoing' || p.direction === 'bidirectional');
     });
-    confirmed.forEach(function (p) {
-      var opt = document.createElement('option');
-      opt.value = p.name;
-      opt.textContent = p.channel === 'connected' ? p.name : p.name + ' (reconnecting)';
-      sel.appendChild(opt);
+    ['deploy-target-peer', 'deploy-target-peer-yaml'].forEach(function (selId) {
+      var sel = el(selId);
+      if (!sel) return;
+      var toRemove = [];
+      for (var i = 0; i < sel.options.length; i++) {
+        if (sel.options[i].value !== '') toRemove.push(sel.options[i]);
+      }
+      toRemove.forEach(function (o) { sel.removeChild(o); });
+      _confirmedPeers.forEach(function (p) {
+        var opt = document.createElement('option');
+        opt.value = p.name;
+        opt.textContent = p.channel === 'connected' ? p.name : p.name + ' (reconnecting)';
+        sel.appendChild(opt);
+      });
+      if (typeof sel._ddRebuild === 'function') sel._ddRebuild();
     });
-    // Directly rebuild the custom dropdown panel now that options are final
-    if (typeof sel._ddRebuild === 'function') sel._ddRebuild();
   }
 
   P.getPeers().then(populatePeers).catch(function () {});
+
+  // ── Registry secrets dropdown ─────────────────────────────────
+  function loadRegistrySecrets() {
+    fetch('/api/registry-secrets', { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (list) {
+        var sel = el('deploy-registry-secret');
+        if (!sel || !Array.isArray(list)) return;
+        // Remove old options (keep the "none" placeholder)
+        while (sel.options.length > 1) sel.remove(1);
+        list.forEach(function (s) {
+          var opt = document.createElement('option');
+          opt.value = s.name;
+          opt.textContent = s.label + ' (' + s.server + ')';
+          sel.appendChild(opt);
+        });
+      })
+      .catch(function () {});
+  }
+  loadRegistrySecrets();
+
+  // ── Registry proxy toggle ─────────────────────────────────────
+  el('deploy-registry-proxy').addEventListener('change', function () {
+    var fields = el('deploy-registry-proxy-fields');
+    if (fields) fields.style.display = this.checked ? 'block' : 'none';
+  });
 
   // ── Ports ────────────────────────────────────────────────────
   function addPort(portVal, nameVal) {
@@ -235,12 +325,10 @@
     if (nameVal) nameIn.value = nameVal;
     row.appendChild(portIn);
     row.appendChild(nameIn);
-    row.appendChild(trashBtn(function () { list.removeChild(row); updatePreview(); }));
-    portIn.addEventListener('input', updatePreview);
-    nameIn.addEventListener('input', updatePreview);
+    row.appendChild(trashBtn(function () { list.removeChild(row); }));
     list.appendChild(row);
   }
-  el('deploy-add-port').addEventListener('click', function () { addPort(); updatePreview(); });
+  el('deploy-add-port').addEventListener('click', function () { addPort(); });
 
   // ── Env vars ─────────────────────────────────────────────────
   function addEnv(nameVal, valVal) {
@@ -256,12 +344,10 @@
     valIn.dataset.role = 'env-value';
     if (valVal) valIn.value = valVal;
     row.appendChild(nameIn); row.appendChild(valIn);
-    row.appendChild(trashBtn(function () { list.removeChild(row); updatePreview(); }));
-    nameIn.addEventListener('input', updatePreview);
-    valIn.addEventListener('input', updatePreview);
+    row.appendChild(trashBtn(function () { list.removeChild(row); }));
     list.appendChild(row);
   }
-  el('deploy-add-env').addEventListener('click', function () { addEnv(); updatePreview(); });
+  el('deploy-add-env').addEventListener('click', function () { addEnv(); });
 
   // ── Volume accordion items (ConfigMap / Secret / PVC) ────────
   var _volCounter = 0;
@@ -279,7 +365,6 @@
     section.className = 'cfg-add-section';
     section.dataset.volKind = kind;
 
-    // Header (collapsible trigger)
     var hdr = document.createElement('div');
     hdr.className = 'cfg-add-header open';
     hdr.dataset.volIdx = idx;
@@ -287,16 +372,14 @@
       '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:0.3rem;flex-shrink:0;"><rect x="2" y="3" width="20" height="18" rx="2"/><path d="M8 10h8M8 14h5"/></svg>' +
       '<span class="vol-item-label">' + label + ': </span>' +
       '<span class="vol-item-name" style="font-weight:600;margin-left:0.2rem;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + _esc(nameVal || '(unnamed)') + '</span>';
-    var trashB = trashBtn(function () { list.removeChild(section); updatePreview(); });
+    var trashB = trashBtn(function () { list.removeChild(section); });
     trashB.style.marginLeft = 'auto';
     hdr.appendChild(trashB);
 
-    // Body (expanded by default for new items)
     var body = document.createElement('div');
     body.className = 'cfg-add-body';
     body.dataset.volBody = idx;
 
-    // Name + mount row
     var row1 = document.createElement('div');
     row1.className = 'form-row-2';
     row1.style.marginBottom = '0.5rem';
@@ -309,7 +392,6 @@
     if (nameVal) nameIn.value = nameVal;
     nameIn.addEventListener('input', function () {
       hdr.querySelector('.vol-item-name').textContent = nameIn.value.trim() || '(unnamed)';
-      updatePreview();
     });
     nameWrap.appendChild(nameIn);
 
@@ -319,7 +401,6 @@
     mountIn.type = 'text'; mountIn.placeholder = isPvc ? '/data' : '/etc/myapp'; mountIn.spellcheck = false;
     mountIn.dataset.role = 'vol-mount';
     if (mountVal) mountIn.value = mountVal;
-    mountIn.addEventListener('input', updatePreview);
     mountWrap.appendChild(mountIn);
 
     row1.appendChild(nameWrap); row1.appendChild(mountWrap);
@@ -336,10 +417,8 @@
           '<option value="ReadWriteMany"' + (modeVal === 'ReadWriteMany' ? ' selected' : '') + '>ReadWriteMany</option>' +
           '<option value="ReadOnlyMany"' + (modeVal === 'ReadOnlyMany' ? ' selected' : '') + '>ReadOnlyMany</option>' +
         '</select></div>';
-      row2.querySelectorAll('input, select').forEach(function (i) { i.addEventListener('input', updatePreview); });
       body.appendChild(row2);
     } else {
-      // KV editor
       var kvList = document.createElement('div');
       kvList.dataset.role = 'kv-list';
 
@@ -357,9 +436,7 @@
         if (v !== undefined) valIn.value = v;
         krow.appendChild(keyIn); krow.appendChild(valIn);
         if (isSecret) krow.appendChild(eyeBtn(valIn));
-        krow.appendChild(trashBtn(function () { kvList.removeChild(krow); updatePreview(); }));
-        keyIn.addEventListener('input', updatePreview);
-        valIn.addEventListener('input', updatePreview);
+        krow.appendChild(trashBtn(function () { kvList.removeChild(krow); }));
         kvList.appendChild(krow);
       }
 
@@ -369,7 +446,7 @@
       addKvBtn.type = 'button'; addKvBtn.className = 'btn-sm btn-outline';
       addKvBtn.style.marginTop = '0.35rem';
       addKvBtn.textContent = '+ Add key';
-      addKvBtn.addEventListener('click', function () { addKvRow('', ''); updatePreview(); });
+      addKvBtn.addEventListener('click', function () { addKvRow('', ''); });
 
       body.appendChild(kvList);
       body.appendChild(addKvBtn);
@@ -378,7 +455,6 @@
     section.appendChild(hdr);
     section.appendChild(body);
 
-    // Toggle collapse on header click (but not on trash button)
     hdr.addEventListener('click', function (e) {
       if (e.target.closest('.btn-icon')) return;
       var open = !body.hidden;
@@ -387,7 +463,6 @@
     });
 
     list.appendChild(section);
-    updatePreview();
   }
 
   el('deploy-add-cm').addEventListener('click', function () { addVolItem('configmap'); });
@@ -396,7 +471,7 @@
 
   // ── Parse a string into a list (JSON array or space-split) ──
   function parseArgList(str) {
-    str = str.trim();
+    str = (str || '').trim();
     if (!str) return null;
     if (str.charAt(0) === '[') {
       try { return JSON.parse(str); } catch (e) { /* fall through */ }
@@ -451,7 +526,7 @@
     });
     if (env.length) spec.env = env;
 
-    // ConfigMaps, Secrets, PVCs (unified volumes list)
+    // ConfigMaps, Secrets, PVCs
     var cms = [], secs = [], pvcs = [];
     document.querySelectorAll('#deploy-volumes-list .cfg-add-section').forEach(function (section) {
       var kind = section.dataset.volKind;
@@ -477,14 +552,26 @@
     if (secs.length) spec.secrets = secs;
     if (pvcs.length) spec.pvcs = pvcs;
 
+    // Registry proxy
+    var proxyOn = (el('deploy-registry-proxy') || {}).checked;
+    if (proxyOn) {
+      spec.registryProxy = true;
+      var regSec = ((el('deploy-registry-secret') || {}).value || '').trim();
+      if (regSec) spec.registrySecret = regSec;
+    }
+
     return spec;
   }
 
-  // ── YAML preview ──────────────────────────────────────────────
+  // ── Spec → YAML ───────────────────────────────────────────────
   function specToYaml(spec) {
     var lines = [];
     var keys = ['image','replicas','imagePullPolicy'];
     keys.forEach(function (k) { if (spec[k] != null) lines.push(k + ': ' + spec[k]); });
+    if (spec.registryProxy) {
+      lines.push('registryProxy: true');
+      if (spec.registrySecret) lines.push('registrySecret: ' + spec.registrySecret);
+    }
     if (spec.command && spec.command.length) {
       lines.push('command: [' + spec.command.map(function (s) { return '"' + s + '"'; }).join(', ') + ']');
     }
@@ -528,7 +615,7 @@
         lines.push('    mountPath: ' + s.mountPath);
         if (s.data && Object.keys(s.data).length) {
           lines.push('    data:');
-          Object.keys(s.data).forEach(function (k) { lines.push('      ' + k + ': (hidden)'); });
+          Object.keys(s.data).forEach(function (k) { lines.push('      ' + k + ': ' + s.data[k]); });
         }
       });
     }
@@ -544,50 +631,326 @@
     return lines.join('\n');
   }
 
-  function updatePreview() {
-    var modal = el('yaml-preview-modal');
-    if (!modal || !modal.classList.contains('open')) return;
-    var pre = el('deploy-yaml-pre');
-    if (pre) pre.textContent = specToYaml(buildSpec());
+  // ── Very lightweight YAML→object parser (top-level keys only) ──
+  // Best-effort for round-tripping simple specs back to the form.
+  function yamlToSpec(text) {
+    var spec = {};
+    var lines = (text || '').split('\n');
+    var i = 0;
+    function peek() { return i < lines.length ? lines[i] : null; }
+    function consume() { return lines[i++]; }
+    function indentOf(line) { var m = line.match(/^(\s*)/); return m ? m[1].length : 0; }
+    function unquote(s) {
+      s = s.trim();
+      if ((s.charAt(0) === '"' && s.charAt(s.length-1) === '"') ||
+          (s.charAt(0) === "'" && s.charAt(s.length-1) === "'")) {
+        return s.slice(1, -1);
+      }
+      return s;
+    }
+    function coerce(s) {
+      if (s === 'true') return true;
+      if (s === 'false') return false;
+      var n = Number(s);
+      if (s !== '' && !isNaN(n)) return n;
+      return s;
+    }
+
+    while (i < lines.length) {
+      var line = consume();
+      if (!line.trim() || line.trim().charAt(0) === '#') continue;
+      var colonIdx = line.indexOf(':');
+      if (colonIdx < 0) continue;
+      var key = line.slice(0, colonIdx).trim();
+      var rest = line.slice(colonIdx + 1).trim();
+      if (!key || indentOf(line) > 0) continue; // skip nested lines at top level
+
+      // Inline array: key: [a, b, c]
+      if (rest.charAt(0) === '[') {
+        try { spec[key] = JSON.parse(rest.replace(/'/g, '"')); } catch(e) {}
+        continue;
+      }
+
+      // Block content (list or nested object)
+      if (!rest) {
+        var blockIndent = -1;
+        var isList = false;
+        // Peek ahead to determine list vs object
+        for (var p = i; p < lines.length; p++) {
+          var pl = lines[p];
+          if (!pl.trim()) continue;
+          blockIndent = indentOf(pl);
+          isList = pl.trim().charAt(0) === '-';
+          break;
+        }
+        if (blockIndent <= 0) continue; // empty block
+
+        if (isList) {
+          // Parse block list (ports, env, configMaps, secrets, pvcs)
+          var items = [];
+          while (i < lines.length) {
+            var nextLine = peek();
+            if (!nextLine || !nextLine.trim()) { consume(); continue; }
+            if (indentOf(nextLine) === 0) break;
+            consume();
+            if (nextLine.trim().charAt(0) === '-') {
+              var itemRest = nextLine.replace(/^\s*-\s*/, '').trim();
+              var obj = {};
+              if (itemRest && itemRest.indexOf(':') >= 0) {
+                var kv = itemRest.split(':');
+                obj[kv[0].trim()] = coerce(unquote(kv.slice(1).join(':')));
+              } else if (itemRest) {
+                obj = unquote(itemRest);
+              }
+              // sub-keys of this list item
+              while (i < lines.length) {
+                var sub = peek();
+                if (!sub || indentOf(sub) <= blockIndent) break;
+                consume();
+                if (!sub.trim() || sub.trim().charAt(0) === '#') continue;
+                var sci = sub.indexOf(':');
+                if (sci < 0) continue;
+                var sk = sub.slice(0, sci).trim();
+                var sv = sub.slice(sci+1).trim();
+                if (typeof obj === 'object') obj[sk] = coerce(unquote(sv));
+              }
+              items.push(obj);
+            }
+          }
+          spec[key] = items;
+        } else {
+          // Parse nested object (resources: requests/limits)
+          var nested = {};
+          while (i < lines.length) {
+            var ol = peek();
+            if (!ol || !ol.trim()) { consume(); continue; }
+            if (indentOf(ol) < blockIndent) break;
+            consume();
+            if (ol.trim().charAt(0) === '#') continue;
+            var oci = ol.indexOf(':');
+            if (oci < 0) continue;
+            var ok = ol.slice(0, oci).trim();
+            var ov = ol.slice(oci+1).trim();
+            if (!ov) {
+              // one more nesting level (e.g. requests: / limits:)
+              var subNested = {};
+              var subIndent = -1;
+              for (var sp = i; sp < lines.length; sp++) {
+                if (!lines[sp].trim()) continue;
+                subIndent = indentOf(lines[sp]);
+                break;
+              }
+              while (subIndent > 0 && i < lines.length) {
+                var sl = peek();
+                if (!sl || !sl.trim()) { consume(); continue; }
+                if (indentOf(sl) < subIndent) break;
+                consume();
+                var sci2 = sl.indexOf(':');
+                if (sci2 < 0) continue;
+                subNested[sl.slice(0, sci2).trim()] = unquote(sl.slice(sci2+1));
+              }
+              nested[ok] = subNested;
+            } else {
+              nested[ok] = coerce(unquote(ov));
+            }
+          }
+          spec[key] = nested;
+        }
+        continue;
+      }
+
+      // Scalar
+      spec[key] = coerce(unquote(rest));
+    }
+    return spec;
   }
 
-  el('deploy-preview-btn').addEventListener('click', function () {
-    el('deploy-yaml-pre').textContent = specToYaml(buildSpec());
-    el('yaml-preview-modal').classList.add('open');
-  });
-  el('yaml-preview-close').addEventListener('click', function () {
-    el('yaml-preview-modal').classList.remove('open');
-  });
-  el('yaml-preview-modal').addEventListener('click', function (e) {
-    if (e.target === this) this.classList.remove('open');
-  });
+  // ── Mode switching ───────────────────────────────────────────
+  var _currentMode = 'form';
+  var _editorInitialized = false;
 
-  el('deploy-form-wrap').addEventListener('input', updatePreview);
+  function switchToYaml() {
+    _currentMode = 'yaml';
+    // Serialize form → YAML and put in editor
+    var yaml = specToYaml(buildSpec());
+    if (!yaml.trim()) yaml = 'image: nginx:latest\nreplicas: 1\nports:\n  - port: 80\n    name: http';
+    var specEl = el('app-spec-yaml');
+    if (specEl) specEl.value = yaml;
+
+    el('deploy-form-wrap').style.display = 'none';
+    el('deploy-yaml-wrap').style.display = 'block';
+
+    // Sync name/peer from form fields
+    var nameForm = (el('deploy-name') || {}).value || '';
+    var peerForm = (el('deploy-target-peer') || {}).value || '';
+    if (el('deploy-name-yaml')) el('deploy-name-yaml').value = nameForm;
+    if (el('deploy-target-peer-yaml')) {
+      el('deploy-target-peer-yaml').value = peerForm;
+      if (typeof el('deploy-target-peer-yaml')._ddRebuild === 'function') el('deploy-target-peer-yaml')._ddRebuild();
+    }
+
+    // Init Monaco (idempotent); always push current yaml into editor
+    var VSE = window.PorpulsionVscodeEditor;
+    if (!_editorInitialized) {
+      _editorInitialized = true;
+      if (VSE) VSE.initDeploySpecEditor();
+      // initDeploySpecEditor reads #app-spec-yaml (set above) for initial value
+    } else {
+      if (VSE) VSE.setDeploySpecValue(yaml);
+    }
+    requestAnimationFrame(function () { if (VSE) VSE.layoutDeployEditor(); });
+  }
+
+  function switchToForm() {
+    _currentMode = 'form';
+    el('deploy-form-wrap').style.display = 'block';
+    el('deploy-yaml-wrap').style.display = 'none';
+
+    // Sync name/peer back
+    var nameYaml = (el('deploy-name-yaml') || {}).value || '';
+    var peerYaml = (el('deploy-target-peer-yaml') || {}).value || '';
+    if (nameYaml && el('deploy-name')) el('deploy-name').value = nameYaml;
+    if (peerYaml && el('deploy-target-peer')) {
+      el('deploy-target-peer').value = peerYaml;
+      if (typeof el('deploy-target-peer')._ddRebuild === 'function') el('deploy-target-peer')._ddRebuild();
+    }
+
+    // Best-effort YAML → form hydration
+    var VSE = window.PorpulsionVscodeEditor;
+    var yaml = VSE ? VSE.getDeploySpecValue() : ((el('app-spec-yaml') || {}).value || '');
+    if (yaml.trim()) {
+      try { hydrateForm(yamlToSpec(yaml)); } catch(e) { /* best effort */ }
+    }
+  }
+
+  // ── Hydrate form from a parsed spec object ───────────────────
+  function hydrateForm(spec) {
+    // Always overwrite scalar fields (clear stale values when key removed from YAML)
+    el('deploy-image').value = spec.image || '';
+    el('deploy-replicas').value = spec.replicas != null ? spec.replicas : 1;
+    el('deploy-pull-policy').value = spec.imagePullPolicy || 'IfNotPresent';
+    el('deploy-command').value = spec.command ? (Array.isArray(spec.command) ? JSON.stringify(spec.command) : spec.command) : '';
+    el('deploy-args').value = spec.args ? (Array.isArray(spec.args) ? JSON.stringify(spec.args) : spec.args) : '';
+
+    // Resources — always reset fields first
+    el('deploy-cpu-req').value = '';
+    el('deploy-cpu-lim').value = '';
+    el('deploy-mem-req').value = '';
+    el('deploy-mem-lim').value = '';
+    if (spec.resources && typeof spec.resources === 'object' && !Array.isArray(spec.resources)) {
+      var req = spec.resources.requests || {};
+      var lim = spec.resources.limits || {};
+      if (req.cpu) el('deploy-cpu-req').value = req.cpu;
+      if (lim.cpu) el('deploy-cpu-lim').value = lim.cpu;
+      if (req.memory) el('deploy-mem-req').value = req.memory;
+      if (lim.memory) el('deploy-mem-lim').value = lim.memory;
+    }
+
+    // Ports
+    el('deploy-ports-list').innerHTML = '';
+    if (Array.isArray(spec.ports)) {
+      spec.ports.forEach(function (p) {
+        if (typeof p === 'object') addPort(p.port, p.name);
+      });
+    }
+
+    // Env
+    el('deploy-env-list').innerHTML = '';
+    if (Array.isArray(spec.env)) {
+      spec.env.forEach(function (e) {
+        if (typeof e === 'object') addEnv(e.name, e.value);
+      });
+    }
+
+    // Volumes
+    el('deploy-volumes-list').innerHTML = '';
+    if (Array.isArray(spec.configMaps)) {
+      spec.configMaps.forEach(function (c) { addVolItem('configmap', c.name, c.mountPath, c.data); });
+    }
+    if (Array.isArray(spec.secrets)) {
+      spec.secrets.forEach(function (s) { addVolItem('secret', s.name, s.mountPath, s.data); });
+    }
+    if (Array.isArray(spec.pvcs)) {
+      spec.pvcs.forEach(function (p) { addVolItem('pvc', p.name, p.mountPath, null, p.storage, p.accessMode); });
+    }
+
+    // Registry proxy
+    var proxyChk = el('deploy-registry-proxy');
+    if (proxyChk) {
+      proxyChk.checked = !!spec.registryProxy;
+      var fields = el('deploy-registry-proxy-fields');
+      if (fields) fields.style.display = spec.registryProxy ? 'block' : 'none';
+    }
+    if (el('deploy-registry-secret')) {
+      el('deploy-registry-secret').value = spec.registrySecret || '';
+    }
+  }
+
+  // ── Mode toggle buttons ──────────────────────────────────────
+  document.querySelectorAll('#deploy-mode-ctrl .seg-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var mode = this.dataset.mode;
+      if (mode === _currentMode) return;
+      document.querySelectorAll('#deploy-mode-ctrl .seg-btn').forEach(function (b) { b.classList.remove('active'); });
+      this.classList.add('active');
+      if (mode === 'yaml') switchToYaml();
+      else switchToForm();
+    });
+  });
 
   // ── Submit ────────────────────────────────────────────────────
-  function doSubmit(name, targetPeer, spec) {
-    var btn = el('deploy-submit-btn');
-    btn.disabled = true; btn.textContent = 'Deploying…';
-    var payload = {name: name, spec: spec, target_peer: targetPeer};
+  function getNameAndPeer() {
+    var name, peer;
+    if (_currentMode === 'yaml') {
+      name = ((el('deploy-name-yaml') || {}).value || '').trim();
+      peer = ((el('deploy-target-peer-yaml') || {}).value || '').trim();
+    } else {
+      name = ((el('deploy-name') || {}).value || '').trim();
+      peer = ((el('deploy-target-peer') || {}).value || '').trim();
+    }
+    return {name: name, peer: peer};
+  }
+
+  function getYaml() {
+    var VSE = window.PorpulsionVscodeEditor;
+    return VSE ? VSE.getDeploySpecValue() : ((el('app-spec-yaml') || {}).value || '');
+  }
+
+  function doSubmit(name, targetPeer, payload) {
+    var btns = [el('deploy-submit-btn'), el('deploy-submit-btn-yaml')];
+    btns.forEach(function (b) { if (b) { b.disabled = true; b.textContent = 'Deploying…'; } });
     P.createRemoteApp(payload).then(function (res) {
-      if (res && res.error) { toast('Error: ' + res.error, 'error'); btn.disabled = false; btn.textContent = 'Deploy to Peer'; }
-      else { window.location.href = '/workloads'; }
+      if (res && res.error) {
+        toast('Error: ' + res.error, 'error');
+        btns.forEach(function (b) { if (b) { b.disabled = false; b.textContent = 'Deploy to Peer'; } });
+      } else { window.location.href = '/workloads'; }
     }).catch(function (err) {
       toast('Error: ' + (err.message || 'failed'), 'error');
-      btn.disabled = false; btn.textContent = 'Deploy to Peer';
+      btns.forEach(function (b) { if (b) { b.disabled = false; b.textContent = 'Deploy to Peer'; } });
     });
   }
 
-  el('deploy-submit-btn').addEventListener('click', function () {
-    var name = (el('deploy-name') || {}).value;
-    if (name) name = name.trim();
-    if (!name) { toast('App name is required', 'error'); return; }
-    var targetPeer = (el('deploy-target-peer') || {}).value;
-    if (!targetPeer) { toast('Select a target peer', 'error'); return; }
-    var spec = buildSpec();
-    if (!spec.image) { toast('Image is required', 'error'); return; }
-    doSubmit(name, targetPeer, spec);
-  });
+  function handleSubmit() {
+    var np = getNameAndPeer();
+    if (!np.name) { toast('App name is required', 'error'); return; }
+    if (!np.peer) { toast('Select a target peer', 'error'); return; }
+    var payload = {name: np.name, target_peer: np.peer};
+    if (_currentMode === 'yaml') {
+      var yaml = getYaml();
+      if (!yaml.trim()) { toast('Spec YAML is required', 'error'); return; }
+      if (!/^\s*image\s*:/m.test(yaml)) { toast('Image is required', 'error'); return; }
+      payload.spec_yaml = yaml;
+    } else {
+      var spec = buildSpec();
+      if (!spec.image) { toast('Image is required', 'error'); return; }
+      payload.spec = spec;
+    }
+    doSubmit(np.name, np.peer, payload);
+  }
+
+  el('deploy-submit-btn').addEventListener('click', handleSubmit);
+  var yamlSubmitBtn = el('deploy-submit-btn-yaml');
+  if (yamlSubmitBtn) yamlSubmitBtn.addEventListener('click', handleSubmit);
 })();
 </script>
 {% endblock %}

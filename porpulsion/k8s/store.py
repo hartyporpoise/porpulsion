@@ -85,12 +85,12 @@ def _check_crd_available(namespace: str) -> bool:
             _crd_api.list_namespaced_custom_object(GROUP, VERSION, namespace, PLURAL, limit=1)
             _crd_available = True
         except ApiException as e:
-            if e.status in (404, 403):
+            if e.status == 404:
                 # CRD genuinely absent — latch False permanently
                 log.warning("RemoteApp CRD not available (status %s)  CR operations disabled", e.status)
                 _crd_available = False
             else:
-                # Transient error — leave None so we retry on next call
+                # 403 = RBAC not yet granted, or any other transient error — retry on next call
                 log.warning("RemoteApp CRD check transient error (status %s)  will retry", e.status)
         except Exception as e:
             log.warning("RemoteApp CRD check failed: %s  will retry", e)
@@ -108,10 +108,11 @@ def _check_ea_crd_available(namespace: str) -> bool:
             _crd_api.list_namespaced_custom_object(GROUP, VERSION, namespace, PLURAL_EA, limit=1)
             _ea_crd_available = True
         except ApiException as e:
-            if e.status in (404, 403):
+            if e.status == 404:
                 log.warning("ExecutingApp CRD not available (status %s)  EA CR operations disabled", e.status)
                 _ea_crd_available = False
             else:
+                # 403 = RBAC not yet granted — retry on next call
                 log.warning("ExecutingApp CRD check transient error (status %s)  will retry", e.status)
         except Exception as e:
             log.warning("ExecutingApp CRD check failed: %s  will retry", e)
