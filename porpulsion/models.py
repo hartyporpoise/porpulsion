@@ -197,6 +197,9 @@ class Peer:
     # CRD schema diff set on connect: {"missing_local": [...], "missing_remote": [...]}
     # missing_remote = fields this peer lacks; missing_local = fields we lack
     crd_diff: dict = field(default_factory=dict)
+    # Full registry proxy URL (e.g. https://peer.example.com/api/image-proxy).
+    # Populated from hello/hello-ack and updated via peer/info-update messages.
+    registry_proxy_url: str = ""
 
     def can_deploy(self) -> bool:
         """True when we have an outbound channel to this peer (can submit workloads)."""
@@ -207,6 +210,8 @@ class Peer:
              "direction": self.direction}
         if self.crd_diff:
             d["crd_diff"] = self.crd_diff
+        if self.registry_proxy_url:
+            d["registry_proxy_url"] = self.registry_proxy_url
         return d
 
 

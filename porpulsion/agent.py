@@ -188,7 +188,7 @@ app.register_blueprint(tunnels_bp.bp, url_prefix="/api")
 app.register_blueprint(settings_bp.bp, url_prefix="/api")
 app.register_blueprint(logs_bp.bp, url_prefix="/api")
 app.register_blueprint(notifications_bp.bp, url_prefix="/api")
-app.register_blueprint(image_proxy_bp.bp, url_prefix="/api")
+app.register_blueprint(image_proxy_bp.bp)
 app.register_blueprint(ui_bp.bp)
 
 
@@ -236,7 +236,7 @@ def _require_api_auth():
     # Session cookie (browser)
     if session.get("user"):
         return
-    # HTTP Basic Auth — /api/ and /v2/ (image proxy, containerd OCI requests)
+    # HTTP Basic Auth — /api/ and /v2/ (containerd OCI image proxy requests)
     if request.path.startswith("/api/") or request.path.startswith("/v2/"):
         # Probe URL map to distinguish unknown routes (-> 404) from known-but-auth-gated (-> 401).
         # We must do this ourselves because before_request fires before route matching.
