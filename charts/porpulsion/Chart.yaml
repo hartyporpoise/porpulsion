@@ -4,8 +4,8 @@ description: >
   Peer-to-peer Kubernetes connector. Deploy and manage workloads across clusters
   over mutual TLS, with built-in HTTP proxying and a live dashboard.
 type: application
-version: 0.3.32
-appVersion: "0.6.7"
+version: 0.3.33
+appVersion: "0.6.8"
 keywords:
   - kubernetes
   - multi-cluster
