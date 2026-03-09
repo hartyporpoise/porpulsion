@@ -2,7 +2,7 @@
 Registry pull-through proxy.
 
 When registry_pull_enabled=True, porpulsion auto-creates a dedicated
-system user (porpulsion-registry) and a dockerconfigjson imagePullSecret
+system user (porpulsion-image-proxy) and a dockerconfigjson imagePullSecret
 (porpulsion-image-proxy) pointing at this agent's /api/image-proxy endpoint.
 
 The /api/image-proxy route is protected by the existing Basic auth guard and
@@ -14,8 +14,8 @@ Flow
 ────
 1. Agent starts with registry_pull_enabled=True.
 2. ensure_registry_setup() creates the system user + pull secret (idempotent).
-3. Executor sees registryProxy=true on a workload and appends
-   PULL_SECRET_NAME to imagePullSecrets.
+3. Workloads that list porpulsion-image-proxy in imagePullSecrets will have
+   the secret validated and mounted automatically by the executor.
 4. containerd authenticates to /api/image-proxy using the system user creds.
 5. The /api/image-proxy route strips the registry host from the path and
    proxies the OCI request to that host without additional credentials.
@@ -26,7 +26,7 @@ import os
 log = logging.getLogger("porpulsion.registry_proxy")
 
 PULL_SECRET_NAME  = "porpulsion-image-proxy"
-_REGISTRY_USER    = "porpulsion-registry"
+_REGISTRY_USER    = "porpulsion-image-proxy"
 
 
 def ensure_registry_setup(namespace: str, self_url: str) -> bool:
@@ -46,7 +46,7 @@ def ensure_registry_setup(namespace: str, self_url: str) -> bool:
 
 def _ensure_registry_user(namespace: str) -> str:
     """
-    Create the porpulsion-registry system user if it doesn't exist.
+    Create the porpulsion-image-proxy system user if it doesn't exist.
     Password is stored in plaintext in the users Secret alongside the hash
     so the pull secret can always be regenerated with the correct password.
     Returns the plaintext password.
@@ -73,7 +73,7 @@ def _ensure_registry_user(namespace: str) -> str:
         title="Registry proxy enabled",
         message=(
             f"System user '{_REGISTRY_USER}' created and imagePullSecret "
-            f"'{PULL_SECRET_NAME}' generated. Workloads with registryProxy=true "
+            f"'{PULL_SECRET_NAME}' generated. Workloads using the imagePullSecret"
             "will use this automatically."
         ),
     )
@@ -148,6 +148,6 @@ def teardown_registry_setup(namespace: str) -> None:
         title="Registry proxy disabled",
         message=(
             f"System user '{_REGISTRY_USER}' and imagePullSecret '{PULL_SECRET_NAME}' removed. "
-            "Workloads with registryProxy=true will fail to pull until re-enabled."
+            "Workloads using the imagePullSecretwill fail to pull until re-enabled."
         ),
     )

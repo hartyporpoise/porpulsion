@@ -267,7 +267,7 @@
           <div class="toggle-row" style="border:none;padding:0;margin-bottom:1.25rem;">
             <div class="toggle-info">
               <div class="toggle-label">Enable registry proxy</div>
-              <div class="toggle-desc">Auto-creates a system user and imagePullSecret so workloads with <span class="mono">registryProxy: true</span> can pull images through this agent</div>
+              <div class="toggle-desc">Auto-creates a system user and imagePullSecret (<span class="mono">porpulsion-image-proxy</span>) — add it to <span class="mono">imagePullSecrets</span> in your workload spec to pull images through this agent's registry proxy</div>
             </div>
             <label class="toggle">
               <input type="checkbox" id="setting-registry-pull-enabled" aria-label="Enable registry proxy">

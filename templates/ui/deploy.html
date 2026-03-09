@@ -138,18 +138,15 @@
       </div>
     </div>
 
+
     <!-- Registry Proxy -->
-    <div class="card collapsed" style="margin-bottom:1rem;" id="card-registry-proxy">
-      <div class="card-header card-header-collapsible" data-collapse="card-registry-proxy" role="button" tabindex="0" aria-expanded="false">
-        <h2>Registry Proxy</h2>
-        <span class="card-header-sub">Forward image pulls through the submitting peer</span>
-        <svg class="card-collapse-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
-      </div>
-      <div class="card-body card-collapsible-body">
+    <div class="card" style="margin-bottom:1rem;">
+      <div class="card-header"><h2>Registry Proxy</h2></div>
+      <div class="card-body" style="padding:0.75rem 1rem;">
         <div class="toggle-row" style="border:none;padding:0;margin-bottom:0;">
           <div class="toggle-info">
-            <div class="toggle-label">Enable registry proxy</div>
-            <div class="toggle-desc">Route image pulls through the executing agent's registry proxy — use for registries only reachable from the executing cluster</div>
+            <div class="toggle-label">Use registry proxy</div>
+            <div class="toggle-desc">Adds <span class="mono">porpulsion-image-proxy</span> to <span class="mono">imagePullSecrets</span> — the executing peer must have the registry proxy enabled</div>
           </div>
           <label class="toggle" style="flex-shrink:0;">
             <input type="checkbox" id="deploy-registry-proxy">
@@ -519,9 +516,9 @@
     if (secs.length) spec.secrets = secs;
     if (pvcs.length) spec.pvcs = pvcs;
 
-    // Registry proxy
+    // Registry proxy convenience toggle — injects the pull secret name
     if ((el('deploy-registry-proxy') || {}).checked) {
-      spec.registryProxy = true;
+      spec.imagePullSecrets = ['porpulsion-image-proxy'];
     }
 
     return spec;
@@ -532,8 +529,9 @@
     var lines = [];
     var keys = ['image','replicas','imagePullPolicy'];
     keys.forEach(function (k) { if (spec[k] != null) lines.push(k + ': ' + spec[k]); });
-    if (spec.registryProxy) {
-      lines.push('registryProxy: true');
+    if (spec.imagePullSecrets && spec.imagePullSecrets.length) {
+      lines.push('imagePullSecrets:');
+      spec.imagePullSecrets.forEach(function (s) { lines.push('  - ' + s); });
     }
     if (spec.command && spec.command.length) {
       lines.push('command: [' + spec.command.map(function (s) { return '"' + s + '"'; }).join(', ') + ']');
@@ -837,9 +835,6 @@
       spec.pvcs.forEach(function (p) { addVolItem('pvc', p.name, p.mountPath, null, p.storage, p.accessMode); });
     }
 
-    // Registry proxy
-    var proxyChk = el('deploy-registry-proxy');
-    if (proxyChk) proxyChk.checked = !!spec.registryProxy;
   }
 
   // ── Mode toggle buttons ──────────────────────────────────────
