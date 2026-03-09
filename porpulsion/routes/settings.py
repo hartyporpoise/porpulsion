@@ -94,6 +94,27 @@ def update_settings():
         except Exception as _exc:
             log.warning("Could not rebuild pull secret after api_url change: %s", _exc)
 
+    # If registry proxy settings changed, push updated proxy URL to all connected peers
+    if "registry_pull_enabled" in data or "registry_api_url" in data:
+        _push_registry_info_to_peers()
+
     log.info("Settings updated: %s", state.settings.to_dict())
     tls.save_state_configmap(state.NAMESPACE, state.settings, state.pending_approval)
     return jsonify(state.settings.to_dict())
+
+
+def _push_registry_info_to_peers():
+    """Push our current registry_proxy_url to all connected peers via peer/info-update."""
+    try:
+        from porpulsion.channel import get_channel
+        proxy_url = state.registry_proxy_url()
+        for peer_name in list(state.peer_channels.keys()):
+            try:
+                get_channel(peer_name, wait=0).push("peer/info-update", {
+                    "name":               state.AGENT_NAME,
+                    "registry_proxy_url": proxy_url,
+                })
+            except Exception as exc:
+                log.debug("Could not push info-update to %s: %s", peer_name, exc)
+    except Exception as exc:
+        log.debug("_push_registry_info_to_peers failed: %s", exc)

@@ -249,6 +249,44 @@
 
   // ── Populate peer selects ─────────────────────────────────────
   var _confirmedPeers = [];
+  // Track the raw (un-proxied) image the user typed, so we can restore it
+  var _rawImage = '';
+
+  function _getSelectedProxyUrl() {
+    var peerName = ((el('deploy-target-peer') || {}).value || '').trim();
+    if (!peerName) return '';
+    var peer = _confirmedPeers.find(function (p) { return p.name === peerName; });
+    return (peer && peer.registry_proxy_url) ? peer.registry_proxy_url.replace(/\/$/, '') : '';
+  }
+
+  function _applyRegistryProxy() {
+    var imgEl = el('deploy-image');
+    if (!imgEl) return;
+    var proxyUrl = _getSelectedProxyUrl();
+    if (!proxyUrl) return;
+    // Save raw image if not already proxied
+    var current = imgEl.value.trim();
+    if (!current.startsWith(proxyUrl + '/')) {
+      _rawImage = current;
+      imgEl.value = current ? proxyUrl + '/' + current : '';
+    }
+  }
+
+  function _removeRegistryProxy() {
+    var imgEl = el('deploy-image');
+    if (!imgEl) return;
+    // Restore raw image
+    if (_rawImage !== '') {
+      imgEl.value = _rawImage;
+      _rawImage = '';
+    } else {
+      // Best-effort: strip any proxy prefix
+      var proxyUrl = _getSelectedProxyUrl();
+      if (proxyUrl && imgEl.value.startsWith(proxyUrl + '/')) {
+        imgEl.value = imgEl.value.slice(proxyUrl.length + 1);
+      }
+    }
+  }
 
   function populatePeers(peers) {
     _confirmedPeers = peers.filter(function (p) {
@@ -273,6 +311,28 @@
   }
 
   P.getPeers().then(populatePeers).catch(function () {});
+
+  // When proxy toggle changes, rewrite the image field
+  var _proxyToggle = el('deploy-registry-proxy');
+  if (_proxyToggle) {
+    _proxyToggle.addEventListener('change', function () {
+      if (this.checked) _applyRegistryProxy();
+      else _removeRegistryProxy();
+    });
+  }
+
+  // When peer changes while proxy is on, re-apply with new peer's proxy URL
+  ['deploy-target-peer'].forEach(function (selId) {
+    var sel = el(selId);
+    if (sel) {
+      sel.addEventListener('change', function () {
+        if (_proxyToggle && _proxyToggle.checked) {
+          _removeRegistryProxy();
+          _applyRegistryProxy();
+        }
+      });
+    }
+  });
 
   // ── Ports ────────────────────────────────────────────────────
   function addPort(portVal, nameVal) {

@@ -302,12 +302,13 @@ class PeerChannel:
                         hello.get("type"))
             return False
 
-        payload       = hello.get("payload", {})
-        peer_name     = payload.get("name", "")
-        peer_ca_pem   = payload.get("ca_pem", "")
-        nonce         = payload.get("nonce", "")
-        challenge_sig = payload.get("challenge_sig", "")
-        peer_self_url = payload.get("self_url", "")
+        payload              = hello.get("payload", {})
+        peer_name            = payload.get("name", "")
+        peer_ca_pem          = payload.get("ca_pem", "")
+        nonce                = payload.get("nonce", "")
+        challenge_sig        = payload.get("challenge_sig", "")
+        peer_self_url        = payload.get("self_url", "")
+        peer_registry_proxy  = payload.get("registry_proxy_url", "")
 
         if not all([peer_name, peer_ca_pem, nonce, challenge_sig]):
             log.warning("Inbound WS: peer/hello missing required fields")
@@ -337,6 +338,9 @@ class PeerChannel:
             if peer_self_url and not existing.url:
                 existing.url = peer_self_url
                 changed = True
+            if peer_registry_proxy != existing.registry_proxy_url:
+                existing.registry_proxy_url = peer_registry_proxy
+                changed = True
             if changed:
                 tls.save_peers(_state.NAMESPACE, _state.peers)
         else:
@@ -348,6 +352,7 @@ class PeerChannel:
                 url=peer_self_url or "",
                 ca_pem=peer_ca_pem,
                 direction="incoming",
+                registry_proxy_url=peer_registry_proxy,
             )
             _state.peers[peer_name] = new_peer
             tls.save_peers(_state.NAMESPACE, _state.peers)
@@ -365,10 +370,11 @@ class PeerChannel:
             sock.send(json.dumps({
                 "type": "peer/hello-ack",
                 "payload": {
-                    "name":          _state.AGENT_NAME,
-                    "ca_pem":        _state.AGENT_CA_PEM.decode(),
-                    "nonce":         ack_nonce,
-                    "challenge_sig": ack_sig,
+                    "name":               _state.AGENT_NAME,
+                    "ca_pem":             _state.AGENT_CA_PEM.decode(),
+                    "nonce":              ack_nonce,
+                    "challenge_sig":      ack_sig,
+                    "registry_proxy_url": _state.registry_proxy_url(),
                 },
             }))
         except Exception as exc:
@@ -487,11 +493,12 @@ class PeerChannel:
         ws.send(json.dumps({
             "type": "peer/hello",
             "payload": {
-                "name":          state.AGENT_NAME,
-                "ca_pem":        state.AGENT_CA_PEM.decode(),
-                "nonce":         nonce,
-                "challenge_sig": challenge_sig,
-                "self_url":      state.SELF_URL,
+                "name":               state.AGENT_NAME,
+                "ca_pem":             state.AGENT_CA_PEM.decode(),
+                "nonce":              nonce,
+                "challenge_sig":      challenge_sig,
+                "self_url":           state.SELF_URL,
+                "registry_proxy_url": state.registry_proxy_url(),
             },
         }))
 
@@ -529,6 +536,13 @@ class PeerChannel:
         if not tls.verify_challenge(peer_nonce, peer_sig, peer_ca_pem):
             ws.close()
             raise RuntimeError(f"hello-ack challenge verification failed for {self.peer_name}")
+
+        # Store registry proxy URL from the acceptor's hello-ack
+        peer_registry_proxy_url = ack_payload.get("registry_proxy_url", "")
+        peer = state.peers.get(self.peer_name)
+        if peer and peer.registry_proxy_url != peer_registry_proxy_url:
+            peer.registry_proxy_url = peer_registry_proxy_url
+            tls.save_peers(state.NAMESPACE, state.peers)
 
         with self._lock:
             self._ws = ws
@@ -796,6 +810,7 @@ def _register_handlers(ch: "PeerChannel"):
         handle_proxy_request,
         handle_peer_disconnect,
         handle_peer_bidirectional,
+        handle_peer_info_update,
     )
     # Bind source_peer to the authenticated channel identity so the
     # allowed_source_peers policy cannot be bypassed by spoofing the payload field.
@@ -819,3 +834,4 @@ def _register_handlers(ch: "PeerChannel"):
     ch.register("proxy/request",           _proxy_handler)
     ch.register("peer/disconnect",         handle_peer_disconnect)
     ch.register("peer/bidirectional",      handle_peer_bidirectional)
+    ch.register("peer/info-update",        handle_peer_info_update)

@@ -47,3 +47,15 @@ peer_channels_lock: threading.Lock = threading.Lock()
 
 # In-app notifications - newest first, capped at 50
 notifications: list[dict] = []
+
+
+def registry_proxy_url() -> str:
+    """
+    Return the full URL for this agent's image proxy endpoint.
+    Uses registry_api_url override if set (split-ingress), otherwise SELF_URL.
+    Returns "" if registry_pull_enabled is False.
+    """
+    if not settings.registry_pull_enabled:
+        return ""
+    base = (settings.registry_api_url or "").strip().rstrip("/") or SELF_URL.rstrip("/")
+    return base + "/api/image-proxy" if base else ""

@@ -1,14 +1,19 @@
 """
 Registry image proxy route.
 
-Registered at /api/image-proxy via the /api blueprint.
-containerd's dockerconfigjson points its server key at {apiUrl}/api/image-proxy
-and appends the OCI Distribution path itself, so requests arrive as:
+Registered at the Flask root (no blueprint prefix).
 
-    /api/image-proxy/v2/<registry-host>/<name>/manifests/<ref>
+The pull secret server field is set to {apiUrl}/api/image-proxy, so containerd
+constructs OCI paths relative to the *registry host*, not the server path.
+When the pod image is `host/api/image-proxy/<registry>/<name>:<tag>`, containerd
+sends requests to: {host}/v2/api/image-proxy/<registry>/<name>/manifests/<ref>
 
-We extract the registry host from the path and forward to:
+We register both paths to handle either case:
+  - /api/image-proxy/<subpath>  (direct API call, e.g. health-check)
+  - /v2/api/image-proxy/<subpath>  (containerd OCI path)
 
+In both cases we strip the leading v2/ (if present) from the subpath, then
+extract the registry host and forward to:
     https://<registry-host>/v2/<name>/manifests/<ref>
 
 No upstream credentials are added — designed for network-restricted registries
@@ -30,8 +35,10 @@ bp = Blueprint("image_proxy", __name__)
 _METHODS = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"]
 
 
-@bp.route("/image-proxy/", defaults={"subpath": ""}, methods=_METHODS)
-@bp.route("/image-proxy/<path:subpath>", methods=_METHODS)
+@bp.route("/api/image-proxy/", defaults={"subpath": ""}, methods=_METHODS)
+@bp.route("/api/image-proxy/<path:subpath>", methods=_METHODS)
+@bp.route("/v2/api/image-proxy/", defaults={"subpath": ""}, methods=_METHODS)
+@bp.route("/v2/api/image-proxy/<path:subpath>", methods=_METHODS)
 def registry_image_proxy(subpath):
     # containerd prepends v2/ — strip it to get <registry-host>/<rest>
     path = subpath.lstrip("/")

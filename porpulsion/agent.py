@@ -188,7 +188,7 @@ app.register_blueprint(tunnels_bp.bp, url_prefix="/api")
 app.register_blueprint(settings_bp.bp, url_prefix="/api")
 app.register_blueprint(logs_bp.bp, url_prefix="/api")
 app.register_blueprint(notifications_bp.bp, url_prefix="/api")
-app.register_blueprint(image_proxy_bp.bp, url_prefix="/api")
+app.register_blueprint(image_proxy_bp.bp)
 app.register_blueprint(ui_bp.bp)
 
 
@@ -230,14 +230,14 @@ def _check_csrf():
 def _require_api_auth():
     from flask import request, session, jsonify
     import base64 as _b64
-    _GUARDED = ("/api/", "/static/js/")
+    _GUARDED = ("/api/", "/static/js/", "/v2/api/image-proxy/")
     if not any(request.path.startswith(p) for p in _GUARDED):
         return
     # Session cookie (browser)
     if session.get("user"):
         return
-    # HTTP Basic Auth (curl / scripts) - only honoured for /api/ paths
-    if request.path.startswith("/api/"):
+    # HTTP Basic Auth (curl / scripts) - honoured for /api/ and image-proxy paths
+    if request.path.startswith("/api/") or request.path.startswith("/v2/api/image-proxy/"):
         # Probe URL map to distinguish unknown routes (-> 404) from known-but-auth-gated (-> 401).
         # We must do this ourselves because before_request fires before route matching.
         _adapter = app.url_map.bind(request.host)

@@ -339,6 +339,21 @@ def handle_peer_bidirectional(payload: dict):
         ch.peer_remote_addr = remote_addr
 
 
+def handle_peer_info_update(payload: dict):
+    """Peer is pushing updated info (e.g. registry_proxy_url changed)."""
+    from porpulsion import state, tls
+
+    peer_name          = payload.get("name", "")
+    registry_proxy_url = payload.get("registry_proxy_url", "")
+    if not peer_name:
+        return
+    peer = state.peers.get(peer_name)
+    if peer and peer.registry_proxy_url != registry_proxy_url:
+        peer.registry_proxy_url = registry_proxy_url
+        tls.save_peers(state.NAMESPACE, state.peers)
+        log.info("Peer %s updated registry_proxy_url: %r", peer_name, registry_proxy_url)
+
+
 def handle_peer_disconnect(payload: dict):
     """Peer is telling us it's disconnecting. If reason='removed', they intentionally
     removed us  - wipe them from our state too. Otherwise keep them for reconnect."""
