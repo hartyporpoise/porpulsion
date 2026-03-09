@@ -257,19 +257,30 @@
         </div>
       </div>
 
-      <!-- ── Registry Credentials ──────────────────────────────── -->
+      <!-- ── Registry Proxy ────────────────────────────────────── -->
       <div class="card settings-card-full">
         <div class="card-header">
-          <h2>Registry Credentials</h2>
-          <span class="card-header-sub">docker-registry Secrets for the registry proxy</span>
+          <h2>Registry Proxy</h2>
+          <span class="card-header-sub">Pull-through proxy for network-restricted registries</span>
         </div>
         <div class="card-body">
-          <p class="text-sm text-muted" style="margin-bottom:1rem;">
-            Saved credentials are used when the registry proxy forwards image pulls to a private registry.
-          </p>
-          <div id="reg-secrets-list" style="margin-bottom:0.75rem;"></div>
+          <div class="toggle-row" style="border:none;padding:0;margin-bottom:1.25rem;">
+            <div class="toggle-info">
+              <div class="toggle-label">Enable registry proxy</div>
+              <div class="toggle-desc">Auto-creates a system user and imagePullSecret (<span class="mono">porpulsion-image-proxy</span>) — add it to <span class="mono">imagePullSecrets</span> in your workload spec to pull images through this agent's registry proxy</div>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" id="setting-registry-pull-enabled" aria-label="Enable registry proxy">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="form-group" style="margin-bottom:0.75rem;">
+            <label class="form-label" for="setting-registry-api-url">API URL override</label>
+            <input type="text" id="setting-registry-api-url" placeholder="defaults to agent selfUrl" autocomplete="off" spellcheck="false">
+            <span class="form-hint">Override the URL used in the imagePullSecret server field. Use this if your API endpoint (<span class="mono">/api/image-proxy</span>) is reachable at a different address than the WebSocket endpoint — for example in split-ingress setups where <span class="mono">/ws</span> is public but <span class="mono">/api</span> is internal only.</span>
+          </div>
           <div class="flex-end">
-            <button type="button" class="btn-sm btn-outline" id="reg-secret-add-btn">+ Add credential</button>
+            <button type="button" id="setting-registry-save" class="btn-sm">Save</button>
           </div>
         </div>
       </div>
@@ -279,45 +290,4 @@
 
 </section>
 
-<!-- ── Registry credential modal ──────────────────────────────── -->
-<div class="modal-backdrop" id="reg-secret-modal">
-  <div class="modal-inner" style="width:min(480px,100%);">
-    <div class="modal-header">
-      <span class="modal-title" id="reg-secret-modal-title">Add credential</span>
-      <button type="button" class="modal-close" id="reg-secret-modal-close" aria-label="Close">
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M1 1l12 12M13 1L1 13"/></svg>
-      </button>
-    </div>
-    <div class="modal-body" style="padding:1.25rem;">
-      <div class="form-group">
-        <label class="form-label" for="reg-secret-label">Label <span class="req">*</span></label>
-        <input type="text" id="reg-secret-label" placeholder="e.g. my-registry" autocomplete="off">
-        <span class="form-hint" id="reg-secret-label-hint">Alphanumeric, hyphens, underscores and dots only (e.g. <code>my-registry</code>).</span>
-      </div>
-      <div class="form-group">
-        <label class="form-label" for="reg-secret-server">Registry server <span class="req">*</span></label>
-        <input type="text" id="reg-secret-server" placeholder="e.g. registry.example.com" autocomplete="off" spellcheck="false">
-      </div>
-      <div class="form-group">
-        <label class="form-label" for="reg-secret-username">Username <span class="req">*</span></label>
-        <input type="text" id="reg-secret-username" autocomplete="off" spellcheck="false">
-      </div>
-      <div class="form-group" style="margin-bottom:0;">
-        <label class="form-label" for="reg-secret-password">Password <span class="req">*</span></label>
-        <div style="position:relative;display:flex;align-items:center;">
-          <input type="password" id="reg-secret-password" autocomplete="new-password" style="flex:1;padding-right:2.5rem;">
-          <button type="button" id="reg-secret-pwd-eye" title="Show/hide password"
-            style="position:absolute;right:0.5rem;background:none;border:none;cursor:pointer;padding:0.25rem;color:var(--muted);display:flex;align-items:center;">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-          </button>
-        </div>
-        <span class="form-hint" id="reg-secret-pwd-hint" style="display:none;">Leave blank to keep the existing password.</span>
-      </div>
-    </div>
-    <div class="modal-footer" style="display:flex;justify-content:flex-end;gap:0.5rem;padding:1rem 1.25rem;">
-      <button type="button" class="btn-sm btn-outline" id="reg-secret-cancel-btn">Cancel</button>
-      <button type="button" class="btn-sm" id="reg-secret-save-btn">Save credential</button>
-    </div>
-  </div>
-</div>
 {% endblock %}

@@ -318,11 +318,6 @@ def approve_remoteapp(app_id):
     log.info("Approved app %s (%s) from %s", entry["name"], app_id, entry["source_peer"])
     spec_dict = entry["spec"]
     source_peer = entry["source_peer"]
-    if spec_dict.get("registryProxy") and source_peer:
-        from porpulsion.k8s.registry_proxy import _PULL_SECRET_NAME
-        existing = spec_dict.get("imagePullSecrets") or []
-        if _PULL_SECRET_NAME not in existing:
-            spec_dict["imagePullSecrets"] = existing + [_PULL_SECRET_NAME]
     # Create the ExecutingApp CR - the CR watcher drives workload execution
     from porpulsion.k8s.store import create_executingapp_cr
     create_executingapp_cr(

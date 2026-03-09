@@ -481,26 +481,21 @@ def run_workload(remote_app, callback_url, peer=None, cr_body=None):
         # -- imagePullPolicy / imagePullSecrets
         pull_policy = spec.imagePullPolicy
 
-        # Registry pull-through proxy: if registryProxy is true, rewrite the image
-        # ref so kubelet pulls via the local OCI proxy that streams blobs from the
-        # submitting peer over the WS channel. registrySecret is optional — used
-        # only when the registry also requires authentication.
-        # Note: the pull secret (porpulsion-registry-ca) is injected into spec.imagePullSecrets
-        # at CR creation time (channel_handlers / approve path), so we just read it from spec here.
-        registry_proxy  = bool(getattr(spec, "registryProxy", False))
-        registry_secret = getattr(spec, "registrySecret", None) or ""
-        if registry_proxy and remote_app.source_peer:
-            try:
-                from porpulsion.k8s.registry_proxy import start_proxy, proxy_image_ref, register_peer_secret
-                start_proxy()
-                register_peer_secret(remote_app.source_peer, registry_secret)
-                image = proxy_image_ref(remote_app.source_peer, image)
-                log.info("Registry proxy active for %s: image rewritten to %s",
-                         remote_app.id, image)
-            except Exception as _rp_exc:
-                log.warning("Failed to start registry proxy: %s — using original image ref", _rp_exc)
-
         pull_secret_names = list(spec.imagePullSecrets or [])
+
+        # Validate that every named pull secret actually exists on this cluster.
+        for secret_name in pull_secret_names:
+            try:
+                core_v1.read_namespaced_secret(secret_name, NAMESPACE)
+            except client.ApiException as e:
+                msg = (
+                    f"Failed: imagePullSecret '{secret_name}' not found on this cluster"
+                    if e.status == 404 else
+                    f"Failed: could not verify imagePullSecret '{secret_name}': {e.reason}"
+                )
+                _report_status(remote_app, callback_url, msg, peer=peer)
+                return
+
         pull_secrets = [client.V1LocalObjectReference(name=s) for s in pull_secret_names] \
             if pull_secret_names else None
 

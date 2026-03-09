@@ -70,15 +70,7 @@ def handle_remoteapp_receive(payload: dict) -> dict:
         )
         return {"id": app_id, "status": "pending_approval"}
 
-    # If registry proxy is requested, inject the proxy's CA pull secret into the
-    # spec so the CR (and thus the pod) carries the CA trust from the start.
-    # The pull secret is created at agent startup so it always exists.
     spec_dict = spec.to_dict()
-    if spec_dict.get("registryProxy") and source_peer:
-        from porpulsion.k8s.registry_proxy import _PULL_SECRET_NAME
-        existing = spec_dict.get("imagePullSecrets") or []
-        if _PULL_SECRET_NAME not in existing:
-            spec_dict["imagePullSecrets"] = existing + [_PULL_SECRET_NAME]
 
     # Create ExecutingApp CR - the CR watcher drives workload execution from here
     cr_name = create_executingapp_cr(
@@ -273,11 +265,6 @@ def handle_remoteapp_spec_update(payload: dict) -> dict:
         log.debug("CRD spec validation skipped: %s", _ve)
 
     spec_dict = parsed.to_dict()
-    if spec_dict.get("registryProxy") and d["source_peer"]:
-        from porpulsion.k8s.registry_proxy import _PULL_SECRET_NAME
-        existing = spec_dict.get("imagePullSecrets") or []
-        if _PULL_SECRET_NAME not in existing:
-            spec_dict["imagePullSecrets"] = existing + [_PULL_SECRET_NAME]
 
     # Update the ExecutingApp CR - the CR watcher drives the re-deploy
     create_executingapp_cr(state.NAMESPACE, app_id, d["name"], spec_dict, d["source_peer"])
@@ -426,52 +413,3 @@ def handle_peer_disconnect(payload: dict):
         else:
             ch.disconnect()
 
-
-# -- Registry pull-through proxy (submitting side)
-#
-# The MITM proxy on the executing side calls registry/credentials to fetch
-# docker-registry auth from the submitting peer, then connects directly to the
-# real registry over HTTPS without routing any blob data through the WS channel.
-
-def handle_registry_credentials(payload: dict) -> dict:
-    """
-    Return docker registry credentials from a named k8s Secret.
-    Called by the executing peer's MITM proxy to authenticate against the
-    real registry using credentials stored on the submitting peer.
-    Returns {"credentials": "user:password"} or {"credentials": ""}.
-    """
-    import json as _json
-    from porpulsion import state
-    secret_name   = payload.get("secret_name", "")
-    registry_host = payload.get("registry_host", "")
-    if not secret_name:
-        return {"credentials": ""}
-    try:
-        from porpulsion.tls import _k8s_core_v1
-        core_v1 = _k8s_core_v1()
-        secret = core_v1.read_namespaced_secret(secret_name, state.NAMESPACE)
-        d = secret.data or {}
-        if ".dockerconfigjson" in d:
-            cfg = _json.loads(base64.b64decode(d[".dockerconfigjson"]))
-            auths = cfg.get("auths", {})
-            # Try to match the specific registry host first, then fall back to
-            # any entry (covers single-registry secrets with a generic host key).
-            def _extract(auth_data: dict) -> str:
-                raw = base64.b64decode(auth_data.get("auth", "")).decode()
-                return raw if raw else ""
-            if registry_host:
-                for host, auth_data in auths.items():
-                    normalised = host.replace("https://", "").rstrip("/")
-                    if normalised == registry_host or normalised == f"index.{registry_host}":
-                        cred = _extract(auth_data)
-                        if cred:
-                            return {"credentials": cred}
-            # Fallback: return first non-empty entry
-            for auth_data in auths.values():
-                cred = _extract(auth_data)
-                if cred:
-                    return {"credentials": cred}
-        return {"credentials": ""}
-    except Exception as exc:
-        log.warning("registry/credentials: could not read secret %r: %s", secret_name, exc)
-        return {"credentials": ""}

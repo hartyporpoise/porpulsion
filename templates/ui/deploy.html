@@ -138,32 +138,20 @@
       </div>
     </div>
 
+
     <!-- Registry Proxy -->
-    <div class="card collapsed" style="margin-bottom:1rem;" id="card-registry-proxy">
-      <div class="card-header card-header-collapsible" data-collapse="card-registry-proxy" role="button" tabindex="0" aria-expanded="false">
-        <h2>Registry Proxy</h2>
-        <span class="card-header-sub">Forward image pulls through the submitting peer</span>
-        <svg class="card-collapse-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
-      </div>
-      <div class="card-body card-collapsible-body">
-        <div class="toggle-row" style="border:none;padding:0;margin-bottom:0.75rem;">
+    <div class="card" style="margin-bottom:1rem;">
+      <div class="card-header"><h2>Registry Proxy</h2></div>
+      <div class="card-body" style="padding:0.75rem 1rem;">
+        <div class="toggle-row" style="border:none;padding:0;margin-bottom:0;">
           <div class="toggle-info">
-            <div class="toggle-label">Enable registry proxy</div>
-            <div class="toggle-desc">Forward image pulls through this agent — use for registries only reachable from this cluster</div>
+            <div class="toggle-label">Use registry proxy</div>
+            <div class="toggle-desc">Adds <span class="mono">porpulsion-image-proxy</span> to <span class="mono">imagePullSecrets</span> — the executing peer must have the registry proxy enabled</div>
           </div>
           <label class="toggle" style="flex-shrink:0;">
             <input type="checkbox" id="deploy-registry-proxy">
             <span class="toggle-slider"></span>
           </label>
-        </div>
-        <div id="deploy-registry-proxy-fields" style="display:none;">
-          <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label" for="deploy-registry-secret">Registry credential (optional)</label>
-            <select id="deploy-registry-secret">
-              <option value="">— none (unauthenticated) —</option>
-            </select>
-            <span class="form-hint">Select a saved registry credential, or leave empty for network-restricted but unauthenticated registries.</span>
-          </div>
         </div>
       </div>
     </div>
@@ -285,32 +273,6 @@
   }
 
   P.getPeers().then(populatePeers).catch(function () {});
-
-  // ── Registry secrets dropdown ─────────────────────────────────
-  function loadRegistrySecrets() {
-    fetch('/api/registry-secrets', { credentials: 'same-origin' })
-      .then(function (r) { return r.json(); })
-      .then(function (list) {
-        var sel = el('deploy-registry-secret');
-        if (!sel || !Array.isArray(list)) return;
-        // Remove old options (keep the "none" placeholder)
-        while (sel.options.length > 1) sel.remove(1);
-        list.forEach(function (s) {
-          var opt = document.createElement('option');
-          opt.value = s.name;
-          opt.textContent = s.label + ' (' + s.server + ')';
-          sel.appendChild(opt);
-        });
-      })
-      .catch(function () {});
-  }
-  loadRegistrySecrets();
-
-  // ── Registry proxy toggle ─────────────────────────────────────
-  el('deploy-registry-proxy').addEventListener('change', function () {
-    var fields = el('deploy-registry-proxy-fields');
-    if (fields) fields.style.display = this.checked ? 'block' : 'none';
-  });
 
   // ── Ports ────────────────────────────────────────────────────
   function addPort(portVal, nameVal) {
@@ -554,12 +516,9 @@
     if (secs.length) spec.secrets = secs;
     if (pvcs.length) spec.pvcs = pvcs;
 
-    // Registry proxy
-    var proxyOn = (el('deploy-registry-proxy') || {}).checked;
-    if (proxyOn) {
-      spec.registryProxy = true;
-      var regSec = ((el('deploy-registry-secret') || {}).value || '').trim();
-      if (regSec) spec.registrySecret = regSec;
+    // Registry proxy convenience toggle — injects the pull secret name
+    if ((el('deploy-registry-proxy') || {}).checked) {
+      spec.imagePullSecrets = ['porpulsion-image-proxy'];
     }
 
     return spec;
@@ -570,9 +529,9 @@
     var lines = [];
     var keys = ['image','replicas','imagePullPolicy'];
     keys.forEach(function (k) { if (spec[k] != null) lines.push(k + ': ' + spec[k]); });
-    if (spec.registryProxy) {
-      lines.push('registryProxy: true');
-      if (spec.registrySecret) lines.push('registrySecret: ' + spec.registrySecret);
+    if (spec.imagePullSecrets && spec.imagePullSecrets.length) {
+      lines.push('imagePullSecrets:');
+      spec.imagePullSecrets.forEach(function (s) { lines.push('  - ' + s); });
     }
     if (spec.command && spec.command.length) {
       lines.push('command: [' + spec.command.map(function (s) { return '"' + s + '"'; }).join(', ') + ']');
@@ -876,16 +835,6 @@
       spec.pvcs.forEach(function (p) { addVolItem('pvc', p.name, p.mountPath, null, p.storage, p.accessMode); });
     }
 
-    // Registry proxy
-    var proxyChk = el('deploy-registry-proxy');
-    if (proxyChk) {
-      proxyChk.checked = !!spec.registryProxy;
-      var fields = el('deploy-registry-proxy-fields');
-      if (fields) fields.style.display = spec.registryProxy ? 'block' : 'none';
-    }
-    if (el('deploy-registry-secret')) {
-      el('deploy-registry-secret').value = spec.registrySecret || '';
-    }
   }
 
   // ── Mode toggle buttons ──────────────────────────────────────

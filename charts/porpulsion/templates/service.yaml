@@ -17,24 +17,3 @@ spec:
       {{- if and (eq .Values.service.type "NodePort") .Values.service.nodePort }}
       nodePort: {{ .Values.service.nodePort }}
       {{- end }}
----
-# Separate ClusterIP-only Service for the registry pull-through proxy.
-# Keeping this as ClusterIP regardless of the main service type ensures
-# port 5100 is never exposed outside the cluster — even when the main
-# service is NodePort or LoadBalancer.
-# Kubelet on cluster nodes can reach ClusterIP Services via the pod network.
-apiVersion: v1
-kind: Service
-metadata:
-  name: {{ include "porpulsion.fullname" . }}-registry
-  namespace: {{ .Release.Namespace }}
-  labels:
-    app.kubernetes.io/component: agent
-spec:
-  type: ClusterIP
-  selector:
-    app: {{ include "porpulsion.fullname" . }}-agent
-  ports:
-    - name: registry-proxy
-      port: 5100
-      targetPort: 5100
