@@ -74,6 +74,10 @@ def registry_image_proxy(subpath):
             data = resp.read()
             headers = {k: v for k, v in resp.headers.items()
                        if k.lower() not in _STRIP}
+            # Flask recomputes Content-Length from body length, which is 0 for HEAD.
+            # Restore the upstream value so containerd records the correct descriptor size.
+            if "Content-Length" in resp.headers:
+                headers["Content-Length"] = resp.headers["Content-Length"]
             return Response(data, status=resp.status, headers=headers)
     except urllib.error.HTTPError as exc:
         data = exc.read()
