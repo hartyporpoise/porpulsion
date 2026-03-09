@@ -286,19 +286,39 @@ _server_lock = threading.Lock()
 # PEM bytes of the proxy's self-signed CA — set once by start_proxy()
 _proxy_ca_pem: bytes | None = None
 
+# ClusterIP of the porpulsion-registry Service — set once by start_proxy()
+_registry_cluster_ip: str | None = None
+
 _PULL_SECRET_NAME = "porpulsion-registry-ca"
 
 
-def _generate_proxy_tls(namespace: str) -> tuple[bytes, bytes, bytes]:
+def _lookup_registry_cluster_ip(namespace: str) -> str | None:
+    """Return the ClusterIP of the porpulsion-registry Service, or None on error."""
+    try:
+        from porpulsion import tls as _tls
+        core_v1 = _tls._k8s_core_v1()
+        svc = core_v1.read_namespaced_service(f"porpulsion-registry", namespace)
+        return svc.spec.cluster_ip or None
+    except Exception as exc:
+        log.warning("Could not look up registry ClusterIP: %s", exc)
+        return None
+
+
+def _generate_proxy_tls(namespace: str, cluster_ip: str | None = None) -> tuple[bytes, bytes, bytes]:
     """
     Generate (or load cached) a self-signed CA + leaf TLS cert for the proxy.
 
-    The CA cert is stored in the porpulsion-credentials Secret under the key
-    'registry-proxy-ca.crt' so it survives pod restarts and can be retrieved
-    for the imagePullSecret without regenerating.
+    The leaf cert includes both the ClusterIP (as an IP SAN) and the DNS name
+    as SANs so containerd can verify the cert regardless of which address it
+    uses. The CA cert is stored in the porpulsion-credentials Secret so it
+    survives pod restarts.
+
+    If cluster_ip is provided and the cached cert doesn't cover it, the cache
+    is busted and a fresh cert is generated.
 
     Returns (ca_cert_pem, leaf_cert_pem, leaf_key_pem) as bytes.
     """
+    import ipaddress
     from cryptography import x509
     from cryptography.x509.oid import NameOID
     from cryptography.hazmat.primitives import hashes, serialization
@@ -312,16 +332,30 @@ def _generate_proxy_tls(namespace: str) -> tuple[bytes, bytes, bytes]:
         secret = core_v1.read_namespaced_secret("porpulsion-credentials", namespace)
         d = secret.data or {}
         if "registry-proxy-ca.crt" in d and "registry-proxy.crt" in d and "registry-proxy.key" in d:
-            log.debug("Loaded existing registry proxy TLS certs from Secret")
-            return (
-                base64.b64decode(d["registry-proxy-ca.crt"]),
-                base64.b64decode(d["registry-proxy.crt"]),
-                base64.b64decode(d["registry-proxy.key"]),
-            )
+            ca_pem   = base64.b64decode(d["registry-proxy-ca.crt"])
+            leaf_pem = base64.b64decode(d["registry-proxy.crt"])
+            key_pem  = base64.b64decode(d["registry-proxy.key"])
+            # Validate that the cached leaf cert covers the current ClusterIP
+            if cluster_ip:
+                from cryptography.x509 import load_pem_x509_certificate
+                leaf_cert = load_pem_x509_certificate(leaf_pem)
+                try:
+                    san = leaf_cert.extensions.get_extension_for_class(x509.SubjectAlternativeName)
+                    ip_sans = [str(ip) for ip in san.value.get_values_for_type(x509.IPAddress)]
+                    if cluster_ip in ip_sans:
+                        log.debug("Loaded existing registry proxy TLS certs from Secret")
+                        return ca_pem, leaf_pem, key_pem
+                    log.info("Cached cert missing ClusterIP %s SAN — regenerating", cluster_ip)
+                except Exception:
+                    log.info("Could not validate cached cert SANs — regenerating")
+            else:
+                log.debug("Loaded existing registry proxy TLS certs from Secret")
+                return ca_pem, leaf_pem, key_pem
     except Exception:
         pass
 
-    log.info("Generating registry proxy TLS cert for namespace %s", namespace)
+    log.info("Generating registry proxy TLS cert for namespace %s (ClusterIP=%s)",
+             namespace, cluster_ip or "unknown")
     svc_dns = f"porpulsion-registry.{namespace}.svc.cluster.local"
     now = datetime.datetime.now(datetime.timezone.utc)
 
@@ -345,7 +379,17 @@ def _generate_proxy_tls(namespace: str) -> tuple[bytes, bytes, bytes]:
         serialization.NoEncryption(),
     )
 
-    # Leaf cert signed by the CA, valid for the ClusterIP service DNS name
+    # Leaf cert SAN: ClusterIP only — containerd connects via IP, not DNS.
+    san_entries: list = []
+    if cluster_ip:
+        try:
+            san_entries.append(x509.IPAddress(ipaddress.ip_address(cluster_ip)))
+        except ValueError:
+            log.warning("Invalid ClusterIP %r — not adding IP SAN", cluster_ip)
+    if not san_entries:
+        # Fallback if ClusterIP lookup failed — include DNS name so cert is at least valid
+        san_entries.append(x509.DNSName(svc_dns))
+
     leaf_key = ec.generate_private_key(ec.SECP256R1())
     leaf_cert = (
         x509.CertificateBuilder()
@@ -355,7 +399,7 @@ def _generate_proxy_tls(namespace: str) -> tuple[bytes, bytes, bytes]:
         .serial_number(x509.random_serial_number())
         .not_valid_before(now)
         .not_valid_after(now + datetime.timedelta(days=3650))
-        .add_extension(x509.SubjectAlternativeName([x509.DNSName(svc_dns)]), critical=False)
+        .add_extension(x509.SubjectAlternativeName(san_entries), critical=False)
         .sign(ca_key, hashes.SHA256())
     )
     leaf_cert_pem = leaf_cert.public_bytes(serialization.Encoding.PEM)
@@ -392,7 +436,9 @@ def ensure_pull_secret(namespace: str) -> str:
     from porpulsion import tls as _tls
     from kubernetes import client as k8s_client
 
-    svc_host = f"porpulsion-registry.{namespace}.svc.cluster.local:{_PROXY_PORT}"
+    # Use ClusterIP if known (nodes can route to it); fall back to DNS name.
+    host = _registry_cluster_ip or f"porpulsion-registry.{namespace}.svc.cluster.local"
+    svc_host = f"{host}:{_PROXY_PORT}"
 
     # dockerconfigjson format — no credentials needed, just the registry entry
     # so containerd knows to use our CA for TLS verification.
@@ -440,13 +486,15 @@ def start_proxy() -> int:
     Idempotent — safe to call multiple times.
     Returns the port the proxy is listening on.
     """
-    global _server, _proxy_ca_pem
+    global _server, _proxy_ca_pem, _registry_cluster_ip
     with _server_lock:
         if _server is not None:
             return _server.server_address[1]
 
         from porpulsion import state
-        ca_pem, leaf_cert_pem, leaf_key_pem = _generate_proxy_tls(state.NAMESPACE)
+        cluster_ip = _lookup_registry_cluster_ip(state.NAMESPACE)
+        _registry_cluster_ip = cluster_ip
+        ca_pem, leaf_cert_pem, leaf_key_pem = _generate_proxy_tls(state.NAMESPACE, cluster_ip)
         _proxy_ca_pem = ca_pem
 
         # Write cert + key to temp files (ssl.SSLContext requires file paths)
@@ -497,5 +545,7 @@ def proxy_image_ref(peer_name: str, image: str) -> str:
     if peer is None:
         raise ValueError(f"proxy_image_ref: unknown peer {peer_name!r}")
     token = _peer_token(peer_name, peer.ca_pem)
-    svc_host = f"porpulsion-registry.{state.NAMESPACE}.svc.cluster.local"
-    return f"{svc_host}:{port}/{token}/{peer_name}/{image}"
+    # Use ClusterIP if available so containerd on the node can resolve it
+    # (nodes don't have access to cluster DNS / svc.cluster.local).
+    host = _registry_cluster_ip or f"porpulsion-registry.{state.NAMESPACE}.svc.cluster.local"
+    return f"{host}:{port}/{token}/{peer_name}/{image}"
