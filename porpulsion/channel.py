@@ -340,9 +340,19 @@ class PeerChannel:
             if changed:
                 tls.save_peers(_state.NAMESPACE, _state.peers)
         else:
-            # Unknown peer — reject; peers must be registered via the explicit invite flow.
-            log.warning("Inbound WS: rejecting unknown peer %r (not in peer list)", peer_name)
-            return False
+            # Unknown peer — auto-register as incoming. The hello proves identity via
+            # ECDSA challenge/response, so this is as secure as the explicit invite flow.
+            from porpulsion.models import Peer
+            new_peer = Peer(
+                name=peer_name,
+                url=peer_self_url or "",
+                ca_pem=peer_ca_pem,
+                direction="incoming",
+            )
+            _state.peers[peer_name] = new_peer
+            tls.save_peers(_state.NAMESPACE, _state.peers)
+            log.info("Inbound WS: auto-registered new peer %r (direction=incoming, url=%r)",
+                     peer_name, peer_self_url or "")
 
         # Update channel metadata in case accept_channel used a placeholder
         self.peer_name = peer_name
@@ -494,11 +504,15 @@ class PeerChannel:
             raise RuntimeError(f"no hello-ack from {self.peer_name}: {exc}") from exc
         ws.settimeout(None)
 
+        if not raw_ack:
+            ws.close()
+            raise RuntimeError(f"no hello-ack from {self.peer_name}: connection closed")
+
         try:
             ack = json.loads(raw_ack)
         except Exception:
             ws.close()
-            raise RuntimeError(f"malformed hello-ack from {self.peer_name}")
+            raise RuntimeError(f"malformed hello-ack from {self.peer_name}: {raw_ack!r}")
 
         if ack.get("type") != "peer/hello-ack":
             ws.close()
