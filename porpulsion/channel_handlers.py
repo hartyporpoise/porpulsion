@@ -70,9 +70,19 @@ def handle_remoteapp_receive(payload: dict) -> dict:
         )
         return {"id": app_id, "status": "pending_approval"}
 
+    # If registry proxy is requested, inject the proxy's CA pull secret into the
+    # spec so the CR (and thus the pod) carries the CA trust from the start.
+    # The pull secret is created at agent startup so it always exists.
+    spec_dict = spec.to_dict()
+    if spec_dict.get("registryProxy") and source_peer:
+        from porpulsion.k8s.registry_proxy import _PULL_SECRET_NAME
+        existing = spec_dict.get("imagePullSecrets") or []
+        if _PULL_SECRET_NAME not in existing:
+            spec_dict["imagePullSecrets"] = existing + [_PULL_SECRET_NAME]
+
     # Create ExecutingApp CR - the CR watcher drives workload execution from here
     cr_name = create_executingapp_cr(
-        state.NAMESPACE, app_id, payload["name"], spec.to_dict(), source_peer,
+        state.NAMESPACE, app_id, payload["name"], spec_dict, source_peer,
     )
     log.info("Received app %s (%s) via channel from %s (cr=%s)", payload["name"], app_id, source_peer, cr_name or "none")
     ra = RemoteApp(name=payload["name"], spec=spec, source_peer=source_peer, id=app_id)
