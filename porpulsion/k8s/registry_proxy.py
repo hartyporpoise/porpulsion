@@ -90,7 +90,11 @@ def _ensure_pull_secret(namespace: str, self_url: str, password: str) -> None:
     # Allow operators with split ingress (WS external, API internal) to override
     # just the API-facing URL for the pull secret server field.
     api_url = (state.settings.registry_api_url or "").strip().rstrip("/") or self_url.rstrip("/")
-    server = api_url  # containerd appends /v2/<name>/... itself
+    # containerd/k3s resolves pull-secret credentials by bare hostname (no scheme).
+    # The auths key must be "host" or "host:port", not "https://host".
+    from urllib.parse import urlparse as _urlparse
+    _parsed = _urlparse(api_url)
+    server = _parsed.netloc or api_url  # "host" or "host:port"
     auth   = base64.b64encode(f"{_REGISTRY_USER}:{password}".encode()).decode()
     cfg    = {"auths": {server: {"username": _REGISTRY_USER, "password": password, "auth": auth}}}
     encoded = base64.b64encode(json.dumps(cfg).encode()).decode()
