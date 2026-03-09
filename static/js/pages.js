@@ -172,11 +172,15 @@
     var remoteAddrRow = p.remote_addr
       ? '<div class="detail-row"><span class="label">Inbound IP</span><span class="mono" style="font-size:0.85rem;">' + _esc(p.remote_addr) + '</span></div>'
       : '';
+    var proxyRow = p.registry_proxy_url
+      ? '<div class="detail-row"><span class="label">Image proxy</span><span class="mono" style="font-size:0.82rem;word-break:break-all;">' + _esc(p.registry_proxy_url) + '</span></div>'
+      : '';
 
     body.innerHTML =
       '<div class="detail-block" style="border:none;padding-top:0;">' +
         '<div class="detail-row"><span class="label">URL</span><span class="mono" style="font-size:0.82rem;word-break:break-all;">' + _esc(p.url || '-') + '</span></div>' +
         remoteAddrRow +
+        proxyRow +
         '<div class="detail-row"><span class="label">Direction</span><span>' + directionBadge(p.direction) + '</span></div>' +
         '<div class="detail-row"><span class="label">Status</span><span>' + (p.channel === 'connected' ? channelBadge(p.url) : '<span class="badge badge-failed">offline</span>') + '</span></div>' +
         latencyRow +
