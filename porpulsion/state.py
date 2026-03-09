@@ -58,4 +58,4 @@ def registry_proxy_url() -> str:
     if not settings.registry_pull_enabled:
         return ""
     base = (settings.registry_api_url or "").strip().rstrip("/") or SELF_URL.rstrip("/")
-    return base + "/api/image-proxy" if base else ""
+    return base if base else ""

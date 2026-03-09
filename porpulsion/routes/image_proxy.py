@@ -1,24 +1,23 @@
 """
 Registry image proxy route.
 
-Registered at the Flask root (no blueprint prefix).
+Registered at the Flask root (no blueprint prefix) at /v2/<path>.
 
-The pull secret server field is set to {apiUrl}/api/image-proxy, so containerd
-constructs OCI paths relative to the *registry host*, not the server path.
-When the pod image is `host/api/image-proxy/<registry>/<name>:<tag>`, containerd
-sends requests to: {host}/v2/api/image-proxy/<registry>/<name>/manifests/<ref>
+containerd implements the OCI Distribution spec: it takes the registry host
+from the image reference and sends all requests to {host}/v2/<name>/...
+When the image is `{agent-host}/cr.example.com/{name}:{tag}`, containerd
+treats `{agent-host}` as the registry and sends:
 
-We register both paths to handle either case:
-  - /api/image-proxy/<subpath>  (direct API call, e.g. health-check)
-  - /v2/api/image-proxy/<subpath>  (containerd OCI path)
+    GET/HEAD /v2/cr.example.com/<name>/manifests/<ref>
+    GET      /v2/cr.example.com/<name>/blobs/<digest>
 
-In both cases we strip the leading v2/ (if present) from the subpath, then
-extract the registry host and forward to:
-    https://<registry-host>/v2/<name>/manifests/<ref>
+We extract `cr.example.com` from the path and forward to:
 
-No upstream credentials are added — designed for network-restricted registries
-reachable from the executing cluster without auth.
-Protected by the existing /api/ Basic auth guard.
+    https://cr.example.com/v2/<name>/manifests/<ref>
+
+Auth: the pull secret (porpulsion-image-proxy) stores Basic credentials for
+this agent.  containerd presents those on every request, so this route is
+covered by the /v2/ Basic Auth guard in agent.py.
 """
 import json
 import logging
@@ -35,20 +34,18 @@ bp = Blueprint("image_proxy", __name__)
 _METHODS = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"]
 
 
-@bp.route("/api/image-proxy/", defaults={"subpath": ""}, methods=_METHODS)
-@bp.route("/api/image-proxy/<path:subpath>", methods=_METHODS)
-@bp.route("/v2/api/image-proxy/", defaults={"subpath": ""}, methods=_METHODS)
-@bp.route("/v2/api/image-proxy/<path:subpath>", methods=_METHODS)
+@bp.route("/v2/", defaults={"subpath": ""}, methods=_METHODS)
+@bp.route("/v2/<path:subpath>", methods=_METHODS)
 def registry_image_proxy(subpath):
-    # containerd prepends v2/ — strip it to get <registry-host>/<rest>
     path = subpath.lstrip("/")
-    if path.startswith("v2/"):
-        path = path[3:]
 
     if not path:
+        # OCI ping — let containerd know we speak OCI Distribution
         return Response(
-            json.dumps({"errors": [{"code": "UNAVAILABLE", "message": "no registry specified in path"}]}),
-            503, content_type="application/json",
+            json.dumps({}),
+            200,
+            headers={"Content-Type": "application/json",
+                     "Docker-Distribution-Api-Version": "registry/2.0"},
         )
 
     parts = path.split("/", 1)

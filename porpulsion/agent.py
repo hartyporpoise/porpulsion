@@ -230,14 +230,14 @@ def _check_csrf():
 def _require_api_auth():
     from flask import request, session, jsonify
     import base64 as _b64
-    _GUARDED = ("/api/", "/static/js/", "/v2/api/image-proxy/")
+    _GUARDED = ("/api/", "/static/js/", "/v2/")
     if not any(request.path.startswith(p) for p in _GUARDED):
         return
     # Session cookie (browser)
     if session.get("user"):
         return
-    # HTTP Basic Auth (curl / scripts) - honoured for /api/ and image-proxy paths
-    if request.path.startswith("/api/") or request.path.startswith("/v2/api/image-proxy/"):
+    # HTTP Basic Auth — /api/ and /v2/ (containerd OCI image proxy requests)
+    if request.path.startswith("/api/") or request.path.startswith("/v2/"):
         # Probe URL map to distinguish unknown routes (-> 404) from known-but-auth-gated (-> 401).
         # We must do this ourselves because before_request fires before route matching.
         _adapter = app.url_map.bind(request.host)
