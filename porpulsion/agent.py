@@ -29,6 +29,7 @@ from porpulsion.routes import logs as logs_bp
 from porpulsion.routes import notifications as notifications_bp
 from porpulsion.routes import ui as ui_bp
 from porpulsion.routes import auth as auth_bp
+from porpulsion.routes import image_proxy as image_proxy_bp
 from porpulsion.routes.ws import peer_ws
 
 logging.basicConfig(
@@ -71,20 +72,6 @@ _CA_PEM, _CA_KEY_PEM = tls.load_or_generate_ca(state.AGENT_NAME, state.NAMESPACE
 state.AGENT_CA_PEM     = _CA_PEM
 state.AGENT_CA_KEY_PEM = _CA_KEY_PEM
 
-# Start the registry pull-through proxy unconditionally — it's a lightweight
-# daemon thread that only does work when a workload with registryProxy=true is
-# deployed. Starting it early ensures the imagePullSecret is ready before any
-# workload pods are scheduled.
-try:
-    from porpulsion.k8s.registry_proxy import start_proxy, ensure_pull_secret as _ensure_pull_secret
-    start_proxy()
-except Exception as _rp_exc:
-    log.warning("Could not start registry proxy at startup: %s", _rp_exc)
-try:
-    from porpulsion.k8s.registry_proxy import ensure_pull_secret as _ensure_pull_secret
-    _ensure_pull_secret(state.NAMESPACE)
-except Exception as _ps_exc:
-    log.warning("Could not create registry pull secret at startup: %s", _ps_exc)
 
 # Compute a version fingerprint from key protocol files. Used to detect
 # version mismatches when peers connect over WebSocket.
@@ -140,6 +127,15 @@ log.info("Restored %d peer(s), %d pending approval(s) from persistent storage",
 # also connects inbound simultaneously, accept_channel replaces the outbound
 # channel cleanly. This ensures reconnection works regardless of which side
 # restarted.
+# Ensure registry system user + pull secret exist when feature is enabled (idempotent)
+if state.settings.registry_pull_enabled:
+    try:
+        from porpulsion.k8s.registry_proxy import ensure_registry_setup
+        ensure_registry_setup(state.NAMESPACE, state.SELF_URL)
+    except Exception as _rp_exc:
+        log.warning("Could not set up registry proxy: %s", _rp_exc)
+
+
 def _reconnect_persisted_peers():
     import time as _time
     _time.sleep(3)  # let the server fully start before connecting outbound
@@ -192,6 +188,7 @@ app.register_blueprint(tunnels_bp.bp, url_prefix="/api")
 app.register_blueprint(settings_bp.bp, url_prefix="/api")
 app.register_blueprint(logs_bp.bp, url_prefix="/api")
 app.register_blueprint(notifications_bp.bp, url_prefix="/api")
+app.register_blueprint(image_proxy_bp.bp, url_prefix="/api")
 app.register_blueprint(ui_bp.bp)
 
 
@@ -199,13 +196,7 @@ app.register_blueprint(ui_bp.bp)
 
 @app.route("/status")
 def status():
-    from porpulsion.k8s.store import list_remoteapp_crs, list_executingapp_crs
-    return jsonify({
-        "agent": state.AGENT_NAME,
-        "peers": [p.to_dict() for p in state.peers.values()],
-        "local_apps": len(list_remoteapp_crs(state.NAMESPACE)),
-        "remote_apps": len(list_executingapp_crs(state.NAMESPACE)),
-    })
+    return jsonify({"ok": True})
 
 
 # -- CSRF protection

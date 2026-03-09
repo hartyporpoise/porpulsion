@@ -47,10 +47,28 @@ def update_settings():
         state.settings.log_level = level
         _apply_log_level(level)
 
-    bool_fields = ("require_remoteapp_approval", "require_resource_requests", "require_resource_limits", "allow_pvcs")
+    bool_fields = (
+        "require_remoteapp_approval", "require_resource_requests",
+        "require_resource_limits", "allow_pvcs", "registry_pull_enabled",
+    )
     for fld in bool_fields:
         if fld in data:
             setattr(state.settings, fld, bool(data[fld]))
+
+    # React to registry_pull_enabled toggle immediately (no restart needed)
+    if "registry_pull_enabled" in data:
+        if data["registry_pull_enabled"]:
+            try:
+                from porpulsion.k8s.registry_proxy import ensure_registry_setup
+                ensure_registry_setup(state.NAMESPACE, state.SELF_URL)
+            except Exception as _exc:
+                log.warning("Could not set up registry proxy: %s", _exc)
+        else:
+            try:
+                from porpulsion.k8s.registry_proxy import teardown_registry_setup
+                teardown_registry_setup(state.NAMESPACE)
+            except Exception as _exc:
+                log.warning("Could not tear down registry proxy: %s", _exc)
 
     str_fields = (
         "allowed_images", "blocked_images", "allowed_source_peers", "allowed_tunnel_peers",

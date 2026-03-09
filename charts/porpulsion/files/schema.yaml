@@ -43,15 +43,10 @@ registryProxy:
   type: boolean
   default: false
   description: >
-    When true, image pulls are forwarded through the porpulsion WS registry proxy
-    on the submitting peer. Use this when the registry is only reachable from the
-    submitting cluster (network-restricted or cluster-internal registries).
-registrySecret:
-  type: string
-  description: >
-    Name of a porpulsion-managed docker-registry Secret on the submitting agent,
-    used when registryProxy is true and the registry requires authentication.
-    Leave empty for unauthenticated (but network-restricted) registries.
+    When true, the porpulsion-image-proxy imagePullSecret is automatically mounted
+    so containerd authenticates via the executing agent's /api/image-proxy endpoint.
+    Use this when the registry is only reachable from the executing cluster or
+    when registry credentials are managed on the executing agent.
 env:
   type: array
   description: Environment variables

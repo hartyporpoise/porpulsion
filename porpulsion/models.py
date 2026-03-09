@@ -306,6 +306,9 @@ class AgentSettings:
     tunnel_approval_mode: Literal["manual", "auto", "per_peer"] = "auto"
     allowed_tunnel_peers: str = ""      # comma-separated peer names allowed to open tunnels; empty = all connected
 
+    # Registry pull-through proxy
+    registry_pull_enabled: bool = False
+
     # Diagnostics
     log_level: str = "INFO"
 
@@ -343,6 +346,7 @@ class AgentSettings:
             "allow_inbound_tunnels": self.allow_inbound_tunnels,
             "tunnel_approval_mode": self.tunnel_approval_mode,
             "allowed_tunnel_peers": self.allowed_tunnel_peers,
+            "registry_pull_enabled": self.registry_pull_enabled,
             "log_level": self.log_level,
             "max_cpu_request_per_pod": self.max_cpu_request_per_pod,
             "max_cpu_limit_per_pod": self.max_cpu_limit_per_pod,

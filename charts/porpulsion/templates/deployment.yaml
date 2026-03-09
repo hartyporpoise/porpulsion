@@ -26,8 +26,6 @@ spec:
           ports:
             - name: http
               containerPort: {{ .Values.service.port }}
-            - name: registry-proxy
-              containerPort: 5100
           env:
             - name: AGENT_NAME
               value: {{ .Values.agent.agentName | quote }}

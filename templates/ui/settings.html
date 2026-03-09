@@ -261,11 +261,21 @@
       <div class="card settings-card-full">
         <div class="card-header">
           <h2>Registry Credentials</h2>
-          <span class="card-header-sub">docker-registry Secrets for the registry proxy</span>
+          <span class="card-header-sub">Pull-through proxy for private registries</span>
         </div>
         <div class="card-body">
+          <div class="toggle-row" style="border:none;padding:0;margin-bottom:1rem;">
+            <div class="toggle-info">
+              <div class="toggle-label">Enable registry proxy</div>
+              <div class="toggle-desc">Auto-creates a system user and imagePullSecret so workloads with <span class="mono">registryProxy: true</span> can pull images through this agent</div>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" id="setting-registry-pull-enabled" aria-label="Enable registry proxy">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
           <p class="text-sm text-muted" style="margin-bottom:1rem;">
-            Saved credentials are used when the registry proxy forwards image pulls to a private registry.
+            Saved credentials are used when the proxy forwards image pulls to a private registry.
           </p>
           <div id="reg-secrets-list" style="margin-bottom:0.75rem;"></div>
           <div class="flex-end">

@@ -520,6 +520,7 @@
       setVal('setting-max-pvc-per',         s.max_pvc_storage_per_pvc_gb);
       setVal('setting-max-pvc-total',       s.max_pvc_storage_total_gb);
       setChk('setting-inbound-tunnels',     s.allow_inbound_tunnels);
+      setChk('setting-registry-pull-enabled', s.registry_pull_enabled);
       setVal('setting-allowed-peers',       s.allowed_source_peers);
       setVal('setting-allowed-images',      s.allowed_images);
       setVal('setting-blocked-images',      s.blocked_images);
@@ -1752,6 +1753,7 @@
     bindChk('setting-require-res-limits',   'require_resource_limits');
     bindChk('setting-allow-pvcs',           'allow_pvcs');
     bindChk('setting-inbound-tunnels',      'allow_inbound_tunnels');
+    bindChk('setting-registry-pull-enabled', 'registry_pull_enabled');
 
     var filtersSaveBtn = el('setting-filters-save');
     if (filtersSaveBtn) {
