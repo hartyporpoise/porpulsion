@@ -67,19 +67,18 @@ def registry_image_proxy(subpath):
     if body:
         upstream_req.data = body
 
-    _STRIP = {"transfer-encoding", "connection", "content-length"}
+    _STRIP = {"transfer-encoding", "connection"}
     ctx = ssl.create_default_context()
     try:
         with urllib.request.urlopen(upstream_req, context=ctx, timeout=120) as resp:
             data = resp.read()
             headers = {k: v for k, v in resp.headers.items()
                        if k.lower() not in _STRIP}
-            flask_resp = Response(data, status=resp.status, headers=headers)
             # Flask recomputes Content-Length from body length, which is 0 for HEAD.
-            # Set it after Response construction so it wins over Flask's calculation.
+            # Restore the upstream value so containerd records the correct descriptor size.
             if "Content-Length" in resp.headers:
-                flask_resp.headers.set("Content-Length", resp.headers["Content-Length"])
-            return flask_resp
+                headers["Content-Length"] = resp.headers["Content-Length"]
+            return Response(data, status=resp.status, headers=headers)
     except urllib.error.HTTPError as exc:
         data = exc.read()
         headers = {k: v for k, v in exc.headers.items()
