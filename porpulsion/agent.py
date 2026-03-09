@@ -78,9 +78,13 @@ state.AGENT_CA_KEY_PEM = _CA_KEY_PEM
 try:
     from porpulsion.k8s.registry_proxy import start_proxy, ensure_pull_secret as _ensure_pull_secret
     start_proxy()
-    _ensure_pull_secret(state.NAMESPACE)
 except Exception as _rp_exc:
     log.warning("Could not start registry proxy at startup: %s", _rp_exc)
+try:
+    from porpulsion.k8s.registry_proxy import ensure_pull_secret as _ensure_pull_secret
+    _ensure_pull_secret(state.NAMESPACE)
+except Exception as _ps_exc:
+    log.warning("Could not create registry pull secret at startup: %s", _ps_exc)
 
 # Compute a version fingerprint from key protocol files. Used to detect
 # version mismatches when peers connect over WebSocket.

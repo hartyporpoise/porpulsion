@@ -153,28 +153,35 @@ def get_peer_secret(peer_name: str) -> str:
         return _peer_registry_secrets.get(peer_name, "")
 
 
-# Cache: (peer_name, secret_name) -> "user:pass" or ""
-_registry_creds_cache: dict[tuple[str, str], str] = {}
+# Cache: (peer_name, secret_name, registry_host) -> (creds, expires_at)
+_registry_creds_cache: dict[tuple[str, str, str], tuple[str, float]] = {}
 _registry_creds_lock = threading.Lock()
+_CREDS_TTL = 3600.0  # re-fetch credentials after 1 hour
 
 
-def _get_registry_credentials(peer_name: str, secret_name: str) -> str:
+def _get_registry_credentials(peer_name: str, secret_name: str,
+                               registry_host: str = "") -> str:
     """
     Fetch docker-registry credentials from the submitting peer via WS channel.
     Returns "user:password" for Basic auth, or "" if none / unavailable.
-    Cached for the lifetime of the process.
+    Cached for _CREDS_TTL seconds so rotated secrets are picked up eventually.
     """
+    import time as _time
     if not secret_name:
         return ""
-    cache_key = (peer_name, secret_name)
+    cache_key = (peer_name, secret_name, registry_host)
     with _registry_creds_lock:
-        if cache_key in _registry_creds_cache:
-            return _registry_creds_cache[cache_key]
+        entry = _registry_creds_cache.get(cache_key)
+        if entry is not None and _time.monotonic() < entry[1]:
+            return entry[0]
 
     try:
         from porpulsion.channel import get_channel
         ch = get_channel(peer_name, wait=5.0)
-        result = ch.call("registry/credentials", {"secret_name": secret_name}, timeout=10)
+        result = ch.call("registry/credentials", {
+            "secret_name":   secret_name,
+            "registry_host": registry_host,
+        }, timeout=10)
         creds = result.get("credentials", "")
     except Exception as exc:
         log.warning("Could not fetch registry credentials for %r/%r: %s",
@@ -182,7 +189,7 @@ def _get_registry_credentials(peer_name: str, secret_name: str) -> str:
         creds = ""
 
     with _registry_creds_lock:
-        _registry_creds_cache[cache_key] = creds
+        _registry_creds_cache[cache_key] = (creds, _time.monotonic() + _CREDS_TTL)
     return creds
 
 
@@ -256,7 +263,7 @@ class _MitmHandler(BaseHTTPRequestHandler):
             return
 
         secret_name = get_peer_secret(peer_name)
-        creds = _get_registry_credentials(peer_name, secret_name)
+        creds = _get_registry_credentials(peer_name, secret_name, registry_host)
 
         target_url = f"https://{registry_host}{oci_path}"
         if "?" in self.path:
@@ -342,13 +349,18 @@ class _SniSSLServer(HTTPServer):
         sni_host = _peek_sni(raw_sock) or self._cluster_ip or "porpulsion-registry"
         cert_pem, key_pem = _leaf_cert_for(sni_host)
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        import os as _os
         with tempfile.NamedTemporaryFile(delete=False, suffix=".crt") as cf:
             cf.write(cert_pem)
             cert_path = cf.name
         with tempfile.NamedTemporaryFile(delete=False, suffix=".key") as kf:
             kf.write(key_pem)
             key_path = kf.name
-        ctx.load_cert_chain(cert_path, key_path)
+        try:
+            ctx.load_cert_chain(cert_path, key_path)
+        finally:
+            _os.unlink(cert_path)
+            _os.unlink(key_path)
         try:
             ssl_sock = ctx.wrap_socket(raw_sock, server_side=True)
         except ssl.SSLError as exc:
@@ -364,7 +376,7 @@ def _peek_sni(sock: socket.socket) -> str | None:
     server_name extension.  Returns None if not found or on any error.
     """
     try:
-        data = sock.recv(512, socket.MSG_PEEK)
+        data = sock.recv(4096, socket.MSG_PEEK)
         if not data or data[0] != 0x16:
             return None
         if len(data) < 5:
