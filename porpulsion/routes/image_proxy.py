@@ -61,21 +61,24 @@ def registry_image_proxy(subpath):
         val = request.headers.get(hdr)
         if val:
             upstream_req.add_header(hdr, val)
+    # Disable transparent decompression so raw bytes and Content-Length stay consistent
+    upstream_req.add_unredirected_header("Accept-Encoding", "identity")
     body = request.get_data() or None
     if body:
         upstream_req.data = body
 
+    _STRIP = {"transfer-encoding", "connection"}
     ctx = ssl.create_default_context()
     try:
         with urllib.request.urlopen(upstream_req, context=ctx, timeout=120) as resp:
             data = resp.read()
             headers = {k: v for k, v in resp.headers.items()
-                       if k.lower() not in ("transfer-encoding", "connection")}
+                       if k.lower() not in _STRIP}
             return Response(data, status=resp.status, headers=headers)
     except urllib.error.HTTPError as exc:
         data = exc.read()
         headers = {k: v for k, v in exc.headers.items()
-                   if k.lower() not in ("transfer-encoding", "connection")}
+                   if k.lower() not in _STRIP}
         return Response(data, status=exc.code, headers=headers)
     except Exception as exc:
         log.warning("image-proxy upstream error: %s", exc)
