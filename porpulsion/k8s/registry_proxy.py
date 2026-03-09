@@ -1,276 +1,149 @@
 """
-OCI Distribution Spec v2 pull-through proxy.
+OCI registry pull-through proxy — TLS-intercepting MITM design.
 
-Runs on the *executing* side, bound to 0.0.0.0:5100, and exposed via a
-dedicated ClusterIP-only Service (porpulsion-registry).  Kubelet on the
-worker node reaches it via the in-cluster DNS name:
-    porpulsion-registry.<namespace>.svc.cluster.local:5100
+Runs on the *executing* side, bound to 0.0.0.0:5100, exposed via a dedicated
+ClusterIP-only Service (porpulsion-registry).  containerd on each worker node
+reaches it via the Service ClusterIP (routable via kube-proxy on all k8s flavours).
 
-Using a separate ClusterIP Service (not the main service) ensures this port
-is never exposed outside the cluster regardless of how the main service is
-configured (NodePort, LoadBalancer, etc.).
+How it works
+────────────
+containerd connects to <clusterIP>:5100 and trusts our proxy CA (delivered via
+the porpulsion-registry-ca imagePullSecret injected into every workload pod spec).
 
-Pull flow:
-  kubelet
-    → GET porpulsion.<ns>.svc.cluster.local:5100/v2/<name>/manifests/<ref>
-      → registry/manifest WS call to the submitting peer
-        → peer fetches from real registry (using its stored credentials)
-          → manifest JSON returned
-    → GET localhost:5100/v2/<name>/blobs/<digest>
-      → registry/blob WS call to the submitting peer
-        → peer fetches blob and returns it base64-encoded in chunks
+The proxy:
+  1. Terminates TLS using a dynamically-generated leaf cert for the target
+     registry hostname, signed by our per-agent CA (extracted from SNI).
+  2. Verifies the HMAC token in the URL path (proves the request came from a
+     pod whose spec was written by our executor).
+  3. Forwards the request over a direct HTTPS connection to the real registry.
+  4. Streams the real registry's response back to containerd verbatim.
 
-Blob chunking:
-  Blobs can be large (100s of MB). They are returned in ≤512KB base64 chunks
-  as a sequence of registry/blob-chunk push messages followed by a final
-  registry/blob-end message (which also carries the full digest for verification).
+URL format (rewritten by proxy_image_ref on the executing side):
+    /v2/<token>/<peer_name>/<registry_host>/<image_path>/manifests/<ref>
+    /v2/<token>/<peer_name>/<registry_host>/<image_path>/blobs/<digest>
 
-One proxy instance serves all peers — the URL path carries both an auth token
-and the peer name:
-    /v2/<token>/<peer_name>/<image_name>/manifests/<ref>
-    /v2/<token>/<peer_name>/<image_name>/blobs/<digest>
+Token: HMAC-SHA256(key=SHA256(peer_ca_pem), msg=peer_name)
+  — only the executing side (which holds peer CAs) can compute this.
 
-Token:
-    HMAC-SHA256(key=sha256(peer_ca_pem), msg=peer_name)
-    Computed by proxy_image_ref() on the executing side (which holds the CA).
-    Verified by the proxy on every request before any registry call is made.
-    Stateless — no extra storage required.
+Registry credentials (registrySecret) are fetched from the submitting peer via
+the WS channel on first use and cached in memory.  Blob data flows directly over
+TCP from the real registry to containerd — no base64, no chunking, no queuing.
 
-The executing side's image ref is rewritten from:
-    registry.example.com/myapp:latest
-to:
-    porpulsion-registry.<ns>.svc.cluster.local:5100/<token>/<peer_name>/registry.example.com/myapp:latest
+Security note
+─────────────
+This proxy acts as a TLS-intercepting MITM between containerd and the real
+registry.  The executing cluster operator can observe registry traffic during
+image pulls.  The CA private key lives only in the porpulsion-credentials Secret.
 """
 import base64
 import datetime
 import hashlib
 import hmac
+import ipaddress
 import json
 import logging
-import queue
+import socket
 import ssl
 import tempfile
 import threading
-import uuid
+import urllib.request
+import urllib.error
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 log = logging.getLogger("porpulsion.registry_proxy")
 
-_PROXY_PORT   = 5100
-_BLOB_TIMEOUT = 120   # seconds to wait for blob transfer completion
+_PROXY_PORT = 5100
 
-# Transfer state: transfer_id -> Queue of (seq, b64_chunk, done, error)
-_transfers: dict[str, queue.Queue] = {}
-_transfers_lock = threading.Lock()
+# Per-registry leaf cert cache: registry_host -> (cert_pem, key_pem)
+_leaf_cert_cache: dict[str, tuple[bytes, bytes]] = {}
+_leaf_cert_lock = threading.Lock()
 
+# Mapping of peer_name -> registry_secret_name
+_peer_registry_secrets: dict[str, str] = {}
+_peer_secrets_lock = threading.Lock()
+
+_server: HTTPServer | None = None
+_server_lock = threading.Lock()
+
+# CA cert/key PEM bytes — set once by start_proxy()
+_proxy_ca_pem: bytes | None = None
+_proxy_ca_key_pem: bytes | None = None
+
+# ClusterIP of the porpulsion-registry Service — set once by start_proxy()
+_registry_cluster_ip: str | None = None
+
+_PULL_SECRET_NAME = "porpulsion-registry-ca"
+
+
+# ── Auth token ────────────────────────────────────────────────────────────────
 
 def _peer_token(peer_name: str, ca_pem: str) -> str:
     """
-    Derive a per-peer auth token from the peer's CA PEM.
-
-    token = HMAC-SHA256(key=SHA256(ca_pem_bytes), msg=peer_name_bytes)
-
-    Only the executing side (which holds the peer CA) can compute this.
-    An attacker who knows only the peer_name cannot forge the token without
-    the CA, making the URL self-authenticating.
+    HMAC-SHA256(key=SHA256(peer_ca_pem), msg=peer_name).
+    Only the executing side (which holds peer CAs) can compute this.
     """
     key = hashlib.sha256(ca_pem.encode() if isinstance(ca_pem, str) else ca_pem).digest()
     return hmac.new(key, peer_name.encode(), hashlib.sha256).hexdigest()
 
 
-def _get_channel(peer_name: str):
-    from porpulsion.channel import get_channel
-    return get_channel(peer_name, wait=5.0)
+# ── Per-registry leaf cert generation ────────────────────────────────────────
 
-
-class _OciHandler(BaseHTTPRequestHandler):
-    """Minimal OCI Distribution Spec v2 pull handler."""
-
-    def log_message(self, fmt, *args):
-        log.debug("registry-proxy: " + fmt, *args)
-
-    def _send_error(self, code: int, detail: str = ""):
-        body = f'{{"errors":[{{"code":"PROXY_ERROR","message":{detail!r}}}]}}'.encode()
-        self.send_response(code)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def do_GET(self):
-        path = self.path.split("?")[0]  # strip query string
-        parts = path.lstrip("/").split("/")
-
-        # /v2/ ping - required by OCI spec
-        if path in ("/v2", "/v2/"):
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", "2")
-            self.end_headers()
-            self.wfile.write(b"{}")
-            return
-
-        # Must start with /v2/
-        # Expected: /v2/<token>/<peer_name>/<image...>/manifests|blobs/<ref>
-        if not parts or parts[0] != "v2" or len(parts) < 5:
-            self._send_error(400, "bad path")
-            return
-
-        # parts[1] = token
-        # parts[2] = peer_name
-        # parts[3..n-2] = image name (may contain slashes)
-        # parts[n-2] = "manifests" or "blobs"
-        # parts[n-1] = ref or digest
-        token     = parts[1]
-        peer_name = parts[2]
-        endpoint  = parts[-2]   # "manifests" or "blobs"
-        ref       = parts[-1]
-        # image name = everything between peer_name and endpoint, rejoined
-        image_parts = parts[3:-2]
-        image_name  = "/".join(image_parts)
-
-        # Reject requests for unknown peers
-        from porpulsion import state
-        peer = state.peers.get(peer_name)
-        if peer is None:
-            log.warning("registry-proxy: rejected request for unknown peer %r", peer_name)
-            self._send_error(403, "forbidden")
-            return
-
-        # Verify the HMAC token — proves the caller holds the peer CA
-        expected = _peer_token(peer_name, peer.ca_pem)
-        if not hmac.compare_digest(token, expected):
-            log.warning("registry-proxy: invalid token for peer %r", peer_name)
-            self._send_error(403, "forbidden")
-            return
-
-        if endpoint == "manifests":
-            self._handle_manifest(peer_name, image_name, ref)
-        elif endpoint == "blobs":
-            self._handle_blob(peer_name, image_name, ref)
-        else:
-            self._send_error(400, f"unsupported endpoint: {endpoint}")
-
-    def do_HEAD(self):
-        # HEAD requests for manifest existence checks
-        self.do_GET()
-
-    def _handle_manifest(self, peer_name: str, image_name: str, ref: str):
-        try:
-            ch = _get_channel(peer_name)
-            result = ch.call("registry/manifest", {
-                "image":           image_name,
-                "ref":             ref,
-                "registry_secret": get_peer_secret(peer_name),
-            }, timeout=30)
-        except Exception as exc:
-            log.warning("registry-proxy: manifest call failed for %s/%s:%s: %s",
-                        peer_name, image_name, ref, exc)
-            self._send_error(503, str(exc))
-            return
-
-        if not result.get("ok", True) or "error" in result:
-            self._send_error(404, result.get("error", "not found"))
-            return
-
-        body = base64.b64decode(result["manifest"])
-        ct   = result.get("content_type", "application/vnd.docker.distribution.manifest.v2+json")
-        digest = result.get("digest", "")
-
-        self.send_response(200)
-        self.send_header("Content-Type", ct)
-        self.send_header("Content-Length", str(len(body)))
-        if digest:
-            self.send_header("Docker-Content-Digest", digest)
-        self.end_headers()
-        self.wfile.write(body)
-
-    def _handle_blob(self, peer_name: str, image_name: str, digest: str):
-        transfer_id = uuid.uuid4().hex
-        q: queue.Queue = queue.Queue(maxsize=32)
-        with _transfers_lock:
-            _transfers[transfer_id] = q
-
-        try:
-            ch = _get_channel(peer_name)
-            # Kick off the blob stream — this returns immediately with metadata
-            meta = ch.call("registry/blob", {
-                "image":           image_name,
-                "digest":          digest,
-                "transfer_id":     transfer_id,
-                "registry_secret": get_peer_secret(peer_name),
-            }, timeout=30)
-        except Exception as exc:
-            with _transfers_lock:
-                _transfers.pop(transfer_id, None)
-            log.warning("registry-proxy: blob call failed for %s@%s: %s",
-                        image_name, digest, exc)
-            self._send_error(503, str(exc))
-            return
-
-        if not meta.get("ok", True) or "error" in meta:
-            with _transfers_lock:
-                _transfers.pop(transfer_id, None)
-            self._send_error(404, meta.get("error", "blob not found"))
-            return
-
-        total_size = meta.get("size", 0)
-        content_type = meta.get("content_type", "application/octet-stream")
-
-        self.send_response(200)
-        self.send_header("Content-Type", content_type)
-        if total_size:
-            self.send_header("Content-Length", str(total_size))
-        self.send_header("Docker-Content-Digest", digest)
-        self.end_headers()
-
-        # Stream chunks as they arrive from the WS channel
-        try:
-            while True:
-                try:
-                    chunk_info = q.get(timeout=_BLOB_TIMEOUT)
-                except queue.Empty:
-                    log.warning("registry-proxy: blob transfer %s timed out", transfer_id)
-                    break
-
-                if chunk_info.get("error"):
-                    log.warning("registry-proxy: blob transfer error: %s", chunk_info["error"])
-                    break
-
-                data = base64.b64decode(chunk_info["data"])
-                self.wfile.write(data)
-
-                if chunk_info.get("done"):
-                    break
-        except Exception as exc:
-            log.warning("registry-proxy: blob stream write error: %s", exc)
-        finally:
-            with _transfers_lock:
-                _transfers.pop(transfer_id, None)
-
-
-def deliver_blob_chunk(transfer_id: str, seq: int, data_b64: str,
-                        done: bool, error: str = "") -> None:
+def _leaf_cert_for(registry_host: str) -> tuple[bytes, bytes]:
     """
-    Called by channel_handlers when a registry/blob-chunk push arrives.
-    Puts the chunk into the waiting transfer queue.
+    Return (cert_pem, key_pem) for a leaf cert covering registry_host,
+    signed by our proxy CA.  Cached in memory for the lifetime of the process.
     """
-    with _transfers_lock:
-        q = _transfers.get(transfer_id)
-    if q is None:
-        log.debug("registry-proxy: no waiting transfer for id %s (chunk %d)", transfer_id, seq)
-        return
-    q.put({"seq": seq, "data": data_b64, "done": done, "error": error})
+    with _leaf_cert_lock:
+        if registry_host in _leaf_cert_cache:
+            return _leaf_cert_cache[registry_host]
+
+    from cryptography import x509
+    from cryptography.x509.oid import NameOID
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.x509 import load_pem_x509_certificate
+    from cryptography.hazmat.primitives.serialization import load_pem_private_key
+
+    ca_cert = load_pem_x509_certificate(_proxy_ca_pem)
+    ca_key  = load_pem_private_key(_proxy_ca_key_pem, password=None)
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    leaf_key = ec.generate_private_key(ec.SECP256R1())
+
+    try:
+        san_entries = [x509.IPAddress(ipaddress.ip_address(registry_host))]
+    except ValueError:
+        san_entries = [x509.DNSName(registry_host)]
+
+    leaf_cert = (
+        x509.CertificateBuilder()
+        .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, registry_host)]))
+        .issuer_name(ca_cert.subject)
+        .public_key(leaf_key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now)
+        .not_valid_after(now + datetime.timedelta(days=397))
+        .add_extension(x509.SubjectAlternativeName(san_entries), critical=False)
+        .sign(ca_key, hashes.SHA256())
+    )
+    cert_pem = leaf_cert.public_bytes(serialization.Encoding.PEM)
+    key_pem  = leaf_key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.TraditionalOpenSSL,
+        serialization.NoEncryption(),
+    )
+
+    with _leaf_cert_lock:
+        _leaf_cert_cache[registry_host] = (cert_pem, key_pem)
+
+    log.debug("Generated leaf cert for registry host %r", registry_host)
+    return cert_pem, key_pem
 
 
-# Mapping of peer_name -> registry_secret_name so the OCI proxy can include
-# it in WS calls without needing it in the URL.
-_peer_registry_secrets: dict[str, str] = {}
-_peer_secrets_lock = threading.Lock()
-
+# ── Registry credentials ──────────────────────────────────────────────────────
 
 def register_peer_secret(peer_name: str, secret_name: str) -> None:
-    """Associate a docker-registry Secret name with a peer for proxy calls."""
+    """Associate a docker-registry Secret name with a peer for proxy requests."""
     with _peer_secrets_lock:
         _peer_registry_secrets[peer_name] = secret_name
 
@@ -280,45 +153,287 @@ def get_peer_secret(peer_name: str) -> str:
         return _peer_registry_secrets.get(peer_name, "")
 
 
-_server: HTTPServer | None = None
-_server_lock = threading.Lock()
+# Cache: (peer_name, secret_name, registry_host) -> (creds, expires_at)
+_registry_creds_cache: dict[tuple[str, str, str], tuple[str, float]] = {}
+_registry_creds_lock = threading.Lock()
+_CREDS_TTL = 3600.0  # re-fetch credentials after 1 hour
 
-# PEM bytes of the proxy's self-signed CA — set once by start_proxy()
-_proxy_ca_pem: bytes | None = None
 
-# ClusterIP of the porpulsion-registry Service — set once by start_proxy()
-_registry_cluster_ip: str | None = None
+def _get_registry_credentials(peer_name: str, secret_name: str,
+                               registry_host: str = "") -> str:
+    """
+    Fetch docker-registry credentials from the submitting peer via WS channel.
+    Returns "user:password" for Basic auth, or "" if none / unavailable.
+    Cached for _CREDS_TTL seconds so rotated secrets are picked up eventually.
+    """
+    import time as _time
+    if not secret_name:
+        return ""
+    cache_key = (peer_name, secret_name, registry_host)
+    with _registry_creds_lock:
+        entry = _registry_creds_cache.get(cache_key)
+        if entry is not None and _time.monotonic() < entry[1]:
+            return entry[0]
 
-_PULL_SECRET_NAME = "porpulsion-registry-ca"
+    try:
+        from porpulsion.channel import get_channel
+        ch = get_channel(peer_name, wait=5.0)
+        result = ch.call("registry/credentials", {
+            "secret_name":   secret_name,
+            "registry_host": registry_host,
+        }, timeout=10)
+        creds = result.get("credentials", "")
+    except Exception as exc:
+        log.warning("Could not fetch registry credentials for %r/%r: %s",
+                    peer_name, secret_name, exc)
+        creds = ""
 
+    with _registry_creds_lock:
+        _registry_creds_cache[cache_key] = (creds, _time.monotonic() + _CREDS_TTL)
+    return creds
+
+
+# ── HTTP handler ──────────────────────────────────────────────────────────────
+
+class _MitmHandler(BaseHTTPRequestHandler):
+    """
+    TLS-intercepting OCI registry proxy handler.
+
+    Accepts HTTPS from containerd, verifies HMAC token, then forwards to the
+    real registry over a direct HTTPS connection and streams the response back.
+    """
+
+    def log_message(self, fmt, *args):
+        log.debug("registry-proxy: " + fmt, *args)
+
+    def _send_error(self, code: int, detail: str = ""):
+        body = json.dumps({"errors": [{"code": "PROXY_ERROR", "message": detail}]}).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _parse_path(self):
+        """
+        Parse /v2/<token>/<peer_name>/<registry_host>/<image...>/manifests|blobs/<ref>
+        Returns (token, peer_name, registry_host, oci_path) or signals ping/error.
+        """
+        path = self.path.split("?")[0]
+        parts = path.lstrip("/").split("/")
+
+        if path in ("/v2", "/v2/"):
+            return "ping", None, None, None
+
+        # minimum: v2, token, peer_name, registry_host, image, endpoint, ref = 7
+        if len(parts) < 7 or parts[0] != "v2":
+            return None, None, None, None
+
+        token         = parts[1]
+        peer_name     = parts[2]
+        registry_host = parts[3]
+        oci_path      = "/v2/" + "/".join(parts[4:])
+        return token, peer_name, registry_host, oci_path
+
+    def _handle_request(self, method: str):
+        token, peer_name, registry_host, oci_path = self._parse_path()
+
+        if token == "ping":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", "2")
+            self.end_headers()
+            self.wfile.write(b"{}")
+            return
+
+        if token is None:
+            self._send_error(400, "bad path")
+            return
+
+        from porpulsion import state
+        peer = state.peers.get(peer_name)
+        if peer is None:
+            log.warning("registry-proxy: unknown peer %r", peer_name)
+            self._send_error(403, "forbidden")
+            return
+        expected = _peer_token(peer_name, peer.ca_pem)
+        if not hmac.compare_digest(token, expected):
+            log.warning("registry-proxy: invalid token for peer %r", peer_name)
+            self._send_error(403, "forbidden")
+            return
+
+        secret_name = get_peer_secret(peer_name)
+        creds = _get_registry_credentials(peer_name, secret_name, registry_host)
+
+        target_url = f"https://{registry_host}{oci_path}"
+        if "?" in self.path:
+            target_url += "?" + self.path.split("?", 1)[1]
+
+        headers = {}
+        if creds:
+            headers["Authorization"] = "Basic " + base64.b64encode(creds.encode()).decode()
+        for h in ("Accept", "Accept-Encoding", "User-Agent", "Range"):
+            v = self.headers.get(h)
+            if v:
+                headers[h] = v
+
+        body_data = None
+        if method in ("POST", "PUT", "PATCH"):
+            length = int(self.headers.get("Content-Length", 0))
+            body_data = self.rfile.read(length) if length else None
+
+        try:
+            req = urllib.request.Request(target_url, data=body_data,
+                                         headers=headers, method=method)
+            ctx = ssl.create_default_context()
+            with urllib.request.urlopen(req, context=ctx, timeout=120) as resp:
+                self.send_response(resp.status)
+                for k, v in resp.headers.items():
+                    if k.lower() in ("content-type", "content-length",
+                                     "docker-content-digest",
+                                     "docker-distribution-api-version",
+                                     "www-authenticate", "location",
+                                     "content-range", "etag"):
+                        self.send_header(k, v)
+                self.end_headers()
+                while True:
+                    chunk = resp.read(65536)
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+
+        except urllib.error.HTTPError as exc:
+            log.warning("registry-proxy: upstream %s %s -> %d", method, target_url, exc.code)
+            self.send_response(exc.code)
+            for k, v in exc.headers.items():
+                if k.lower() in ("content-type", "www-authenticate",
+                                 "docker-content-digest"):
+                    self.send_header(k, v)
+            body = exc.read()
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        except Exception as exc:
+            log.warning("registry-proxy: request failed %s %s: %s", method, target_url, exc)
+            self._send_error(503, str(exc))
+
+    def do_GET(self):
+        self._handle_request("GET")
+
+    def do_HEAD(self):
+        self._handle_request("HEAD")
+
+    def do_POST(self):
+        self._handle_request("POST")
+
+
+# ── SNI-aware SSL server ──────────────────────────────────────────────────────
+
+class _SniSSLServer(HTTPServer):
+    """
+    HTTPServer that wraps each accepted socket with a per-connection SSLContext
+    serving a leaf cert matching the SNI hostname from the ClientHello.
+    Falls back to the ClusterIP if no SNI is present.
+    """
+
+    def __init__(self, *args, ca_pem: bytes, ca_key_pem: bytes,
+                 cluster_ip: str | None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._ca_pem     = ca_pem
+        self._ca_key_pem = ca_key_pem
+        self._cluster_ip = cluster_ip
+
+    def get_request(self):
+        raw_sock, addr = self.socket.accept()
+        sni_host = _peek_sni(raw_sock) or self._cluster_ip or "porpulsion-registry"
+        cert_pem, key_pem = _leaf_cert_for(sni_host)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        import os as _os
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".crt") as cf:
+            cf.write(cert_pem)
+            cert_path = cf.name
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".key") as kf:
+            kf.write(key_pem)
+            key_path = kf.name
+        try:
+            ctx.load_cert_chain(cert_path, key_path)
+        finally:
+            _os.unlink(cert_path)
+            _os.unlink(key_path)
+        try:
+            ssl_sock = ctx.wrap_socket(raw_sock, server_side=True)
+        except ssl.SSLError as exc:
+            log.debug("registry-proxy: TLS handshake failed from %s: %s", addr, exc)
+            raw_sock.close()
+            raise
+        return ssl_sock, addr
+
+
+def _peek_sni(sock: socket.socket) -> str | None:
+    """
+    Peek at the TLS ClientHello (without consuming bytes) and extract the SNI
+    server_name extension.  Returns None if not found or on any error.
+    """
+    try:
+        data = sock.recv(4096, socket.MSG_PEEK)
+        if not data or data[0] != 0x16:
+            return None
+        if len(data) < 5:
+            return None
+        rec_len = int.from_bytes(data[3:5], "big")
+        payload = data[5:5 + rec_len]
+        if not payload or payload[0] != 0x01:
+            return None
+        hello = payload[4:]
+        pos = 34  # skip client_version(2) + random(32)
+        if pos >= len(hello):
+            return None
+        sid_len = hello[pos]; pos += 1 + sid_len
+        if pos + 2 > len(hello):
+            return None
+        cs_len = int.from_bytes(hello[pos:pos+2], "big"); pos += 2 + cs_len
+        if pos + 1 > len(hello):
+            return None
+        cm_len = hello[pos]; pos += 1 + cm_len
+        if pos + 2 > len(hello):
+            return None
+        ext_len = int.from_bytes(hello[pos:pos+2], "big"); pos += 2
+        end = pos + ext_len
+        while pos + 4 <= end:
+            ext_type     = int.from_bytes(hello[pos:pos+2], "big")
+            ext_data_len = int.from_bytes(hello[pos+2:pos+4], "big")
+            ext_data     = hello[pos+4:pos+4+ext_data_len]
+            pos += 4 + ext_data_len
+            if ext_type == 0x0000 and len(ext_data) > 5:  # SNI
+                name_len = int.from_bytes(ext_data[3:5], "big")
+                return ext_data[5:5+name_len].decode("ascii", errors="ignore")
+    except Exception:
+        pass
+    return None
+
+
+# ── Proxy CA generation ───────────────────────────────────────────────────────
 
 def _lookup_registry_cluster_ip(namespace: str) -> str | None:
     """Return the ClusterIP of the porpulsion-registry Service, or None on error."""
     try:
         from porpulsion import tls as _tls
         core_v1 = _tls._k8s_core_v1()
-        svc = core_v1.read_namespaced_service(f"porpulsion-registry", namespace)
+        svc = core_v1.read_namespaced_service("porpulsion-registry", namespace)
         return svc.spec.cluster_ip or None
     except Exception as exc:
         log.warning("Could not look up registry ClusterIP: %s", exc)
         return None
 
 
-def _generate_proxy_tls(namespace: str, cluster_ip: str | None = None) -> tuple[bytes, bytes, bytes]:
+def _generate_proxy_ca(namespace: str) -> tuple[bytes, bytes]:
     """
-    Generate (or load cached) a self-signed CA + leaf TLS cert for the proxy.
-
-    The leaf cert includes both the ClusterIP (as an IP SAN) and the DNS name
-    as SANs so containerd can verify the cert regardless of which address it
-    uses. The CA cert is stored in the porpulsion-credentials Secret so it
-    survives pod restarts.
-
-    If cluster_ip is provided and the cached cert doesn't cover it, the cache
-    is busted and a fresh cert is generated.
-
-    Returns (ca_cert_pem, leaf_cert_pem, leaf_key_pem) as bytes.
+    Load or generate the proxy's self-signed CA cert + key.
+    Persisted under registry-proxy-ca.crt / registry-proxy-ca.key in
+    the porpulsion-credentials Secret.
+    Returns (ca_cert_pem, ca_key_pem).
     """
-    import ipaddress
     from cryptography import x509
     from cryptography.x509.oid import NameOID
     from cryptography.hazmat.primitives import hashes, serialization
@@ -327,39 +442,20 @@ def _generate_proxy_tls(namespace: str, cluster_ip: str | None = None) -> tuple[
 
     core_v1 = _tls._k8s_core_v1()
 
-    # Try to load existing proxy CA from the credentials secret
     try:
         secret = core_v1.read_namespaced_secret("porpulsion-credentials", namespace)
         d = secret.data or {}
-        if "registry-proxy-ca.crt" in d and "registry-proxy.crt" in d and "registry-proxy.key" in d:
-            ca_pem   = base64.b64decode(d["registry-proxy-ca.crt"])
-            leaf_pem = base64.b64decode(d["registry-proxy.crt"])
-            key_pem  = base64.b64decode(d["registry-proxy.key"])
-            # Validate that the cached leaf cert covers the current ClusterIP
-            if cluster_ip:
-                from cryptography.x509 import load_pem_x509_certificate
-                leaf_cert = load_pem_x509_certificate(leaf_pem)
-                try:
-                    san = leaf_cert.extensions.get_extension_for_class(x509.SubjectAlternativeName)
-                    ip_sans = [str(ip) for ip in san.value.get_values_for_type(x509.IPAddress)]
-                    if cluster_ip in ip_sans:
-                        log.debug("Loaded existing registry proxy TLS certs from Secret")
-                        return ca_pem, leaf_pem, key_pem
-                    log.info("Cached cert missing ClusterIP %s SAN — regenerating", cluster_ip)
-                except Exception:
-                    log.info("Could not validate cached cert SANs — regenerating")
-            else:
-                log.debug("Loaded existing registry proxy TLS certs from Secret")
-                return ca_pem, leaf_pem, key_pem
+        if "registry-proxy-ca.crt" in d and "registry-proxy-ca.key" in d:
+            log.debug("Loaded existing registry proxy CA from Secret")
+            return (
+                base64.b64decode(d["registry-proxy-ca.crt"]),
+                base64.b64decode(d["registry-proxy-ca.key"]),
+            )
     except Exception:
         pass
 
-    log.info("Generating registry proxy TLS cert for namespace %s (ClusterIP=%s)",
-             namespace, cluster_ip or "unknown")
-    svc_dns = f"porpulsion-registry.{namespace}.svc.cluster.local"
+    log.info("Generating registry proxy CA for namespace %s", namespace)
     now = datetime.datetime.now(datetime.timezone.utc)
-
-    # Self-signed CA
     ca_key = ec.generate_private_key(ec.SECP256R1())
     ca_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "porpulsion-registry-ca")])
     ca_cert = (
@@ -369,79 +465,49 @@ def _generate_proxy_tls(namespace: str, cluster_ip: str | None = None) -> tuple[
         .serial_number(x509.random_serial_number())
         .not_valid_before(now)
         .not_valid_after(now + datetime.timedelta(days=3650))
-        .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
+        .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+        .add_extension(x509.KeyUsage(
+            digital_signature=True, key_cert_sign=True, crl_sign=True,
+            content_commitment=False, key_encipherment=False,
+            data_encipherment=False, key_agreement=False,
+            encipher_only=False, decipher_only=False,
+        ), critical=True)
         .sign(ca_key, hashes.SHA256())
     )
     ca_cert_pem = ca_cert.public_bytes(serialization.Encoding.PEM)
-    ca_key_pem_bytes = ca_key.private_bytes(
+    ca_key_pem = ca_key.private_bytes(
         serialization.Encoding.PEM,
         serialization.PrivateFormat.TraditionalOpenSSL,
         serialization.NoEncryption(),
     )
-
-    # Leaf cert SAN: ClusterIP only — containerd connects via IP, not DNS.
-    san_entries: list = []
-    if cluster_ip:
-        try:
-            san_entries.append(x509.IPAddress(ipaddress.ip_address(cluster_ip)))
-        except ValueError:
-            log.warning("Invalid ClusterIP %r — not adding IP SAN", cluster_ip)
-    if not san_entries:
-        # Fallback if ClusterIP lookup failed — include DNS name so cert is at least valid
-        san_entries.append(x509.DNSName(svc_dns))
-
-    leaf_key = ec.generate_private_key(ec.SECP256R1())
-    leaf_cert = (
-        x509.CertificateBuilder()
-        .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, svc_dns)]))
-        .issuer_name(ca_name)
-        .public_key(leaf_key.public_key())
-        .serial_number(x509.random_serial_number())
-        .not_valid_before(now)
-        .not_valid_after(now + datetime.timedelta(days=3650))
-        .add_extension(x509.SubjectAlternativeName(san_entries), critical=False)
-        .sign(ca_key, hashes.SHA256())
-    )
-    leaf_cert_pem = leaf_cert.public_bytes(serialization.Encoding.PEM)
-    leaf_key_pem = leaf_key.private_bytes(
-        serialization.Encoding.PEM,
-        serialization.PrivateFormat.TraditionalOpenSSL,
-        serialization.NoEncryption(),
-    )
-
-    # Persist to credentials secret so certs survive restarts
     try:
         _tls._patch_secret(core_v1, namespace, "porpulsion-credentials", {
             "registry-proxy-ca.crt": base64.b64encode(ca_cert_pem).decode(),
-            "registry-proxy.crt":    base64.b64encode(leaf_cert_pem).decode(),
-            "registry-proxy.key":    base64.b64encode(leaf_key_pem).decode(),
+            "registry-proxy-ca.key": base64.b64encode(ca_key_pem).decode(),
         })
     except Exception as exc:
-        log.warning("Could not persist registry proxy TLS to Secret: %s", exc)
+        log.warning("Could not persist registry proxy CA: %s", exc)
 
-    return ca_cert_pem, leaf_cert_pem, leaf_key_pem
+    return ca_cert_pem, ca_key_pem
 
+
+# ── imagePullSecret ───────────────────────────────────────────────────────────
 
 def ensure_pull_secret(namespace: str) -> str:
     """
-    Create (or update) a kubernetes.io/dockerconfigjson Secret containing the
-    registry proxy's CA cert so containerd trusts the proxy's TLS certificate.
-
-    Returns the Secret name ('porpulsion-registry-ca').
+    Create/update the porpulsion-registry-ca imagePullSecret carrying our CA cert
+    so containerd trusts our MITM proxy's dynamically-generated leaf certs.
+    Returns the Secret name.
     """
-    global _proxy_ca_pem
     if _proxy_ca_pem is None:
         raise RuntimeError("registry proxy not started — cannot create pull secret")
 
     from porpulsion import tls as _tls
     from kubernetes import client as k8s_client
 
-    # Use ClusterIP if known (nodes can route to it); fall back to DNS name.
     host = _registry_cluster_ip or f"porpulsion-registry.{namespace}.svc.cluster.local"
     svc_host = f"{host}:{_PROXY_PORT}"
 
-    # dockerconfigjson format — no credentials needed, just the registry entry
-    # so containerd knows to use our CA for TLS verification.
     docker_config = {
         "auths": {
             svc_host: {
@@ -449,7 +515,6 @@ def ensure_pull_secret(namespace: str) -> str:
             }
         }
     }
-    ca_b64 = base64.b64encode(_proxy_ca_pem).decode()
 
     core_v1 = _tls._k8s_core_v1()
     secret = k8s_client.V1Secret(
@@ -459,7 +524,7 @@ def ensure_pull_secret(namespace: str) -> str:
             ".dockerconfigjson": base64.b64encode(
                 json.dumps(docker_config).encode()
             ).decode(),
-            "ca.crt": ca_b64,
+            "ca.crt": base64.b64encode(_proxy_ca_pem).decode(),
         },
     )
     try:
@@ -474,19 +539,20 @@ def ensure_pull_secret(namespace: str) -> str:
     return _PULL_SECRET_NAME
 
 
+# ── Start / stop ──────────────────────────────────────────────────────────────
+
 def start_proxy() -> int:
     """
-    Start the OCI pull-through proxy over HTTPS using a self-signed cert.
+    Start the TLS-intercepting MITM registry proxy.
 
-    The cert is signed by a per-agent CA stored in the porpulsion-credentials
-    Secret. The CA is distributed to workload pods via an imagePullSecret
-    (porpulsion-registry-ca) so containerd trusts the proxy's TLS certificate
-    without any node-level configuration.
+    Each connection gets a dynamically-generated leaf cert for the target
+    registry hostname (from SNI), signed by our proxy CA.  containerd trusts
+    our CA via the porpulsion-registry-ca imagePullSecret.
 
     Idempotent — safe to call multiple times.
     Returns the port the proxy is listening on.
     """
-    global _server, _proxy_ca_pem, _registry_cluster_ip
+    global _server, _proxy_ca_pem, _proxy_ca_key_pem, _registry_cluster_ip
     with _server_lock:
         if _server is not None:
             return _server.server_address[1]
@@ -494,29 +560,22 @@ def start_proxy() -> int:
         from porpulsion import state
         cluster_ip = _lookup_registry_cluster_ip(state.NAMESPACE)
         _registry_cluster_ip = cluster_ip
-        ca_pem, leaf_cert_pem, leaf_key_pem = _generate_proxy_tls(state.NAMESPACE, cluster_ip)
-        _proxy_ca_pem = ca_pem
 
-        # Write cert + key to temp files (ssl.SSLContext requires file paths)
-        cert_file = tempfile.NamedTemporaryFile(delete=False, suffix=".crt")
-        cert_file.write(leaf_cert_pem)
-        cert_file.flush()
+        ca_pem, ca_key_pem = _generate_proxy_ca(state.NAMESPACE)
+        _proxy_ca_pem     = ca_pem
+        _proxy_ca_key_pem = ca_key_pem
 
-        key_file = tempfile.NamedTemporaryFile(delete=False, suffix=".key")
-        key_file.write(leaf_key_pem)
-        key_file.flush()
-
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        ctx.load_cert_chain(cert_file.name, key_file.name)
-
-        server = HTTPServer(("0.0.0.0", _PROXY_PORT), _OciHandler)
-        server.socket = ctx.wrap_socket(server.socket, server_side=True)
+        server = _SniSSLServer(
+            ("0.0.0.0", _PROXY_PORT), _MitmHandler,
+            ca_pem=ca_pem, ca_key_pem=ca_key_pem, cluster_ip=cluster_ip,
+        )
         _server = server
 
     t = threading.Thread(target=server.serve_forever, daemon=True,
                          name="registry-proxy")
     t.start()
-    log.info("Registry pull-through proxy started on 0.0.0.0:%d (HTTPS)", _PROXY_PORT)
+    log.info("Registry MITM proxy started on 0.0.0.0:%d (ClusterIP=%s)",
+             _PROXY_PORT, _registry_cluster_ip or "unknown")
     return _PROXY_PORT
 
 
@@ -530,14 +589,14 @@ def stop_proxy() -> None:
 
 def proxy_image_ref(peer_name: str, image: str) -> str:
     """
-    Rewrite an image reference so kubelet pulls via the in-cluster OCI proxy.
-
-    The URL embeds an HMAC token derived from the peer's CA PEM so that the
-    proxy can verify the request is legitimate even if port 5100 is accidentally
-    exposed — an attacker without the CA cannot forge the token.
+    Rewrite an image ref so containerd pulls via our MITM proxy.
 
     registry.example.com/myapp:latest
-      → porpulsion-registry.<ns>.svc.cluster.local:5100/<token>/<peer_name>/registry.example.com/myapp:latest
+      → <clusterIP>:5100/<token>/<peer_name>/registry.example.com/myapp:latest
+
+    The registry hostname is preserved as the first path segment after the
+    peer info so the proxy can generate the correct SNI leaf cert and forward
+    to the right upstream.
     """
     from porpulsion import state
     port = start_proxy()
@@ -545,7 +604,5 @@ def proxy_image_ref(peer_name: str, image: str) -> str:
     if peer is None:
         raise ValueError(f"proxy_image_ref: unknown peer {peer_name!r}")
     token = _peer_token(peer_name, peer.ca_pem)
-    # Use ClusterIP if available so containerd on the node can resolve it
-    # (nodes don't have access to cluster DNS / svc.cluster.local).
     host = _registry_cluster_ip or f"porpulsion-registry.{state.NAMESPACE}.svc.cluster.local"
     return f"{host}:{port}/{token}/{peer_name}/{image}"

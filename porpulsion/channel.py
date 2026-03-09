@@ -50,6 +50,7 @@ Types:
   remoteapp/spec-update   push a new spec to the executor
   proxy/request           HTTP proxy request (payload includes base64 body)
   proxy/response          HTTP proxy response
+  registry/credentials    fetch docker-registry auth from submitting peer (MITM proxy)
   peer/disconnect         graceful disconnect notification
   peer/bidirectional      acceptor notifies initiator that inbound was received (direction upgrade)
   ping                    keepalive
@@ -782,9 +783,7 @@ def _register_handlers(ch: "PeerChannel"):
         handle_proxy_request,
         handle_peer_disconnect,
         handle_peer_bidirectional,
-        handle_registry_manifest,
-        handle_registry_blob,
-        handle_registry_blob_chunk,
+        handle_registry_credentials,
     )
     ch.register("remoteapp/receive",       handle_remoteapp_receive)
     ch.register("remoteapp/status",        handle_remoteapp_status)
@@ -802,11 +801,7 @@ def _register_handlers(ch: "PeerChannel"):
     ch.register("proxy/request",           _proxy_handler)
     ch.register("peer/disconnect",         handle_peer_disconnect)
     ch.register("peer/bidirectional",      handle_peer_bidirectional)
-    # Registry pull-through: requests run on the submitting side; chunks arrive on executing side.
-    def _manifest_handler(payload, _ch=ch):
-        return handle_registry_manifest(payload, peer_name=_ch.peer_name)
-    def _blob_handler(payload, _ch=ch):
-        return handle_registry_blob(payload, peer_name=_ch.peer_name)
-    ch.register("registry/manifest",       _manifest_handler)
-    ch.register("registry/blob",           _blob_handler)
-    ch.register("registry/blob-chunk",     handle_registry_blob_chunk)
+    # Registry MITM proxy: executing side calls registry/credentials to fetch
+    # docker auth from the submitting peer; the proxy then connects directly to
+    # the real registry — no blob data flows through the WS channel.
+    ch.register("registry/credentials",   handle_registry_credentials)

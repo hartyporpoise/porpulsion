@@ -272,8 +272,15 @@ def handle_remoteapp_spec_update(payload: dict) -> dict:
     except Exception as _ve:
         log.debug("CRD spec validation skipped: %s", _ve)
 
+    spec_dict = parsed.to_dict()
+    if spec_dict.get("registryProxy") and d["source_peer"]:
+        from porpulsion.k8s.registry_proxy import _PULL_SECRET_NAME
+        existing = spec_dict.get("imagePullSecrets") or []
+        if _PULL_SECRET_NAME not in existing:
+            spec_dict["imagePullSecrets"] = existing + [_PULL_SECRET_NAME]
+
     # Update the ExecutingApp CR - the CR watcher drives the re-deploy
-    create_executingapp_cr(state.NAMESPACE, app_id, d["name"], parsed.to_dict(), d["source_peer"])
+    create_executingapp_cr(state.NAMESPACE, app_id, d["name"], spec_dict, d["source_peer"])
     return {"ok": True}
 
 
@@ -422,263 +429,49 @@ def handle_peer_disconnect(payload: dict):
 
 # -- Registry pull-through proxy (submitting side)
 #
-# These handlers run on the *submitting* side when the executing peer's OCI
-# proxy asks for image data. The submitting agent fetches from the real registry
-# using locally-stored docker-registry credentials and returns the data over WS.
+# The MITM proxy on the executing side calls registry/credentials to fetch
+# docker-registry auth from the submitting peer, then connects directly to the
+# real registry over HTTPS without routing any blob data through the WS channel.
 
-def _load_dockerconfig(secret_name: str) -> dict:
-    """Read a kubernetes.io/dockerconfigjson Secret and return the auths dict."""
+def handle_registry_credentials(payload: dict) -> dict:
+    """
+    Return docker registry credentials from a named k8s Secret.
+    Called by the executing peer's MITM proxy to authenticate against the
+    real registry using credentials stored on the submitting peer.
+    Returns {"credentials": "user:password"} or {"credentials": ""}.
+    """
     import json as _json
-    from kubernetes import client as _k8s, config as _kube_config
     from porpulsion import state
+    secret_name   = payload.get("secret_name", "")
+    registry_host = payload.get("registry_host", "")
+    if not secret_name:
+        return {"credentials": ""}
     try:
-        _kube_config.load_incluster_config()
-    except Exception:
-        _kube_config.load_kube_config()
-    core = _k8s.CoreV1Api()
-    secret = core.read_namespaced_secret(secret_name, state.NAMESPACE)
-    raw = (secret.data or {}).get(".dockerconfigjson", "")
-    if not raw:
-        return {}
-    cfg = _json.loads(base64.b64decode(raw))
-    return cfg.get("auths", {})
-
-
-def _registry_auth_for(auths: dict, registry: str):
-    """Return (username, password) for the given registry host, or (None, None)."""
-    for host, creds in auths.items():
-        # Normalise docker.io → index.docker.io
-        normalised = host.replace("https://", "").rstrip("/")
-        if normalised == registry or normalised == f"index.{registry}":
-            if "auth" in creds:
-                decoded = base64.b64decode(creds["auth"]).decode()
-                user, _, pwd = decoded.partition(":")
-                return user, pwd
-            return creds.get("username"), creds.get("password")
-    return None, None
-
-
-def _registry_request(method: str, url: str, username=None, password=None,
-                       headers: dict | None = None, stream: bool = False):
-    """Make an authenticated request to a registry."""
-    import urllib.request as _req
-    import urllib.error as _err
-
-    req_headers = dict(headers or {})
-    if username and password:
-        import base64 as _b64
-        token = _b64.b64encode(f"{username}:{password}".encode()).decode()
-        req_headers["Authorization"] = f"Basic {token}"
-
-    request = _req.Request(url, headers=req_headers, method=method)
-    try:
-        resp = _req.urlopen(request, timeout=60)
-        return resp
-    except _err.HTTPError as e:
-        # Docker Hub uses 401 with WWW-Authenticate for token auth — handle it
-        if e.code == 401:
-            www_auth = e.headers.get("WWW-Authenticate", "")
-            if www_auth.startswith("Bearer "):
-                token = _fetch_bearer_token(www_auth, username, password)
-                if token:
-                    request2 = _req.Request(url, headers={**req_headers,
-                                            "Authorization": f"Bearer {token}"}, method=method)
-                    return _req.urlopen(request2, timeout=60)
-        raise
-
-
-def _fetch_bearer_token(www_auth: str, username=None, password=None) -> str | None:
-    """Fetch a Docker Bearer token from the WWW-Authenticate challenge."""
-    import re
-    import urllib.request as _req
-    import urllib.parse as _parse
-
-    realm = re.search(r'realm="([^"]+)"', www_auth)
-    service = re.search(r'service="([^"]+)"', www_auth)
-    scope = re.search(r'scope="([^"]+)"', www_auth)
-    if not realm:
-        return None
-
-    params = {}
-    if service:
-        params["service"] = service.group(1)
-    if scope:
-        params["scope"] = scope.group(1)
-
-    token_url = realm.group(1)
-    if params:
-        token_url += "?" + _parse.urlencode(params)
-
-    headers = {}
-    if username and password:
-        import base64 as _b64
-        cred = _b64.b64encode(f"{username}:{password}".encode()).decode()
-        headers["Authorization"] = f"Basic {cred}"
-
-    try:
-        import json as _json
-        resp = _req.urlopen(_req.Request(token_url, headers=headers), timeout=30)
-        data = _json.loads(resp.read())
-        return data.get("token") or data.get("access_token")
-    except Exception:
-        return None
-
-
-def handle_registry_manifest(payload: dict, peer_name: str = "") -> dict:
-    """
-    Fetch a manifest from the real registry on behalf of the executing peer.
-    Returns {"manifest": "<base64>", "content_type": "...", "digest": "..."}.
-    """
-    image      = payload.get("image", "")
-    ref        = payload.get("ref", "")
-    secret_name = payload.get("registry_secret", "")
-
-    # Parse registry host from image name
-    # e.g. "registry.example.com/myapp" → host="registry.example.com", path="myapp"
-    # "myapp:latest" → host="index.docker.io", path="library/myapp"
-    parts = image.split("/", 1)
-    if "." in parts[0] or ":" in parts[0] or parts[0] == "localhost":
-        registry_host = parts[0]
-        image_path    = parts[1] if len(parts) > 1 else ""
-    else:
-        registry_host = "index.docker.io"
-        image_path    = f"library/{image}" if "/" not in image else image
-
-    username, password = None, None
-    if secret_name:
-        try:
-            auths = _load_dockerconfig(secret_name)
-            username, password = _registry_auth_for(auths, registry_host)
-        except Exception as exc:
-            log.warning("registry-manifest: could not load secret %s: %s", secret_name, exc)
-
-    scheme = "https"
-    if registry_host.startswith("localhost") or registry_host.startswith("127."):
-        scheme = "http"
-
-    url = f"{scheme}://{registry_host}/v2/{image_path}/manifests/{ref}"
-    accept = (
-        "application/vnd.docker.distribution.manifest.v2+json,"
-        "application/vnd.oci.image.manifest.v1+json,"
-        "application/vnd.docker.distribution.manifest.list.v2+json,"
-        "application/vnd.oci.image.index.v1+json"
-    )
-    try:
-        resp = _registry_request("GET", url, username, password,
-                                 headers={"Accept": accept})
-        body = resp.read()
-        ct   = resp.headers.get("Content-Type", "application/vnd.docker.distribution.manifest.v2+json")
-        digest = resp.headers.get("Docker-Content-Digest", "")
-        return {
-            "manifest":     base64.b64encode(body).decode(),
-            "content_type": ct,
-            "digest":       digest,
-        }
+        from porpulsion.tls import _k8s_core_v1
+        core_v1 = _k8s_core_v1()
+        secret = core_v1.read_namespaced_secret(secret_name, state.NAMESPACE)
+        d = secret.data or {}
+        if ".dockerconfigjson" in d:
+            cfg = _json.loads(base64.b64decode(d[".dockerconfigjson"]))
+            auths = cfg.get("auths", {})
+            # Try to match the specific registry host first, then fall back to
+            # any entry (covers single-registry secrets with a generic host key).
+            def _extract(auth_data: dict) -> str:
+                raw = base64.b64decode(auth_data.get("auth", "")).decode()
+                return raw if raw else ""
+            if registry_host:
+                for host, auth_data in auths.items():
+                    normalised = host.replace("https://", "").rstrip("/")
+                    if normalised == registry_host or normalised == f"index.{registry_host}":
+                        cred = _extract(auth_data)
+                        if cred:
+                            return {"credentials": cred}
+            # Fallback: return first non-empty entry
+            for auth_data in auths.values():
+                cred = _extract(auth_data)
+                if cred:
+                    return {"credentials": cred}
+        return {"credentials": ""}
     except Exception as exc:
-        log.warning("registry-manifest: fetch failed for %s:%s: %s", image, ref, exc)
-        raise RuntimeError(f"manifest fetch failed: {exc}") from exc
-
-
-def handle_registry_blob(payload: dict, peer_name: str = "") -> dict:
-    """
-    Stream a blob from the real registry back to the executing peer in chunks.
-
-    Returns metadata immediately; blob data is pushed as registry/blob-chunk
-    messages over the WS channel, with a final chunk where done=True.
-    """
-    import threading as _threading
-    image        = payload.get("image", "")
-    digest       = payload.get("digest", "")
-    transfer_id  = payload.get("transfer_id", "")
-    secret_name  = payload.get("registry_secret", "")
-
-    parts = image.split("/", 1)
-    if "." in parts[0] or ":" in parts[0] or parts[0] == "localhost":
-        registry_host = parts[0]
-        image_path    = parts[1] if len(parts) > 1 else ""
-    else:
-        registry_host = "index.docker.io"
-        image_path    = f"library/{image}" if "/" not in image else image
-
-    username, password = None, None
-    if secret_name:
-        try:
-            auths = _load_dockerconfig(secret_name)
-            username, password = _registry_auth_for(auths, registry_host)
-        except Exception as exc:
-            log.warning("registry-blob: could not load secret %s: %s", secret_name, exc)
-
-    scheme = "https"
-    if registry_host.startswith("localhost") or registry_host.startswith("127."):
-        scheme = "http"
-
-    url = f"{scheme}://{registry_host}/v2/{image_path}/blobs/{digest}"
-
-    # Do a HEAD first to get content-length
-    try:
-        head_resp = _registry_request("HEAD", url, username, password)
-        total_size   = int(head_resp.headers.get("Content-Length", 0))
-        content_type = head_resp.headers.get("Content-Type", "application/octet-stream")
-    except Exception as exc:
-        raise RuntimeError(f"blob HEAD failed: {exc}") from exc
-
-    def _stream():
-        from porpulsion import state
-        try:
-            ch = state.peer_channels.get(peer_name)
-            if ch is None:
-                log.warning("registry-blob: channel to %s gone before stream started", peer_name)
-                return
-            resp = _registry_request("GET", url, username, password)
-            seq = 0
-            CHUNK = 512 * 1024  # 512 KB
-            while True:
-                chunk = resp.read(CHUNK)
-                done = len(chunk) < CHUNK
-                ch.push("registry/blob-chunk", {
-                    "transfer_id": transfer_id,
-                    "seq":         seq,
-                    "data":        base64.b64encode(chunk).decode() if chunk else "",
-                    "done":        done or not chunk,
-                })
-                seq += 1
-                if done or not chunk:
-                    break
-        except Exception as exc:
-            log.warning("registry-blob: stream error for transfer %s: %s", transfer_id, exc)
-            try:
-                ch = state.peer_channels.get(peer_name)
-                if ch:
-                    ch.push("registry/blob-chunk", {
-                        "transfer_id": transfer_id,
-                        "seq":         -1,
-                        "data":        "",
-                        "done":        True,
-                        "error":       str(exc),
-                    })
-            except Exception:
-                pass
-
-    _threading.Thread(target=_stream, daemon=True,
-                      name=f"reg-blob-{transfer_id[:8]}").start()
-
-    return {
-        "size":         total_size,
-        "content_type": content_type,
-        "digest":       digest,
-    }
-
-
-def handle_registry_blob_chunk(payload: dict):
-    """
-    Push handler on the *executing* side: a chunk of a blob arrived from
-    the submitting peer. Deliver it to the waiting OCI proxy transfer queue.
-    """
-    from porpulsion.k8s.registry_proxy import deliver_blob_chunk
-    deliver_blob_chunk(
-        transfer_id=payload.get("transfer_id", ""),
-        seq=payload.get("seq", 0),
-        data_b64=payload.get("data", ""),
-        done=payload.get("done", False),
-        error=payload.get("error", ""),
-    )
+        log.warning("registry/credentials: could not read secret %r: %s", secret_name, exc)
+        return {"credentials": ""}
