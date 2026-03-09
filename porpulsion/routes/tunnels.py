@@ -93,6 +93,9 @@ def proxy_remoteapp(app_id, port, subpath):
     if "text/html" in content_type and b"<head" in body:
         base_tag = f'<base href="{proxy_prefix}/">'.encode()
         body = re.sub(rb"<head([^>]*)>", rb"<head\1>" + base_tag, body, count=1)
+        # Rewrite root-relative URLs (src="/...", href="/...") — <base> doesn't affect these.
+        prefix_b = proxy_prefix.encode()
+        body = re.sub(rb'(src|href)="(/[^"]*)"', lambda m: m.group(1) + b'="' + prefix_b + m.group(2) + b'"', body)
     return Response(body, status=result.get("status", 502), headers=resp_headers)
 
 
