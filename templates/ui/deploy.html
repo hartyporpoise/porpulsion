@@ -146,7 +146,7 @@
         <div class="toggle-row" style="border:none;padding:0;margin-bottom:0;">
           <div class="toggle-info">
             <div class="toggle-label">Use registry proxy</div>
-            <div class="toggle-desc">Adds <span class="mono">porpulsion-image-proxy</span> to <span class="mono">imagePullSecrets</span> — the executing peer must have the registry proxy enabled</div>
+            <div class="toggle-desc">Adds <span class="mono">porpulsion-image-proxy</span> to <span class="mono">imagePullSecrets</span> — the executing peer must have the registry proxy enabled. The proxy URL can be found in the peer's detail view. Format your image as <span class="mono">&lt;proxy-url&gt;/&lt;registry&gt;/&lt;image&gt;:&lt;tag&gt;</span>, e.g. <span class="mono">peer.example.com/cr.example.com/myapp:latest</span></div>
           </div>
           <label class="toggle" style="flex-shrink:0;">
             <input type="checkbox" id="deploy-registry-proxy">

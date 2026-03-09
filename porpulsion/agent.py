@@ -266,6 +266,13 @@ def _require_api_auth():
             except Exception:
                 pass
             _record_failure(ip)
+        # For OCI/containerd clients, include WWW-Authenticate so they retry with credentials
+        if request.path.startswith("/v2/"):
+            resp = jsonify({"errors": [{"code": "UNAUTHORIZED", "message": "authentication required"}]})
+            resp.status_code = 401
+            resp.headers["WWW-Authenticate"] = 'Basic realm="porpulsion"'
+            resp.headers["Docker-Distribution-Api-Version"] = "registry/2.0"
+            return resp
         return jsonify({"error": "unauthorized"}), 401
     # For static assets, return 404 (asset simply won't load; user sees login page)
     from flask import abort
