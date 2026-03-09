@@ -6,8 +6,9 @@ system user (porpulsion-registry) and a dockerconfigjson imagePullSecret
 (porpulsion-image-proxy) pointing at this agent's /api/image-proxy endpoint.
 
 The /api/image-proxy route is protected by the existing Basic auth guard and
-proxies OCI Distribution API requests to the upstream private registry using
-the credentials stored in the first porpulsion-reg-* Secret.
+proxies OCI Distribution API requests to the upstream registry.  The upstream
+registry host is derived from the image path itself — containerd sends
+/v2/<registry-host>/<name>/manifests/<ref> and we forward to <registry-host>.
 
 Flow
 ────
@@ -16,7 +17,8 @@ Flow
 3. Executor sees registryProxy=true on a workload and appends
    PULL_SECRET_NAME to imagePullSecrets.
 4. containerd authenticates to /api/image-proxy using the system user creds.
-5. The /api/image-proxy route proxies to the upstream registry.
+5. The /api/image-proxy route strips the registry host from the path and
+   proxies the OCI request to that host without additional credentials.
 """
 import logging
 import os
@@ -83,8 +85,12 @@ def _ensure_pull_secret(namespace: str, self_url: str, password: str) -> None:
     import base64, json
     from kubernetes import client as k8s_client
     from porpulsion.tls import _k8s_core_v1
+    from porpulsion import state
 
-    server = self_url.rstrip("/") + "/api/image-proxy"
+    # Allow operators with split ingress (WS external, API internal) to override
+    # just the API-facing URL for the pull secret server field.
+    api_url = (state.settings.registry_api_url or "").strip().rstrip("/") or self_url.rstrip("/")
+    server = api_url + "/api/image-proxy"
     auth   = base64.b64encode(f"{_REGISTRY_USER}:{password}".encode()).decode()
     cfg    = {"auths": {server: {"username": _REGISTRY_USER, "password": password, "auth": auth}}}
     encoded = base64.b64encode(json.dumps(cfg).encode()).decode()
@@ -97,11 +103,11 @@ def _ensure_pull_secret(namespace: str, self_url: str, password: str) -> None:
     )
     try:
         core_v1.create_namespaced_secret(namespace, secret)
-        log.info("Created imagePullSecret %s", PULL_SECRET_NAME)
+        log.info("Created imagePullSecret %s (server=%s)", PULL_SECRET_NAME, server)
     except k8s_client.ApiException as e:
         if e.status == 409:
             core_v1.replace_namespaced_secret(PULL_SECRET_NAME, namespace, secret)
-            log.debug("Updated imagePullSecret %s", PULL_SECRET_NAME)
+            log.debug("Updated imagePullSecret %s (server=%s)", PULL_SECRET_NAME, server)
         else:
             raise
 
@@ -145,39 +151,3 @@ def teardown_registry_setup(namespace: str) -> None:
             "Workloads with registryProxy=true will fail to pull until re-enabled."
         ),
     )
-
-
-def get_upstream_registry() -> tuple[str, str]:
-    """
-    Return (host, 'user:password') for the first porpulsion-reg-* Secret, or ('', '').
-    host is the upstream registry hostname (e.g. 'registry.example.com').
-    Used by the /api/image-proxy route to know where to forward requests.
-    """
-    import base64, json
-    from porpulsion import state
-    from porpulsion.tls import _k8s_core_v1
-
-    try:
-        core_v1 = _k8s_core_v1()
-        secrets = core_v1.list_namespaced_secret(
-            state.NAMESPACE,
-            label_selector="porpulsion.io/registry-secret=true",
-        )
-        for s in secrets.items:
-            labels = (s.metadata.labels or {})
-            host = labels.get("porpulsion.io/registry-server", "").replace("https://", "").rstrip("/")
-            raw = (s.data or {}).get(".dockerconfigjson", "")
-            if not raw:
-                continue
-            cfg = json.loads(base64.b64decode(raw).decode())
-            for _, auth_data in cfg.get("auths", {}).items():
-                uname = auth_data.get("username", "")
-                pwd   = auth_data.get("password", "")
-                if uname and pwd:
-                    return host, f"{uname}:{pwd}"
-                raw_auth = auth_data.get("auth", "")
-                if raw_auth:
-                    return host, base64.b64decode(raw_auth).decode()
-    except Exception as exc:
-        log.warning("Could not load upstream registry credentials: %s", exc)
-    return "", ""

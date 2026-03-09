@@ -783,7 +783,15 @@ def _register_handlers(ch: "PeerChannel"):
         handle_peer_disconnect,
         handle_peer_bidirectional,
     )
-    ch.register("remoteapp/receive",       handle_remoteapp_receive)
+    # Bind source_peer to the authenticated channel identity so the
+    # allowed_source_peers policy cannot be bypassed by spoofing the payload field.
+    # Use a reference to ch (not ch.peer_name) so inbound channels that start
+    # with peer_name="_pending_" still resolve the real name after attach_inbound.
+    def _receive_handler(payload, _ch=ch):
+        payload = dict(payload)
+        payload["source_peer"] = _ch.peer_name
+        return handle_remoteapp_receive(payload)
+    ch.register("remoteapp/receive",       _receive_handler)
     ch.register("remoteapp/status",        handle_remoteapp_status)
     ch.register("remoteapp/delete",        handle_remoteapp_delete)
     ch.register("remoteapp/scale",         handle_remoteapp_scale)
@@ -792,8 +800,6 @@ def _register_handlers(ch: "PeerChannel"):
     ch.register("remoteapp/spec-update",   handle_remoteapp_spec_update)
     ch.register("remoteapp/config-patch",  handle_remoteapp_config_patch)
     # Wrap proxy handler so it can enforce the per-peer tunnel allowlist.
-    # Use a reference to ch (not ch.peer_name) so inbound channels that start
-    # with peer_name="_pending_" still resolve the real name after attach_inbound.
     def _proxy_handler(payload, _ch=ch):
         return handle_proxy_request(payload, peer_name=_ch.peer_name)
     ch.register("proxy/request",           _proxy_handler)

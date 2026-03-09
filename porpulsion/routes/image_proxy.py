@@ -2,22 +2,26 @@
 Registry image proxy route.
 
 Registered at /api/image-proxy via the /api blueprint.
-containerd's dockerconfigjson points its server key at {selfUrl}/api/image-proxy,
-so OCI requests arrive as /api/image-proxy/v2/<name>/manifests/<ref> etc.
+containerd's dockerconfigjson points its server key at {apiUrl}/api/image-proxy
+and appends the OCI Distribution path itself, so requests arrive as:
 
-The upstream registry host and credentials come from the first
-porpulsion-reg-* Secret (labeled porpulsion.io/registry-secret=true).
-Protected by the existing /api/ Basic auth guard — no extra auth needed.
+    /api/image-proxy/v2/<registry-host>/<name>/manifests/<ref>
+
+We extract the registry host from the path and forward to:
+
+    https://<registry-host>/v2/<name>/manifests/<ref>
+
+No upstream credentials are added — designed for network-restricted registries
+reachable from the executing cluster without auth.
+Protected by the existing /api/ Basic auth guard.
 """
-import base64
+import json
 import logging
 import ssl
 import urllib.error
 import urllib.request
 
 from flask import Blueprint, Response, request
-
-from porpulsion.k8s.registry_proxy import get_upstream_registry
 
 log = logging.getLogger("porpulsion.image_proxy")
 
@@ -26,26 +30,29 @@ bp = Blueprint("image_proxy", __name__)
 _METHODS = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"]
 
 
-@bp.route("/image-proxy/v2/", defaults={"subpath": ""}, methods=_METHODS)
-@bp.route("/image-proxy/v2/<path:subpath>", methods=_METHODS)
+@bp.route("/image-proxy/", defaults={"subpath": ""}, methods=_METHODS)
+@bp.route("/image-proxy/<path:subpath>", methods=_METHODS)
 def registry_image_proxy(subpath):
-    upstream_host, creds = get_upstream_registry()
-    if not upstream_host:
+    # containerd prepends v2/ — strip it to get <registry-host>/<rest>
+    path = subpath.lstrip("/")
+    if path.startswith("v2/"):
+        path = path[3:]
+
+    if not path:
         return Response(
-            '{"errors":[{"code":"UNAVAILABLE","message":"no upstream registry configured"}]}',
+            json.dumps({"errors": [{"code": "UNAVAILABLE", "message": "no registry specified in path"}]}),
             503, content_type="application/json",
         )
 
-    target = f"https://{upstream_host}/v2/{subpath}"
+    parts = path.split("/", 1)
+    upstream_host = parts[0]
+    rest = parts[1] if len(parts) > 1 else ""
+
+    target = f"https://{upstream_host}/v2/{rest}"
     if request.query_string:
         target += "?" + request.query_string.decode()
 
     upstream_req = urllib.request.Request(target, method=request.method)
-    if creds:
-        upstream_req.add_header(
-            "Authorization",
-            "Basic " + base64.b64encode(creds.encode()).decode(),
-        )
     for hdr in ("Accept", "Content-Type", "Docker-Content-Digest", "Range"):
         val = request.headers.get(hdr)
         if val:
@@ -69,6 +76,6 @@ def registry_image_proxy(subpath):
     except Exception as exc:
         log.warning("image-proxy upstream error: %s", exc)
         return Response(
-            f'{{"errors":[{{"code":"UPSTREAM_ERROR","message":"{exc}"}}]}}',
+            json.dumps({"errors": [{"code": "UPSTREAM_ERROR", "message": str(exc)}]}),
             502, content_type="application/json",
         )
