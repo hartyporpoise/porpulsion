@@ -1,19 +1,23 @@
 """
 Registry image proxy route.
 
-Registered at /api/image-proxy via the /api blueprint.
-containerd's dockerconfigjson points its server key at {apiUrl}/api/image-proxy
-and appends the OCI Distribution path itself, so requests arrive as:
+Registered at the Flask root (no blueprint prefix) at /v2/<path>.
 
-    /api/image-proxy/v2/<registry-host>/<name>/manifests/<ref>
+containerd implements the OCI Distribution spec: it takes the registry host
+from the image reference and sends all requests to {host}/v2/<name>/...
+When the image is `{agent-host}/cr.example.com/{name}:{tag}`, containerd
+treats `{agent-host}` as the registry and sends:
 
-We extract the registry host from the path and forward to:
+    GET/HEAD /v2/cr.example.com/<name>/manifests/<ref>
+    GET      /v2/cr.example.com/<name>/blobs/<digest>
 
-    https://<registry-host>/v2/<name>/manifests/<ref>
+We extract `cr.example.com` from the path and forward to:
 
-No upstream credentials are added — designed for network-restricted registries
-reachable from the executing cluster without auth.
-Protected by the existing /api/ Basic auth guard.
+    https://cr.example.com/v2/<name>/manifests/<ref>
+
+Auth: the pull secret (porpulsion-image-proxy) stores Basic credentials for
+this agent.  containerd presents those on every request, so this route is
+covered by the /v2/ Basic Auth guard in agent.py.
 """
 import json
 import logging
@@ -30,18 +34,18 @@ bp = Blueprint("image_proxy", __name__)
 _METHODS = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"]
 
 
-@bp.route("/image-proxy/", defaults={"subpath": ""}, methods=_METHODS)
-@bp.route("/image-proxy/<path:subpath>", methods=_METHODS)
+@bp.route("/v2/", defaults={"subpath": ""}, methods=_METHODS)
+@bp.route("/v2/<path:subpath>", methods=_METHODS)
 def registry_image_proxy(subpath):
-    # containerd prepends v2/ — strip it to get <registry-host>/<rest>
     path = subpath.lstrip("/")
-    if path.startswith("v2/"):
-        path = path[3:]
 
     if not path:
+        # OCI ping — let containerd know we speak OCI Distribution
         return Response(
-            json.dumps({"errors": [{"code": "UNAVAILABLE", "message": "no registry specified in path"}]}),
-            503, content_type="application/json",
+            json.dumps({}),
+            200,
+            headers={"Content-Type": "application/json",
+                     "Docker-Distribution-Api-Version": "registry/2.0"},
         )
 
     parts = path.split("/", 1)

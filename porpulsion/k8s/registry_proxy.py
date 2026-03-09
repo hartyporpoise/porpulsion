@@ -90,7 +90,7 @@ def _ensure_pull_secret(namespace: str, self_url: str, password: str) -> None:
     # Allow operators with split ingress (WS external, API internal) to override
     # just the API-facing URL for the pull secret server field.
     api_url = (state.settings.registry_api_url or "").strip().rstrip("/") or self_url.rstrip("/")
-    server = api_url + "/api/image-proxy"
+    server = api_url  # containerd appends /v2/<name>/... itself
     auth   = base64.b64encode(f"{_REGISTRY_USER}:{password}".encode()).decode()
     cfg    = {"auths": {server: {"username": _REGISTRY_USER, "password": password, "auth": auth}}}
     encoded = base64.b64encode(json.dumps(cfg).encode()).decode()
