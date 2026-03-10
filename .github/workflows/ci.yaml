@@ -129,7 +129,9 @@ jobs:
           APP_BUMP="${{ steps.bump.outputs.app_bump }}"
           CHART_ONLY="${{ steps.bump.outputs.chart_only }}"
 
-          new_chart_version=$(bump_semver "$curr_chart_version" "patch")
+          CHART_BUMP="${APP_BUMP:-patch}"
+          [ "$CHART_ONLY" = "true" ] && CHART_BUMP="patch"
+          new_chart_version=$(bump_semver "$curr_chart_version" "$CHART_BUMP")
 
           if [ "$CHART_ONLY" = "true" ]; then
             new_app="$curr_app"
