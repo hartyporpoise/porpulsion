@@ -808,6 +808,7 @@ def _register_handlers(ch: "PeerChannel"):
         handle_remoteapp_spec_update,
         handle_remoteapp_config_patch,
         handle_proxy_request,
+        handle_image_proxy_request,
         handle_peer_disconnect,
         handle_peer_bidirectional,
         handle_peer_info_update,
@@ -832,6 +833,7 @@ def _register_handlers(ch: "PeerChannel"):
     def _proxy_handler(payload, _ch=ch):
         return handle_proxy_request(payload, peer_name=_ch.peer_name)
     ch.register("proxy/request",           _proxy_handler)
+    ch.register("image-proxy/request",     handle_image_proxy_request)
     ch.register("peer/disconnect",         handle_peer_disconnect)
     ch.register("peer/bidirectional",      handle_peer_bidirectional)
     ch.register("peer/info-update",        handle_peer_info_update)
