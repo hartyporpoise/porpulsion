@@ -224,15 +224,24 @@
     if (empty) empty.style.display = 'none';
     var peerKey = showSource ? 'source_peer' : 'target_peer';
     var typeAttr = appType ? ' data-app-type="' + appType + '"' : '';
+    var ICON_PROXY_OPEN = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>';
     body.innerHTML = list.map(function (a) {
       var isDead = a.status === 'Deleted' || a.status === 'Failed' || a.status === 'Timeout';
       var peerVal = a[peerKey] || '—';
+      // Inline proxy open button for submitted apps with ports
+      var proxyBtn = '';
+      if (!showSource && !isDead) {
+        var ports = (a.spec && Array.isArray(a.spec.ports) && a.spec.ports.length) ? a.spec.ports : (a.spec && a.spec.port ? [{ port: a.spec.port }] : [{ port: 80 }]);
+        var firstPort = typeof ports[0] === 'object' ? (ports[0].port || 80) : ports[0];
+        var proxyUrl = window.location.origin + P.API_BASE + '/remoteapp/' + a.id + '/proxy/' + firstPort;
+        proxyBtn = '<a href="' + _esc(proxyUrl) + '" target="_blank" rel="noopener" class="btn-icon" title="Open proxy (:' + firstPort + ')" aria-label="Open proxy">' + ICON_PROXY_OPEN + '</a>';
+      }
       return '<tr' + (isDead ? ' style="opacity:0.55;"' : '') + ' data-app-id="' + _esc(a.id) + '" data-app-name="' + _esc(a.name) + '"' + typeAttr + '>' +
         '<td><a href="#" class="app-open-link">' + _esc(a.name) + '</a></td>' +
         '<td class="mono col-hide-mobile">' + _esc(a.id) + '</td><td>' + statusBadge(a.status) + '</td>' +
         '<td class="text-muted text-sm col-hide-tablet">' + _esc(peerVal) + '</td>' +
         '<td class="time-ago col-hide-tablet">' + timeAgo(a.updated_at) + '</td>' +
-        '<td><span class="btn-row"><button type="button" class="btn-icon app-detail-btn" title="Detail" aria-label="Detail"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="8.5"/><line x1="12" y1="12" x2="12" y2="16"/></svg></button><button type="button" class="btn-icon btn-icon-danger app-delete-btn" title="Delete" aria-label="Delete"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></button></span></td></tr>';
+        '<td><span class="btn-row">' + proxyBtn + '<button type="button" class="btn-icon app-detail-btn" title="Detail" aria-label="Detail"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="8.5"/><line x1="12" y1="12" x2="12" y2="16"/></svg></button><button type="button" class="btn-icon btn-icon-danger app-delete-btn" title="Delete" aria-label="Delete"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></button></span></td></tr>';
     }).join('');
   }
 
@@ -241,29 +250,34 @@
     if (!listEl) return;
     var active = submitted.filter(function (a) { return a.status !== 'Deleted' && a.status !== 'Failed' && a.status !== 'Timeout'; });
     if (!active.length) {
-      listEl.innerHTML = '<div class="empty-state"><div class="empty-icon">&#8658;</div>No submitted apps yet — <a href="/deploy">deploy a workload</a></div>';
+      listEl.innerHTML = '<div class="empty-state" style="padding:3rem 1rem;"><div class="empty-icon">&#8658;</div>No submitted apps yet — <a href="/deploy">deploy a workload</a></div>';
       return;
     }
     var ICON_COPY = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+    var ICON_OPEN = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>';
     var ICON_DETAIL = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="8.5"/><line x1="12" y1="12" x2="12" y2="16"/></svg>';
     listEl.innerHTML = active.map(function (a) {
+      var isDead = a.status === 'Deleted' || a.status === 'Failed' || a.status === 'Timeout';
       var ports = (a.spec && Array.isArray(a.spec.ports) && a.spec.ports.length) ? a.spec.ports : [{ port: (a.spec && a.spec.port) || 80 }];
       var portLinks = ports.map(function (p) {
         var portNum = typeof p === 'object' ? (p.port || 80) : p;
-        var portLabel = (p.name ? p.name + ' (' + portNum + ')' : portNum);
+        var portLabel = (p.name ? p.name : 'Port ' + portNum);
         var proxyUrl = window.location.origin + API_BASE + '/remoteapp/' + a.id + '/proxy/' + portNum;
-        var id = 'proxy-url-' + a.id + '-' + portNum;
+        var copyId = 'proxy-url-' + a.id + '-' + portNum;
+        var openBtn = !isDead
+          ? '<a href="' + _esc(proxyUrl) + '" target="_blank" rel="noopener" class="btn-sm proxy-open-btn" title="Open :' + portNum + '">' + ICON_OPEN + ' Open</a>'
+          : '';
         return '<div class="proxy-port-row">' +
-          '<span class="proxy-port-label">' + portLabel + '</span>' +
-          '<a href="' + _esc(proxyUrl) + '" target="_blank" rel="noopener" id="' + id + '" class="proxy-port-url" title="' + _esc(proxyUrl) + '">' + _esc(proxyUrl) + '</a>' +
-          '<button type="button" class="btn-icon" title="Copy URL" aria-label="Copy URL" data-copy-el="' + id + '">' + ICON_COPY + '</button></div>';
+          '<span class="proxy-port-label">' + _esc(portLabel) + ' <span class="mono" style="font-size:0.7rem;color:var(--muted2);">:' + portNum + '</span></span>' +
+          '<span id="' + copyId + '" class="proxy-port-url mono" style="font-size:0.7rem;color:var(--muted);" title="' + _esc(proxyUrl) + '">' + _esc(proxyUrl) + '</span>' +
+          '<button type="button" class="btn-icon" title="Copy URL" aria-label="Copy URL" data-copy-el="' + copyId + '">' + ICON_COPY + '</button>' +
+          openBtn + '</div>';
       }).join('');
       return '<div class="proxy-app-entry">' +
         '<div class="proxy-app-name">' +
         '<strong>' + _esc(a.name) + '</strong>' +
-        '<span class="mono text-sm" style="color:var(--muted2);font-size:0.7rem;">' + _esc(a.id) + '</span>' +
         statusBadge(a.status) +
-        '<span class="text-muted text-sm" style="margin-left:auto;">' + _esc(a.target_peer || '') + '</span>' +
+        '<span class="text-muted text-sm" style="margin-left:auto;font-size:0.75rem;">' + _esc(a.target_peer || '') + '</span>' +
         '<button type="button" class="btn-icon app-detail-btn" title="Detail" aria-label="Detail" data-app-id="' + _esc(a.id) + '">' + ICON_DETAIL + '</button>' +
         '</div>' + portLinks + '</div>';
     }).join('');
@@ -341,7 +355,20 @@
       if (statSub) statSub.textContent = sub.length ? sub.join(', ') : (connected.length ? 'all connected' : 'no peers');
 
       var peerLabel = el('peer-count-label');
-      if (peerLabel) peerLabel.textContent = connected.length + ' peer' + (connected.length !== 1 ? 's' : '') + (connecting ? ', ' + connecting + ' connecting' : '');
+      if (peerLabel) {
+        var reconnecting = connected.length - wsUp;
+        var meshCls, meshDot, meshText;
+        if (!connected.length) {
+          meshCls = 'mesh-pill mesh-pill-grey'; meshDot = '○'; meshText = 'No peers';
+        } else if (reconnecting > 0 || connecting > 0) {
+          meshCls = 'mesh-pill mesh-pill-yellow'; meshDot = '◐';
+          meshText = wsUp + '/' + connected.length + ' peer' + (connected.length !== 1 ? 's' : '');
+        } else {
+          meshCls = 'mesh-pill mesh-pill-green'; meshDot = '●';
+          meshText = connected.length + ' peer' + (connected.length !== 1 ? 's' : '');
+        }
+        peerLabel.innerHTML = '<span class="' + meshCls + '"><span class="mesh-dot">' + meshDot + '</span>' + meshText + '</span>';
+      }
 
       renderOverviewPeers(peers);
       renderAllPeers(peers);
@@ -539,6 +566,35 @@
       setVal('setting-max-total-cpu',       s.max_total_cpu_requests);
       setVal('setting-max-total-mem',       s.max_total_memory_requests);
       _loadTunnelDeniedFromValue(s.allowed_tunnel_peers || '');
+      // Accordion summaries
+      (function () {
+        var inboundSummary = el('acc-inbound-summary');
+        if (inboundSummary) {
+          var parts = [];
+          if (!s.allow_inbound_remoteapps) parts.push('disabled');
+          else if (s.require_remoteapp_approval) parts.push('approval required');
+          else parts.push('open');
+          if (s.allowed_source_peers) parts.push('allowlisted');
+          inboundSummary.textContent = parts.join(' · ');
+        }
+        var quotasSummary = el('acc-quotas-summary');
+        if (quotasSummary) {
+          var qparts = [];
+          if (s.max_replicas_per_app) qparts.push('max ' + s.max_replicas_per_app + ' replicas');
+          if (s.max_total_deployments) qparts.push(s.max_total_deployments + ' apps');
+          if (s.allow_pvcs) qparts.push('PVCs on');
+          else qparts.push('no PVCs');
+          quotasSummary.textContent = qparts.length ? qparts.join(' · ') : 'default';
+        }
+        var tunnelsSummary = el('acc-tunnels-summary');
+        if (tunnelsSummary) {
+          tunnelsSummary.textContent = s.allow_inbound_tunnels ? 'tunnels allowed' : 'tunnels blocked';
+        }
+        var registrySummary = el('acc-registry-summary');
+        if (registrySummary) {
+          registrySummary.textContent = s.registry_pull_enabled ? 'proxy on · ' + (s.registry_api_url || '') : 'proxy off';
+        }
+      })();
       // Health grid (overview page)
       if (el('health-grid')) {
         P.getInvite().then(function (tok) {

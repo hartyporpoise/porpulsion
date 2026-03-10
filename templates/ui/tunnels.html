@@ -5,36 +5,38 @@
 <!-- PAGE: Proxy / Tunnels (route: /tunnels) -->
 <section id="tunnels-page" data-page="tunnels">
 
-  <!-- SECTION: Proxy info + app list -->
-  <section id="tunnels-proxy-info" class="page-section" aria-label="HTTP proxy information">
-
-    <!-- Info banner -->
-    <div class="proxy-info-banner">
-      <div class="proxy-info-icon">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h18"/><path d="M15 6l6 6-6 6"/><path d="M9 6L3 12l6 6"/></svg>
-      </div>
-      <div class="proxy-info-body">
-        <div class="proxy-info-title">HTTP Proxy</div>
-        <div class="proxy-info-desc">Each RemoteApp port is accessible via a built-in proxy route — no tunnel setup required. Open the <strong>Detail</strong> view on any submitted app to get ready-to-use URLs.</div>
-        <div class="proxy-url-format">
-          <span class="proxy-url-muted">{agent-url}</span><span class="proxy-url-accent">/api/remoteapp/&lt;app-id&gt;/proxy/&lt;port&gt;/&lt;path&gt;</span>
+  <!-- SECTION: How it works banner -->
+  <section class="page-section" aria-label="Proxy overview">
+    <div class="proxy-how-banner">
+      <div class="proxy-how-steps">
+        <div class="proxy-how-step">
+          <div class="proxy-how-num">1</div>
+          <div class="proxy-how-text">Deploy a RemoteApp with ports configured</div>
+        </div>
+        <div class="proxy-how-arrow">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        </div>
+        <div class="proxy-how-step">
+          <div class="proxy-how-num">2</div>
+          <div class="proxy-how-text">App appears here once Running or Ready</div>
+        </div>
+        <div class="proxy-how-arrow">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        </div>
+        <div class="proxy-how-step">
+          <div class="proxy-how-num">3</div>
+          <div class="proxy-how-text">Click <strong>Open</strong> — tunnelled over the encrypted peer channel</div>
         </div>
       </div>
       <a href="/settings" class="btn-sm proxy-settings-link">Tunnel settings</a>
     </div>
+  </section>
 
-    <!-- Apps list -->
-    <div class="card">
-      <div class="card-header">
-        <h2>Submitted Apps</h2>
-        <span class="card-header-sub">— with proxy access</span>
-      </div>
-      <div class="card-body no-pad">
-        <div id="proxy-apps-list">
-          <div class="empty-state" style="padding:2.5rem 1rem;">
-            <div class="empty-icon">&#8658;</div>No submitted apps yet — <a href="/deploy">deploy a workload</a>
-          </div>
-        </div>
+  <!-- SECTION: Proxy app cards -->
+  <section class="page-section" aria-label="Apps with proxy access">
+    <div id="proxy-apps-list">
+      <div class="empty-state" style="padding:3rem 1rem;">
+        <div class="empty-icon">&#8658;</div>No submitted apps yet — <a href="/deploy">deploy a workload</a>
       </div>
     </div>
   </section>
