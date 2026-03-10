@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Workloads{% endblock %}
+{% block topbar_title %}Workloads{% endblock %}
+{% block content %}
+<!-- PAGE: Workloads (route: /workloads) -->
+<section id="workloads-page" data-page="workloads">
+
+  <!-- SECTION: Approval banner -->
+  <section id="workloads-approval-banner" class="page-section" aria-label="Workloads awaiting approval">
+    <div class="approval-banner" id="approval-banner">
+      <div class="approval-banner-title">
+        <span class="pulse"></span> Workloads Awaiting Approval
+      </div>
+      <div class="approval-list" id="approval-list"></div>
+    </div>
+  </section>
+
+  <!-- SECTION: Submitted apps -->
+  <section id="workloads-submitted" class="page-section" style="margin-bottom:1.25rem;" aria-label="Submitted apps">
+    <div class="card">
+      <div class="card-header">
+        <h2>Submitted Apps <span class="card-header-sub">— deployed by you, running on peers</span></h2>
+        <span class="badge badge-pending" id="submitted-count">0</span>
+        <a href="/deploy" class="btn-sm" style="margin-left:auto;">+ Deploy</a>
+      </div>
+      <div class="card-body no-pad">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Name</th><th class="col-hide-mobile">ID</th><th>Status</th><th class="col-hide-tablet">Running on</th><th class="col-hide-tablet">Updated</th><th></th></tr></thead>
+            <tbody id="submitted-body"></tbody>
+          </table>
+        </div>
+        <div class="empty-state" id="submitted-empty">
+          <div class="empty-icon">&#11041;</div>No apps submitted yet — deploy one from the Overview page
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SECTION: Executing apps -->
+  <section id="workloads-executing" class="page-section" aria-label="Executing apps">
+    <div class="card">
+      <div class="card-header">
+        <h2>Executing Apps <span class="card-header-sub">— received from peers, running here</span></h2>
+        <span class="badge badge-pending" id="executing-count">0</span>
+      </div>
+      <div class="card-body no-pad">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Name</th><th class="col-hide-mobile">ID</th><th>Status</th><th class="col-hide-tablet">From Peer</th><th class="col-hide-tablet">Updated</th><th></th></tr></thead>
+            <tbody id="executing-body"></tbody>
+          </table>
+        </div>
+        <div class="empty-state" id="executing-empty">
+          <div class="empty-icon">&#11041;</div>No apps received from peers
+        </div>
+      </div>
+    </div>
+  </section>
+
+</section>
+{% endblock %}

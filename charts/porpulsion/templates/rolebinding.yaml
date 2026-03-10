@@ -1,13 +1,13 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: {{ include "porpulsion.fullname" . }}-credentials
-  namespace: {{ .Values.namespace }}
+  name: {{ include "porpulsion.fullname" . }}
+  namespace: {{ .Release.Namespace }}
 subjects:
   - kind: ServiceAccount
     name: {{ include "porpulsion.fullname" . }}-sa
-    namespace: {{ .Values.namespace }}
+    namespace: {{ .Release.Namespace }}
 roleRef:
   kind: Role
-  name: {{ include "porpulsion.fullname" . }}-credentials
+  name: {{ include "porpulsion.fullname" . }}
   apiGroup: rbac.authorization.k8s.io

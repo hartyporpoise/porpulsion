@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+{% block title %}Overview{% endblock %}
+{% block topbar_title %}Overview{% endblock %}
+{% block content %}
+<!-- PAGE: Overview (route: /) -->
+<section id="overview-page" data-page="overview">
+
+  <!-- SECTION: Stats bar -->
+  <section id="overview-stats" class="overview-stats-row page-section" aria-label="Cluster statistics">
+    <div class="stat-tile">
+      <div class="stat-label">Connected Peers</div>
+      <div class="stat-value green loading" id="stat-peers"></div>
+      <div class="stat-sub" id="stat-peers-sub">no peers connected</div>
+    </div>
+    <div class="stat-tile">
+      <div class="stat-label">Submitted Apps</div>
+      <div class="stat-value accent loading" id="stat-submitted"></div>
+      <div class="stat-sub">running on peers</div>
+    </div>
+    <div class="stat-tile">
+      <div class="stat-label">Executing Apps</div>
+      <div class="stat-value accent loading" id="stat-executing"></div>
+      <div class="stat-sub">from peers, running here</div>
+    </div>
+    <div class="stat-tile">
+      <div class="stat-label">Healthy Apps</div>
+      <div class="stat-value green loading" id="stat-healthy"></div>
+      <div class="stat-sub" id="stat-healthy-sub">ready</div>
+    </div>
+  </section>
+
+  <!-- SECTION: Connected Peers + Recent Apps -->
+  <section id="overview-tables" class="grid2 page-section" aria-label="Peers and recent apps">
+    <div class="card">
+      <div class="card-header">
+        <h2>Connected Peers</h2>
+        <span class="badge badge-mtls" id="peers-count-badge"><span class="badge-dot"></span>0</span>
+      </div>
+      <div class="card-body no-pad">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Name</th><th>URL</th><th>Channel</th><th>Direction</th><th>Since</th></tr></thead>
+            <tbody id="overview-peers-body"></tbody>
+          </table>
+        </div>
+        <div class="empty-state" id="overview-peers-empty">
+          <div class="empty-icon">&#8644;</div>No peers connected — go to <a href="/peers">Peers</a> to connect
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <h2>Recent Apps</h2>
+        <span class="badge badge-pending" id="recent-apps-count">0</span>
+        <a href="/deploy" class="btn-sm" style="margin-left:auto;">+ Deploy</a>
+      </div>
+      <div class="card-body no-pad">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Name</th><th>Type</th><th>Status</th><th>Updated</th><th></th></tr></thead>
+            <tbody id="recent-apps-body"></tbody>
+          </table>
+        </div>
+        <div class="empty-state" id="recent-apps-empty">
+          <div class="empty-icon">&#11041;</div>No apps yet — <a href="/deploy">deploy a workload</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SECTION: Quick Actions + Cluster Health -->
+  <section id="overview-bottom" class="grid2 page-section" aria-label="Quick actions and cluster health">
+
+    <!-- Quick Actions -->
+    <div class="card">
+      <div class="card-header"><h2>Quick Actions</h2></div>
+      <div class="card-body no-pad">
+        <div class="quick-actions">
+          <a href="/deploy" class="quick-action-btn">
+            <span class="qa-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg></span>
+            <div class="qa-content">
+              <div class="qa-label">Deploy Workload</div>
+              <div class="qa-desc">Create a new RemoteApp on a peer cluster</div>
+            </div>
+            <svg class="qa-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 18l6-6-6-6"/></svg>
+          </a>
+          <a href="/peers" class="quick-action-btn">
+            <span class="qa-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="7" r="3"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/><path d="M21 21v-2a4 4 0 0 0-3-3.85"/></svg></span>
+            <div class="qa-content">
+              <div class="qa-label">Connect Peer</div>
+              <div class="qa-desc">Add a new cluster to the mesh</div>
+            </div>
+            <svg class="qa-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 18l6-6-6-6"/></svg>
+          </a>
+          <a href="/workloads" class="quick-action-btn">
+            <span class="qa-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="16"/><line x1="10" y1="14" x2="14" y2="14"/></svg></span>
+            <div class="qa-content">
+              <div class="qa-label">View Workloads</div>
+              <div class="qa-desc">Monitor all running RemoteApps</div>
+            </div>
+            <svg class="qa-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 18l6-6-6-6"/></svg>
+          </a>
+          <a href="/tunnels" class="quick-action-btn">
+            <span class="qa-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h18"/><path d="M15 6l6 6-6 6"/><path d="M9 6L3 12l6 6"/></svg></span>
+            <div class="qa-content">
+              <div class="qa-label">Open Proxy</div>
+              <div class="qa-desc">HTTP proxy tunnels to peer workloads</div>
+            </div>
+            <svg class="qa-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 18l6-6-6-6"/></svg>
+          </a>
+          <a href="/settings" class="quick-action-btn">
+            <span class="qa-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
+            <div class="qa-content">
+              <div class="qa-label">Settings</div>
+              <div class="qa-desc">Access control, quotas, and agent config</div>
+            </div>
+            <svg class="qa-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 18l6-6-6-6"/></svg>
+          </a>
+          <a href="/docs" class="quick-action-btn">
+            <span class="qa-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></span>
+            <div class="qa-content">
+              <div class="qa-label">Documentation</div>
+              <div class="qa-desc">Spec reference and usage guide</div>
+            </div>
+            <svg class="qa-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 18l6-6-6-6"/></svg>
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Agent Health -->
+    <div class="card">
+      <div class="card-header"><h2>Agent Health</h2></div>
+      <div class="card-body no-pad">
+        <div class="health-grid" id="health-grid">
+          <div class="health-row">
+            <span class="health-label">Agent</span>
+            <span class="health-val"><span class="badge badge-mtls"><span class="badge-dot"></span>Running</span></span>
+          </div>
+          <div class="health-row">
+            <span class="health-label">Namespace</span>
+            <span class="health-val mono" id="health-namespace">—</span>
+          </div>
+          <div class="health-row">
+            <span class="health-label">Inbound apps</span>
+            <span class="health-val" id="health-inbound-apps">—</span>
+          </div>
+          <div class="health-row">
+            <span class="health-label">PVC support</span>
+            <span class="health-val" id="health-pvcs">—</span>
+          </div>
+          <div class="health-row">
+            <span class="health-label">Approval required</span>
+            <span class="health-val" id="health-approval">—</span>
+          </div>
+          <div class="health-row">
+            <span class="health-label">Log level</span>
+            <span class="health-val mono" id="health-log-level">—</span>
+          </div>
+          <div class="health-row">
+            <span class="health-label">Agent URL</span>
+            <span class="health-val mono text-sm" id="health-agent-url" style="word-break:break-all;">—</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </section>
+
+</section>
+{% endblock %}

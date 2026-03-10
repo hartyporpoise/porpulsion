@@ -1,5 +1,5 @@
 services:
-  # ── k3s cluster A ───────────────────────────────────────────
+  # -- k3s cluster A
   cluster-a:
     image: rancher/k3s:v1.29.2-k3s1
     command: server --disable traefik --tls-san cluster-a
@@ -8,12 +8,11 @@ services:
       - K3S_TOKEN=porpulsion-token
     ports:
       - "6443:6443"    # k8s API
-      - "8001:30080"   # NodePort UI (plain HTTP)
-      - "8003:30443"   # NodePort agent-to-agent mTLS
+      - "8001:30080"   # NodePort (UI + /ws + /status)
     networks:
       - porpulsion-net
 
-  # ── k3s cluster B ───────────────────────────────────────────
+  # -- k3s cluster B
   cluster-b:
     image: rancher/k3s:v1.29.2-k3s1
     command: server --disable traefik --tls-san cluster-b --https-listen-port 6444
@@ -22,23 +21,36 @@ services:
       - K3S_TOKEN=porpulsion-token
     ports:
       - "6444:6444"    # k8s API
-      - "8002:30080"   # NodePort UI (plain HTTP)
-      - "8004:30443"   # NodePort agent-to-agent mTLS
+      - "8002:30080"   # NodePort (UI + /ws + /status)
     networks:
       - porpulsion-net
 
-  # ── helm runner ─────────────────────────────────────────────
+  # -- k3s cluster C
+  cluster-c:
+    image: rancher/k3s:v1.29.2-k3s1
+    command: server --disable traefik --tls-san cluster-c --https-listen-port 6445
+    privileged: true
+    environment:
+      - K3S_TOKEN=porpulsion-token
+    ports:
+      - "6445:6445"    # k8s API
+      - "8003:30080"   # NodePort (UI + /ws + /status)
+    networks:
+      - porpulsion-net
+
+  # -- helm runner
   helm:
     image: alpine/helm:3.14.0
     entrypoint: ["sh", "-c", "apk add --quiet --no-cache docker-cli && sleep infinity"]
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./chart:/chart
+      - ./charts:/charts
     networks:
       - porpulsion-net
     depends_on:
       - cluster-a
       - cluster-b
+      - cluster-c
 
 networks:
   porpulsion-net:

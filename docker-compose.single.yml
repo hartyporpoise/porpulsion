@@ -1,0 +1,32 @@
+services:
+  cluster:
+    image: rancher/k3s:v1.29.2-k3s1
+    command: server --disable traefik --tls-san cluster
+    privileged: true
+    environment:
+      - K3S_TOKEN=porpulsion-token
+    volumes:
+      - k3s-data:/var/lib/rancher/k3s
+    ports:
+      - "6443:6443"
+      - "8080:30080"   # UI + /ws + /status
+    networks:
+      - porpulsion-net
+
+  helm:
+    image: alpine/helm:3.14.0
+    entrypoint: ["sh", "-c", "apk add --quiet --no-cache docker-cli && sleep infinity"]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./charts:/charts
+    networks:
+      - porpulsion-net
+    depends_on:
+      - cluster
+
+networks:
+  porpulsion-net:
+    driver: bridge
+
+volumes:
+  k3s-data:

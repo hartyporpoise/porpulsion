@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "porpulsion.fullname" . }}-agent
-  namespace: {{ .Values.namespace }}
+  namespace: {{ .Release.Namespace }}
   labels:
     app: {{ include "porpulsion.fullname" . }}-agent
 spec:
@@ -24,26 +24,26 @@ spec:
           image: {{ .Values.agent.image }}
           imagePullPolicy: {{ .Values.agent.pullPolicy }}
           ports:
-            - name: ui
-              containerPort: {{ .Values.service.uiPort }}
-            - name: agent
-              containerPort: {{ .Values.service.agentPort }}
+            - name: http
+              containerPort: {{ .Values.service.port }}
           env:
             - name: AGENT_NAME
               value: {{ .Values.agent.agentName | quote }}
             - name: SELF_URL
               value: {{ .Values.agent.selfUrl | quote }}
-            - name: PORPULSION_NAMESPACE
-              value: {{ .Values.namespace | quote }}
           readinessProbe:
             httpGet:
               path: /status
-              port: {{ .Values.service.uiPort }}
-            initialDelaySeconds: 2
+              port: {{ .Values.service.port }}
+            initialDelaySeconds: 10
             periodSeconds: 5
+            failureThreshold: 3
           livenessProbe:
             httpGet:
               path: /status
-              port: {{ .Values.service.uiPort }}
-            initialDelaySeconds: 5
+              port: {{ .Values.service.port }}
+            initialDelaySeconds: 15
             periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.agent.resources | nindent 12 }}

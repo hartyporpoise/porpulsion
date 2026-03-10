@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Proxy{% endblock %}
+{% block topbar_title %}Proxy{% endblock %}
+{% block content %}
+<!-- PAGE: Proxy / Tunnels (route: /tunnels) -->
+<section id="tunnels-page" data-page="tunnels">
+
+  <!-- SECTION: How it works banner -->
+  <section class="page-section" aria-label="Proxy overview">
+    <div class="proxy-how-banner">
+      <div class="proxy-how-steps">
+        <div class="proxy-how-step">
+          <div class="proxy-how-num">1</div>
+          <div class="proxy-how-text">Deploy a RemoteApp with ports configured</div>
+        </div>
+        <div class="proxy-how-arrow">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        </div>
+        <div class="proxy-how-step">
+          <div class="proxy-how-num">2</div>
+          <div class="proxy-how-text">App appears here once Running or Ready</div>
+        </div>
+        <div class="proxy-how-arrow">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        </div>
+        <div class="proxy-how-step">
+          <div class="proxy-how-num">3</div>
+          <div class="proxy-how-text">Click <strong>Open</strong> — tunnelled over the encrypted peer channel</div>
+        </div>
+      </div>
+      <a href="/settings" class="btn-sm proxy-settings-link">Tunnel settings</a>
+    </div>
+  </section>
+
+  <!-- SECTION: Proxy app cards -->
+  <section class="page-section" aria-label="Apps with proxy access">
+    <div id="proxy-apps-list">
+      <div class="empty-state" style="padding:3rem 1rem;">
+        <div class="empty-icon">&#8658;</div>No submitted apps yet — <a href="/deploy">deploy a workload</a>
+      </div>
+    </div>
+  </section>
+
+</section>
+{% endblock %}

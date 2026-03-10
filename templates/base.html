@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="var(--bg)">
+  <title>{% block title %}porpulsion{% endblock %} — {{ agent_name }}</title>
+  <link rel="icon" type="image/png" href="{{ url_for('static', filename='logo.png') }}">
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='logo.png') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <script>
+    (function() {
+      var mq = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)');
+      function setTheme() {
+        document.documentElement.setAttribute('data-theme', mq && mq.matches ? 'light' : 'dark');
+      }
+      setTheme();
+      if (mq) mq.addEventListener('change', setTheme);
+      // Pre-apply sidebar-collapsed before first paint to avoid layout flash
+      if (window.innerWidth >= 768 && localStorage.getItem('sidebar-collapsed') === '1') {
+        document.documentElement.classList.add('sidebar-collapsed');
+      }
+      // Suppress transitions on load so collapsed state applies instantly
+      document.documentElement.classList.add('no-transition');
+    })();
+  </script>
+  <!-- LAYOUT: app root (mobile-first: sidebar drawer, then main) -->
+  <div class="app-root">
+    <div class="sidebar-overlay" id="sidebar-overlay" aria-hidden="true"></div>
+    <!-- LAYOUT: sidebar nav (routes at root: /, /peers, /workloads, /tunnels, /logs, /settings, /docs) -->
+    <aside class="sidebar" id="sidebar" role="navigation">
+      <div class="sidebar-header">
+        <div class="sidebar-logo">
+          <img src="{{ url_for('static', filename='logo.png') }}" alt="">
+          <span class="sidebar-logo-wordmark"><span class="logo-porp">porp</span><span class="logo-ulsion">ulsion</span></span>
+        </div>
+        <button type="button" class="sidebar-close" id="sidebar-close" aria-label="Close menu">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div class="sidebar-agent">
+        <div class="sidebar-agent-label">Agent</div>
+        <div class="sidebar-agent-name">
+          <span class="health-dot" id="health-dot"></span>
+          <span class="sidebar-agent-text">{{ agent_name }}</span>
+        </div>
+      </div>
+      <nav id="nav">
+        <a href="/" class="{% if request.endpoint == 'ui.index' %}active{% endif %}" title="Overview">
+          <span class="nav-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span><span class="nav-text"> Overview</span>
+        </a>
+        <a href="/peers" class="{% if request.endpoint == 'ui.peers' %}active{% endif %}" title="Peers">
+          <span class="nav-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="7" r="3"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/><path d="M21 21v-2a4 4 0 0 0-3-3.85"/></svg></span><span class="nav-text"> Peers</span>
+          <span class="nav-badge" id="nav-inbound-badge" style="display: none">!</span>
+        </a>
+        <a href="/workloads" class="{% if request.endpoint == 'ui.workloads' %}active{% endif %}" title="Workloads">
+          <span class="nav-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="16"/><line x1="10" y1="14" x2="14" y2="14"/></svg></span><span class="nav-text"> Workloads</span>
+          <span class="nav-badge" id="nav-approval-badge" style="display: none">!</span>
+        </a>
+        <a href="/deploy" class="{% if request.endpoint == 'ui.deploy' %}active{% endif %}" title="Deploy">
+          <span class="nav-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg></span><span class="nav-text"> Deploy</span>
+        </a>
+        <a href="/tunnels" class="{% if request.endpoint == 'ui.tunnels' %}active{% endif %}" title="Proxy">
+          <span class="nav-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h18"/><path d="M15 6l6 6-6 6"/><path d="M9 6L3 12l6 6"/></svg></span><span class="nav-text"> Proxy</span>
+        </a>
+        <a href="/settings" class="{% if request.endpoint == 'ui.settings' %}active{% endif %}" title="Settings">
+          <span class="nav-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span><span class="nav-text"> Settings</span>
+        </a>
+        <a href="/docs" class="{% if request.endpoint == 'ui.docs' %}active{% endif %}" title="Docs">
+          <span class="nav-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg></span><span class="nav-text"> Docs</span>
+        </a>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="sidebar-footer-main">
+          <span class="sidebar-footer-text">Updated <span id="last-refresh">—</span></span>
+        </div>
+        <!-- Desktop: collapse button at bottom of sidebar -->
+        <button type="button" class="sidebar-collapse-btn" id="sidebar-collapse-btn" aria-label="Collapse sidebar">
+          <svg class="collapse-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
+      </div>
+    </aside>
+    <!-- LAYOUT: main content area -->
+    <main class="main">
+      <div class="topbar">
+        <!-- Mobile only: hamburger to open drawer -->
+        <button type="button" class="menu-btn" id="menu-btn" aria-label="Open menu">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+        </button>
+        <span class="topbar-title" id="topbar-title">{% block topbar_title %}Overview{% endblock %}</span>
+        <div class="topbar-right">
+          <div class="notif-wrap" id="notif-wrap">
+            <button type="button" class="notif-bell" id="notif-bell" aria-label="Notifications" aria-haspopup="true" aria-expanded="false">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+              <span class="notif-badge" id="notif-badge" style="display:none;">0</span>
+            </button>
+            <div class="notif-panel" id="notif-panel" hidden>
+              <div class="notif-panel-header">
+                <span class="notif-panel-title">Notifications</span>
+                <button type="button" class="btn-sm btn-outline" id="notif-clear-btn">Clear all</button>
+              </div>
+              <div class="notif-list" id="notif-list">
+                <div class="notif-empty">No notifications</div>
+              </div>
+            </div>
+          </div>
+          <span id="peer-count-label">0 peers</span>
+          {% if current_user %}
+          <div class="user-menu-wrap" id="user-menu-wrap">
+            <button type="button" class="user-menu-btn" id="user-menu-btn" aria-label="User menu" aria-haspopup="true" aria-expanded="false">
+              <span class="user-avatar">{{ current_user[0].upper() }}</span>
+              <span class="user-menu-name">{{ current_user }}</span>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
+            <div class="user-menu-panel" id="user-menu-panel" hidden>
+              <a href="/users" class="user-menu-item">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
+                Manage users
+              </a>
+              <div class="user-menu-divider"></div>
+              <form method="post" action="/logout" class="user-menu-form">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="user-menu-item user-menu-item-danger">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                  Sign out
+                </button>
+              </form>
+            </div>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+      <div class="content" id="page-content">
+        {% block content %}{% endblock %}
+      </div>
+    </main>
+  </div>
+  <!-- GLOBAL: toast (JS-driven) -->
+  <div id="toast" role="status" aria-live="polite"></div>
+
+  <!-- MODAL: peer detail (JS-driven) -->
+  <div class="modal-backdrop" id="peer-modal">
+    <div class="modal-inner" style="width:min(520px,100%);">
+      <div class="modal-header">
+        <span class="modal-title" id="peer-modal-title">Peer</span>
+        <button type="button" class="modal-close" id="peer-modal-close" aria-label="Close"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M1 1l12 12M13 1L1 13"/></svg></button>
+      </div>
+      <div class="modal-body" id="peer-modal-body"></div>
+      <div class="modal-footer" id="peer-modal-footer">
+        <button type="button" class="btn-sm btn-danger" id="peer-modal-remove-btn">Remove peer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: app detail (JS-driven) -->
+  <div class="modal-backdrop" id="app-modal">
+    <div class="modal-inner">
+      <div class="modal-header">
+        <span class="modal-title" id="app-modal-title">App Detail</span>
+        <button type="button" class="modal-close" id="app-modal-close" aria-label="Close"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M1 1l12 12M13 1L1 13"/></svg></button>
+      </div>
+      <div class="modal-body" id="app-modal-body"></div>
+    </div>
+  </div>
+
+  <!-- MODAL: pod logs -->
+  <div class="modal-backdrop" id="pod-logs-modal">
+    <div class="modal-inner">
+      <div class="modal-header">
+        <span class="modal-title" id="pod-logs-title">Pod Logs</span>
+        <button type="button" class="modal-close" id="pod-logs-close" aria-label="Close"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M1 1l12 12M13 1L1 13"/></svg></button>
+      </div>
+      <div class="modal-body modal-logs-viewer" id="pod-logs-body">
+        <pre id="pod-logs-content" class="logs-content">Loading…</pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- DIALOG: confirm / prompt (JS-driven) -->
+  <div class="dialog-backdrop" id="dialog-backdrop">
+    <div class="dialog-inner">
+      <div class="dialog-title" id="dialog-title"></div>
+      <div class="dialog-body" id="dialog-body"></div>
+      <input class="dialog-input" type="text" id="dialog-input" style="display:none;" autocomplete="off" spellcheck="false">
+      <div class="dialog-actions" id="dialog-actions"></div>
+    </div>
+  </div>
+  <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.10/dist/ext/json-enc.js"></script>
+  <script src="https://unpkg.com/alpinejs@3.13.3/dist/cdn.min.js" defer></script>
+  <!-- Monaco AMD loader — loaded eagerly so the editor is available on any page instantly -->
+  <script src="https://unpkg.com/monaco-editor@0.52.2/min/vs/loader.js"></script>
+  <script>
+    // Configure the AMD loader immediately after it loads, before any page JS runs.
+    if (window.require && window.require.config) {
+      window.require.config({ paths: { vs: 'https://unpkg.com/monaco-editor@0.52.2/min/vs' } });
+    }
+  </script>
+  <script src="{{ url_for('static', filename='js/api.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/setup-vscode-editor.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/pages.js') }}"></script>
+  <script>
+    // Patch copyText to show a checkmark instead of "Copied!" text
+    (function() {
+      var P = window.Porpulsion;
+      if (!P) return;
+      var _orig = P.copyText;
+      P.copyText = function(elemId, btn) {
+        var el = document.getElementById(elemId);
+        if (!el) return;
+        var text = (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') ? el.value : el.textContent;
+        navigator.clipboard.writeText(text.trim()).then(function() {
+          var origHtml = btn.innerHTML;
+          btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+          setTimeout(function() { btn.innerHTML = origHtml; }, 1500);
+        }).catch(function() { P.toast('Copy failed', 'error'); });
+      };
+    })();
+  </script>
+  <script>
+    var _html = document.documentElement;
+    var _appRoot = document.querySelector('.app-root');
+    var _sidebar = document.getElementById('sidebar');
+    var _overlay = document.getElementById('sidebar-overlay');
+    // Sync app-root from html class (already set in <head> to avoid flash)
+    if (_html.classList.contains('sidebar-collapsed')) {
+      _appRoot.classList.add('sidebar-collapsed');
+    }
+    // Re-enable transitions after first paint
+    requestAnimationFrame(function() {
+      requestAnimationFrame(function() {
+        _html.classList.remove('no-transition');
+      });
+    });
+
+    function _setCollapsed(collapsed) {
+      if (collapsed) {
+        _html.classList.add('sidebar-collapsed');
+        _appRoot.classList.add('sidebar-collapsed');
+      } else {
+        _html.classList.remove('sidebar-collapsed');
+        _appRoot.classList.remove('sidebar-collapsed');
+      }
+      localStorage.setItem('sidebar-collapsed', collapsed ? '1' : '0');
+    }
+
+    // Mobile hamburger: opens drawer
+    document.getElementById('menu-btn').addEventListener('click', function() {
+      _sidebar.classList.add('open');
+      _overlay.classList.add('open');
+    });
+
+    // Desktop collapse button at bottom of sidebar
+    var _collapseBtn = document.getElementById('sidebar-collapse-btn');
+    if (_collapseBtn) {
+      _collapseBtn.addEventListener('click', function() {
+        _setCollapsed(!_appRoot.classList.contains('sidebar-collapsed'));
+      });
+    }
+
+    _overlay.addEventListener('click', function() {
+      _sidebar.classList.remove('open');
+      _overlay.classList.remove('open');
+    });
+    document.getElementById('sidebar-close').addEventListener('click', function() {
+      _sidebar.classList.remove('open');
+      _overlay.classList.remove('open');
+    });
+    document.querySelectorAll('#nav a').forEach(function(a) {
+      a.addEventListener('click', function() {
+        if (window.innerWidth < 768) {
+          _sidebar.classList.remove('open');
+          _overlay.classList.remove('open');
+        }
+      });
+    });
+  </script>
+  {% block scripts %}{% endblock %}
+  <script>
+    (function() {
+      var btn = document.getElementById('user-menu-btn');
+      var panel = document.getElementById('user-menu-panel');
+      if (!btn || !panel) return;
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var open = !panel.hidden;
+        panel.hidden = open;
+        btn.setAttribute('aria-expanded', String(!open));
+      });
+      document.addEventListener('click', function(e) {
+        if (!panel.hidden && !document.getElementById('user-menu-wrap').contains(e.target)) {
+          panel.hidden = true;
+          btn.setAttribute('aria-expanded', 'false');
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

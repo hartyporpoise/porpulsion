@@ -1,15 +1,12 @@
-# ──────────────────────────────────────────────────────────────────────────────
-# porpulsion — peer-to-peer Kubernetes connector
+#
+# porpulsion  peer-to-peer Kubernetes connector
 # Helm chart default values
-# ──────────────────────────────────────────────────────────────────────────────
+#
 
-# -- Namespace where the agent and all RemoteApp workloads are deployed.
-namespace: porpulsion
-
-# ── Agent ──────────────────────────────────────────────────────────────────────
+# -- Agent
 agent:
   # -- Container image for the porpulsion agent.
-  image: porpulsion:latest
+  image: ghcr.io/hartyporpoise/porpulsion:1.0.0
 
   # -- Image pull policy. Use `Always` when pushing to a remote registry.
   pullPolicy: IfNotPresent
@@ -21,33 +18,69 @@ agent:
   #    during peer handshakes. Defaults to the hostname if unset.
   agentName: ""
 
-  # -- Externally reachable mTLS URL for this agent (e.g. https://agent.example.com:8443).
-  #    Peer agents use this address to initiate connections. Auto-detected from
-  #    the pod's default route if left empty, but explicit is recommended.
+  # -- Allow inbound RemoteApps to request PersistentVolumeClaims.
+  #    When true, the Role gains PVC create/delete permissions.
+  #    Defaults to false  enable only on clusters where you trust peers to claim storage.
+  allowPvcs: false
+
+  # -- CPU/memory requests and limits for the agent container.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # -- Externally reachable URL for this agent (e.g. https://porpulsion.example.com).
+  #    Peer agents use this address for the initial peering handshake and the
+  #    persistent WebSocket channel (/ws). Should be your Ingress or
+  #    LoadBalancer hostname. Auto-detected from the pod's default route if left
+  #    empty, but explicit is recommended in production.
   selfUrl: ""
 
-# ── Service ────────────────────────────────────────────────────────────────────
-# A single Service exposes both the HTTP dashboard and the mTLS agent port.
-# Defaults to ClusterIP. For local development, set type=NodePort and supply
-# nodePort values (see Makefile for an example).
+# -- Service
+# All traffic is served on a single port (8000):
+#   /          dashboard UI
+#   /api/*     management API (session auth required)
+#   /ws        peer WebSocket channel (peer/hello auth, no session required)
+#   /status    health/readiness probes (no auth)
 #
-# Production: leave type=ClusterIP and put an Ingress or LoadBalancer on top.
-#
-#   kubectl port-forward svc/porpulsion 8000:8000   # dashboard
-#   kubectl port-forward svc/porpulsion 8443:8443   # mTLS (TCP only)
+#   kubectl port-forward svc/porpulsion 8000:8000
 
 service:
   # -- Service type. ClusterIP for production; NodePort for local dev.
   type: ClusterIP
 
-  # -- Port the HTTP dashboard listens on inside the cluster.
-  uiPort: 8000
+  # -- Port for all traffic.
+  port: 8000
 
-  # -- Port the mTLS agent listener binds to inside the cluster.
-  agentPort: 8443
+  # -- NodePort. Only used when type=NodePort.
+  nodePort: ""
 
-  # -- NodePort for the dashboard. Only used when type=NodePort.
-  uiNodePort: ""
-
-  # -- NodePort for the mTLS agent. Only used when type=NodePort.
-  agentNodePort: ""
+# -- Agent runtime settings
+# These settings are configured at runtime via the dashboard UI or the /settings
+# API. They are persisted to the porpulsion-state ConfigMap and survive restarts.
+# The values below are for reference only  they are NOT applied by Helm.
+#
+# Access control:
+#   allow_inbound_remoteapps: true        # accept workloads from peers
+#   require_remoteapp_approval: false     # queue for manual approval before running
+#   allowed_images: ""                    # comma-sep prefixes; empty = allow all
+#   blocked_images: ""                    # comma-sep prefixes; always denied
+#   allowed_source_peers: ""             # comma-sep peer names; empty = all connected
+#
+# Tunnel control:
+#   allow_inbound_tunnels: true
+#   allowed_tunnel_peers: ""             # comma-sep "peer" or "peer/appid" tokens; empty = deny all
+#
+# Resource quotas (k8s quantity strings; "" = unlimited):
+#   max_cpu_request_per_pod: ""          # e.g. "500m"
+#   max_cpu_limit_per_pod: ""            # e.g. "1"
+#   max_memory_request_per_pod: ""       # e.g. "256Mi"
+#   max_memory_limit_per_pod: ""         # e.g. "512Mi"
+#   max_replicas_per_app: 0              # 0 = unlimited
+#   max_total_deployments: 0
+#   max_total_pods: 0
+#   max_total_cpu_requests: ""           # e.g. "8"
+#   max_total_memory_requests: ""        # e.g. "32Gi"

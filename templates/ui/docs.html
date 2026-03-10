@@ -1,0 +1,225 @@
+{% extends "base.html" %}
+{% block title %}Docs{% endblock %}
+{% block topbar_title %}Docs{% endblock %}
+{% block content %}
+<!-- PAGE: Docs (route: /docs) -->
+<section id="docs-page" data-page="docs">
+  <div class="docs-layout">
+
+    <!-- SECTION: RemoteApp Spec -->
+    <section id="docs-spec" class="page-section" aria-label="RemoteApp spec reference">
+      <div class="card">
+        <div class="card-header">
+          <h2>RemoteApp Spec</h2>
+          <span class="card-header-sub">— all fields except <code style="font-size:0.75rem;background:var(--surface3);padding:1px 5px;border-radius:4px;">image</code> are optional</span>
+        </div>
+        <div id="spec-table-wrap">
+          <div class="loading-placeholder">Loading spec reference…</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION: HTTP API -->
+    <section id="docs-api" class="page-section" aria-label="HTTP API reference">
+      <div class="card">
+        <div class="card-header">
+          <h2>HTTP API</h2>
+          <a href="/api/openapi.json" target="_blank" rel="noopener" class="btn-sm btn-outline">openapi.json ↗</a>
+        </div>
+        <div class="card-body" id="api-ref-body">
+          <div class="loading-placeholder">Loading API reference…</div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</section>
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  'use strict';
+
+  function esc(s) {
+    return String(s || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  // ── Spec table ─────────────────────────────────────────────────
+  function renderSpecTable(data) {
+    var wrap = document.getElementById('spec-table-wrap');
+    if (!wrap) return;
+    var rows = (data.fields || []).map(function (f) {
+      var isReq = f.default === 'required';
+      var defaultHtml = isReq
+        ? '<span class="spec-required">required</span>'
+        : (f.default ? '<span class="spec-default">' + esc(f.default) + '</span>' : '<span class="spec-none">—</span>');
+      return '<div class="spec-field-row">' +
+        '<div class="spec-field-left">' +
+          '<code class="spec-field-name">' + esc(f.field) + '</code>' +
+          '<span class="spec-field-type">' + esc(f.type) + '</span>' +
+          defaultHtml +
+        '</div>' +
+        '<div class="spec-field-desc">' + esc(f.description) + '</div>' +
+      '</div>';
+    });
+    wrap.innerHTML = '<div class="spec-field-list">' + rows.join('') + '</div>';
+  }
+
+  fetch('/api/remoteapp-spec')
+    .then(function (r) { return r.json(); })
+    .then(renderSpecTable)
+    .catch(function (e) {
+      var wrap = document.getElementById('spec-table-wrap');
+      if (wrap) wrap.innerHTML = '<p class="muted">Could not load spec: ' + esc(String(e)) + '</p>';
+    });
+
+  // ── API reference ──────────────────────────────────────────────
+  var METHOD_COLOR = {
+    get:    'method-get',
+    post:   'method-post',
+    put:    'method-put',
+    delete: 'method-delete',
+    patch:  'method-patch',
+  };
+
+  function methodBadge(m) {
+    var cls = METHOD_COLOR[m] || 'method-other';
+    return '<span class="api-method ' + cls + '">' + m.toUpperCase() + '</span>';
+  }
+
+  function statusBadge(code) {
+    var cls = code < 300 ? 'status-ok' : code < 400 ? 'status-redir' : 'status-err';
+    return '<span class="api-status ' + cls + '">' + esc(code) + '</span>';
+  }
+
+  function schemaSnippet(schema, depth) {
+    if (!schema) return '';
+    depth = depth || 0;
+    if (schema['$ref']) {
+      return '<span class="schema-ref">' + esc(schema['$ref'].split('/').pop()) + '</span>';
+    }
+    var type = schema.type || '';
+    if (type === 'array') {
+      return 'array[' + schemaSnippet(schema.items, depth) + ']';
+    }
+    if (type === 'object' && schema.properties && depth < 2) {
+      var parts = Object.keys(schema.properties).map(function (k) {
+        return esc(k) + ': ' + schemaSnippet(schema.properties[k], depth + 1);
+      });
+      return '{&nbsp;' + parts.join(',&nbsp;') + '&nbsp;}';
+    }
+    if (schema.enum) return esc(schema.enum.join(' | '));
+    return esc(type || 'any');
+  }
+
+  function renderParams(params) {
+    if (!params || !params.length) return '';
+    var rows = params.map(function (p) {
+      var req = p.required ? '<span class="param-required">required</span>' : '';
+      var loc = '<span class="param-in">' + esc(p.in) + '</span>';
+      var schm = p.schema ? schemaSnippet(p.schema) : '';
+      return '<tr><td><code>' + esc(p.name) + '</code> ' + req + '</td><td>' + loc + '</td><td class="param-type">' + schm + '</td><td class="param-desc">' + esc(p.description || '') + '</td></tr>';
+    });
+    return '<table class="api-params-table"><thead><tr><th>Name</th><th>In</th><th>Type</th><th>Description</th></tr></thead><tbody>' + rows.join('') + '</tbody></table>';
+  }
+
+  function renderResponses(responses) {
+    if (!responses) return '';
+    var rows = Object.keys(responses).map(function (code) {
+      var r = responses[code];
+      var schm = '';
+      if (r.content && r.content['application/json'] && r.content['application/json'].schema) {
+        schm = '<code class="resp-schema">' + schemaSnippet(r.content['application/json'].schema) + '</code>';
+      }
+      return '<tr><td>' + statusBadge(parseInt(code)) + '</td><td>' + esc(r.description || '') + '</td><td>' + schm + '</td></tr>';
+    });
+    return '<table class="api-resp-table"><thead><tr><th>Code</th><th>Description</th><th>Schema</th></tr></thead><tbody>' + rows.join('') + '</tbody></table>';
+  }
+
+  function renderRequestBody(rb) {
+    if (!rb) return '';
+    var schema = rb.content && rb.content['application/json'] && rb.content['application/json'].schema;
+    if (!schema) return '';
+    var req = rb.required ? ' <span class="param-required">required</span>' : '';
+    return '<div class="api-section-label">Request body' + req + '</div>' +
+           '<div class="api-body-schema"><code>' + schemaSnippet(schema) + '</code></div>';
+  }
+
+  function renderOperation(method, op, path, baseUrl) {
+    var id = 'op-' + (op.operationId || (method + path)).replace(/[^a-z0-9]/gi, '-');
+    var summary = esc(op.summary || path);
+    var desc = op.description ? '<p class="api-op-desc">' + op.description.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>') + '</p>' : '';
+    var fullPath = (baseUrl || '/api').replace(/\/$/, '') + path;
+    var details =
+      '<div class="api-op-details">' +
+      desc +
+      (op.parameters ? renderParams(op.parameters) : '') +
+      renderRequestBody(op.requestBody) +
+      '<div class="api-section-label">Responses</div>' +
+      renderResponses(op.responses) +
+      '</div>';
+    return '<div class="api-op" id="' + id + '">' +
+      '<button type="button" class="api-op-summary" aria-expanded="false" aria-controls="' + id + '-body">' +
+        methodBadge(method) +
+        '<code class="api-op-path">' + esc(fullPath) + '</code>' +
+        '<span class="api-op-title">' + summary + '</span>' +
+        '<svg class="api-op-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>' +
+      '</button>' +
+      '<div class="api-op-body" id="' + id + '-body" hidden>' + details + '</div>' +
+    '</div>';
+  }
+
+  function groupByTag(paths) {
+    var groups = {}, order = [];
+    Object.keys(paths).forEach(function (path) {
+      Object.keys(paths[path]).forEach(function (method) {
+        var op = paths[path][method];
+        var tag = (op.tags && op.tags[0]) || 'General';
+        if (!groups[tag]) { groups[tag] = []; order.push(tag); }
+        groups[tag].push({ method: method, path: path, op: op });
+      });
+    });
+    var seen = {};
+    order = order.filter(function (t) { return seen[t] ? false : (seen[t] = true); });
+    return { groups: groups, order: order };
+  }
+
+  function renderApiSpec(spec) {
+    var baseUrl = (spec.servers && spec.servers[0] && spec.servers[0].url) || '/api';
+    var grouped = groupByTag(spec.paths || {});
+    var html = '';
+    grouped.order.forEach(function (tag) {
+      html += '<div class="api-tag-group">';
+      html += '<div class="api-tag-label">' + esc(tag) + '</div>';
+      grouped.groups[tag].forEach(function (item) {
+        html += renderOperation(item.method, item.op, item.path, baseUrl);
+      });
+      html += '</div>';
+    });
+    var body = document.getElementById('api-ref-body');
+    if (body) body.innerHTML = html || '<p class="muted">No endpoints found.</p>';
+    document.querySelectorAll('.api-op-summary').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var expanded = this.getAttribute('aria-expanded') === 'true';
+        var bodyEl = document.getElementById(this.getAttribute('aria-controls'));
+        this.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+        if (bodyEl) bodyEl.hidden = expanded;
+        this.classList.toggle('open', !expanded);
+      });
+    });
+  }
+
+  fetch('/api/openapi.json')
+    .then(function (r) { return r.json(); })
+    .then(renderApiSpec)
+    .catch(function (e) {
+      var body = document.getElementById('api-ref-body');
+      if (body) body.innerHTML = '<p class="muted">Could not load API spec: ' + esc(String(e)) + '</p>';
+    });
+})();
+</script>
+{% endblock %}

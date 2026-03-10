@@ -2,35 +2,46 @@
 Porpulsion agent entrypoint.
 
 Initialises runtime config (TLS, invite token, env vars) into the shared
-state module, registers Flask blueprints, and starts the mTLS + HTTP servers.
+state module, registers Flask blueprints, and starts the HTTP server.
+
+All traffic is served on a single port (8000) via gunicorn gthread:
+  - Dashboard, API (/api/*): session auth required
+  - Peer WebSocket (/ws): open to peers, auth via peer/hello frame
+  - Health probes (/status): no auth
 """
+import hashlib
 import logging
 import os
 import pathlib
-import re
 import socket
-import ssl
 import threading
 
-from flask import Flask, render_template
-from werkzeug.serving import make_server, WSGIRequestHandler
+from flask import Flask, Response, jsonify, request
+from flask_sock import Sock
 
 from porpulsion import state, tls
+from porpulsion.log_buffer import install_log_handler
 from porpulsion.routes import peers as peers_bp
 from porpulsion.routes import workloads as workloads_bp
 from porpulsion.routes import tunnels as tunnels_bp
 from porpulsion.routes import settings as settings_bp
+from porpulsion.routes import logs as logs_bp
+from porpulsion.routes import notifications as notifications_bp
+from porpulsion.routes import ui as ui_bp
+from porpulsion.routes import auth as auth_bp
+from porpulsion.routes import image_proxy as image_proxy_bp
+from porpulsion.routes.ws import peer_ws
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(name)s] %(levelname)s %(message)s",
 )
+install_log_handler(1000)
 log = logging.getLogger("porpulsion.agent")
 
-# ── Bootstrap config ──────────────────────────────────────────
+# -- Bootstrap config
 
 state.AGENT_NAME = os.environ.get("AGENT_NAME", "porpulsion-agent")
-state.NAMESPACE  = os.environ.get("PORPULSION_NAMESPACE", "porpulsion")
 
 _self_url_env = os.environ.get("SELF_URL", "")
 if _self_url_env:
@@ -43,56 +54,100 @@ else:
         _s.close()
     except Exception:
         _detected_ip = "127.0.0.1"
-    state.SELF_URL = f"https://{_detected_ip}:8443"
+    state.SELF_URL = f"http://{_detected_ip}:8000"
+    log.warning(
+        "SELF_URL not set - auto-detected as %s. "
+        "This is a pod-internal IP and will cause peering to fail across clusters. "
+        "Set agent.selfUrl in your Helm values to the externally reachable URL for "
+        "this agent (e.g. https://porpulsion.example.com).",
+        state.SELF_URL
+    )
 
-# Extract IP SAN from SELF_URL for leaf cert
-_ip_match = re.search(r'https?://([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)', state.SELF_URL)
-SELF_IP = _ip_match.group(1) if _ip_match else ""
+# Load CA cert + key from k8s Secret (generate if absent).
+# The CA cert is included in signed invite bundles and used to verify peer/hello
+# challenge signatures. The key signs bundles and hello challenges — never leaves
+# this process.
+_CA_PEM, _CA_KEY_PEM = tls.load_or_generate_ca(state.AGENT_NAME, state.NAMESPACE)
 
-# Load invite token from k8s Secret (generate if absent)
-state.invite_token = tls.load_or_generate_token(state.NAMESPACE)
+state.AGENT_CA_PEM     = _CA_PEM
+state.AGENT_CA_KEY_PEM = _CA_KEY_PEM
 
-# Load CA + leaf cert from k8s Secret (generate if absent, regenerate leaf if IP changed)
-_CA_PEM, _CA_KEY_PEM, _CERT_PEM, _KEY_PEM = tls.load_or_generate_cert(
-    state.AGENT_NAME, state.NAMESPACE, self_ip=SELF_IP)
 
-state.AGENT_CA_PEM   = _CA_PEM
-state.AGENT_CERT_PATH = tls.write_temp_pem(_CERT_PEM, "agent-cert")
-state.AGENT_KEY_PATH  = tls.write_temp_pem(_KEY_PEM, "agent-key")
+# Compute a version fingerprint from key protocol files. Used to detect
+# version mismatches when peers connect over WebSocket.
+def _compute_version_hash() -> str:
+    h = hashlib.sha256()
+    _here = pathlib.Path(__file__).parent
+    for fname in sorted(["channel.py", "channel_handlers.py", "models.py"]):
+        p = _here / fname
+        if p.exists():
+            h.update(p.read_bytes())
+    # Include schema.yaml so schema changes are detected across peers
+    _schema = _here.parent / "charts" / "porpulsion" / "files" / "schema.yaml"
+    if _schema.exists():
+        h.update(_schema.read_bytes())
+    return h.hexdigest()[:16]
 
-# Expose in tls module for modules that read at call time
-tls.AGENT_CERT_PATH = state.AGENT_CERT_PATH
-tls.AGENT_KEY_PATH  = state.AGENT_KEY_PATH
+state.VERSION_HASH = _compute_version_hash()
+log.info("SELF_URL=%s  VERSION_HASH=%s", state.SELF_URL, state.VERSION_HASH)
 
-log.info("Agent cert written to %s", state.AGENT_CERT_PATH)
-log.info("SELF_URL=%s", state.SELF_URL)
+# -- Restore persisted state
 
-# ── Restore persisted state ───────────────────────────────────
+from porpulsion.models import Peer  # noqa: E402
 
-from porpulsion.models import Peer, RemoteApp  # noqa: E402
+# Load and cache the RemoteApp spec schema from the baked-in schema.yaml.
+# Must run before any RemoteAppSpec.from_dict() call.
+from porpulsion.k8s.store import load_spec_schema as _load_spec_schema  # noqa: E402
+_load_spec_schema()
 
 for _p in tls.load_peers(state.NAMESPACE):
+    # Migrate old format: initiator(bool) + has_inbound(bool) → direction(str)
+    if "direction" not in _p:
+        _ini, _inb = _p.get("initiator", False), _p.get("has_inbound", False)
+        _p["direction"] = "bidirectional" if (_ini and _inb) else ("outgoing" if _ini else "incoming")
     state.peers[_p["name"]] = Peer(
-        name=_p["name"], url=_p["url"], ca_pem=_p.get("ca_pem", ""))
+        name=_p["name"], url=_p["url"], ca_pem=_p.get("ca_pem", ""),
+        direction=_p["direction"])
 
 _saved = tls.load_state_configmap(state.NAMESPACE)
-for _a in _saved.get("local_apps", []):
-    _ra = RemoteApp(
-        id=_a["id"], name=_a["name"], spec=_a.get("spec", {}),
-        source_peer=_a.get("source_peer", ""), target_peer=_a.get("target_peer", ""),
-        status=_a.get("status", "Unknown"),
-        created_at=_a.get("created_at", ""), updated_at=_a.get("updated_at", ""),
-    )
-    state.local_apps[_ra.id] = _ra
 if "settings" in _saved:
     for _k, _v in _saved["settings"].items():
         if hasattr(state.settings, _k):
             setattr(state.settings, _k, _v)
+for _entry in _saved.get("pending_approval", []):
+    if _entry.get("id"):
+        state.pending_approval[_entry["id"]] = _entry
 
-log.info("Restored %d peer(s), %d local app(s) from persistent storage",
-         len(state.peers), len(state.local_apps))
+log.info("Restored %d peer(s), %d pending approval(s) from persistent storage",
+         len(state.peers), len(state.pending_approval))
 
-# ── Flask app ─────────────────────────────────────────────────
+# Re-open WS channels for any peers restored from persistent storage.
+# Runs after the Flask app starts (deferred so the WS endpoint is registered).
+# Both sides attempt outbound - whichever connects first stays up. If the peer
+# also connects inbound simultaneously, accept_channel replaces the outbound
+# channel cleanly. This ensures reconnection works regardless of which side
+# restarted.
+# Ensure registry system user + pull secret exist when feature is enabled (idempotent)
+if state.settings.registry_pull_enabled:
+    try:
+        from porpulsion.k8s.registry_proxy import ensure_registry_setup
+        ensure_registry_setup(state.NAMESPACE, state.SELF_URL)
+    except Exception as _rp_exc:
+        log.warning("Could not set up registry proxy: %s", _rp_exc)
+
+
+def _reconnect_persisted_peers():
+    import time as _time
+    _time.sleep(3)  # let the server fully start before connecting outbound
+    from porpulsion.channel import open_channel_to
+    for _p in state.peers.values():
+        if not _p.url or _p.direction == "incoming":
+            log.debug("Skipping reconnect for incoming peer %s (no outbound URL)", _p.name)
+            continue
+        log.info("Re-opening WS channel to persisted peer %s", _p.name)
+        open_channel_to(_p.name, _p.url, _p.ca_pem)
+
+# -- Flask app
 
 _TEMPLATES = pathlib.Path(__file__).parent.parent / "templates"
 _STATIC    = pathlib.Path(__file__).parent.parent / "static"
@@ -101,140 +156,164 @@ app = Flask(__name__,
             static_folder=str(_STATIC),
             static_url_path="/static")
 
-app.register_blueprint(peers_bp.bp)
-app.register_blueprint(workloads_bp.bp)
-app.register_blueprint(tunnels_bp.bp)
-app.register_blueprint(settings_bp.bp)
+# Session secret - load from env or fall back to a stable derivation from the CA key.
+# The CA key is already secret and cluster-unique, so its hash makes a safe default.
+_session_secret = os.environ.get("SECRET_KEY")
+if not _session_secret:
+    import hashlib as _hashlib
+    _session_secret = _hashlib.sha256(_CA_KEY_PEM).hexdigest()
+app.secret_key = _session_secret
+
+# Server-side sessions - each browser tab gets its own independent session ID,
+# so logging in/out in one tab doesn't affect other tabs.
+import pathlib as _pathlib
+from flask_session import Session as _Session
+_session_dir = _pathlib.Path("/tmp/porpulsion-sessions")
+_session_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+app.config["SESSION_TYPE"] = "filesystem"
+app.config["SESSION_FILE_DIR"] = str(_session_dir)
+app.config["SESSION_PERMANENT"] = False
+app.config["SESSION_USE_SIGNER"] = True
+_Session(app)
+
+# Peer WebSocket endpoint — open to peers, auth handled inside the channel via
+# the peer/hello frame. No session required.
+_sock = Sock(app)
+_sock.route("/ws")(peer_ws)
+
+app.register_blueprint(auth_bp.bp)
+app.register_blueprint(peers_bp.bp, url_prefix="/api")
+app.register_blueprint(workloads_bp.bp, url_prefix="/api")
+app.register_blueprint(tunnels_bp.bp, url_prefix="/api")
+app.register_blueprint(settings_bp.bp, url_prefix="/api")
+app.register_blueprint(logs_bp.bp, url_prefix="/api")
+app.register_blueprint(notifications_bp.bp, url_prefix="/api")
+app.register_blueprint(image_proxy_bp.bp)
+app.register_blueprint(ui_bp.bp)
 
 
-@app.route("/")
-@app.route("/ui")
-@app.route("/ui/")
-@app.route("/ui/<path:_>")
-def ui_dashboard(**_):
-    return render_template("dashboard.html", agent_name=state.AGENT_NAME)
+# -- Health probe (no auth — must be reachable by kubelet)
+
+@app.route("/status")
+def status():
+    return jsonify({"ok": True})
 
 
-# ── mTLS server management ────────────────────────────────────
+# -- CSRF protection
+# Inject `csrf_token()` into every Jinja2 template and validate the token on
+# all HTML form POSTs (routes that are not under /api/).
 
-_mtls_server = None
-_mtls_lock   = threading.Lock()
+from porpulsion.csrf import generate_token as _csrf_generate, validate_token as _csrf_validate
+
+@app.context_processor
+def _csrf_context():
+    return {"csrf_token": _csrf_generate}
+
+_CSRF_PROTECTED_PATHS = ("/login", "/logout", "/users/add", "/users/edit", "/users/remove", "/signup")
+
+@app.before_request
+def _ensure_csrf_token():
+    """Eagerly create the CSRF token on GETs so it's in the session before the response is sent."""
+    if request.method == "GET" and not request.path.startswith("/api/") and request.path != "/status":
+        _csrf_generate()
+
+@app.before_request
+def _check_csrf():
+    if request.method == "POST" and any(request.path == p for p in _CSRF_PROTECTED_PATHS):
+        _csrf_validate()
 
 
-class _MTLSRequestHandler(WSGIRequestHandler):
-    """
-    Werkzeug request handler that injects SSL_CLIENT_CERT into the WSGI environ.
+# -- API auth guard
+# /ws and /status are open. Everything under /api/ and /static/js/ requires auth.
 
-    Werkzeug's make_server does not expose the peer certificate via the WSGI
-    environ by default. We extract it from the underlying ssl.SSLSocket after
-    the handshake and inject it as SSL_CLIENT_CERT (PEM string) so that
-    verify_peer() in peering.py can authenticate peer-to-peer API calls.
-    """
-
-    def make_environ(self):
-        environ = super().make_environ()
+@app.before_request
+def _require_api_auth():
+    from flask import request, session, jsonify
+    import base64 as _b64
+    _GUARDED = ("/api/", "/static/js/", "/v2/")
+    if not any(request.path.startswith(p) for p in _GUARDED):
+        return
+    # Session cookie (browser)
+    if session.get("user"):
+        return
+    # HTTP Basic Auth — /api/ and /v2/ (containerd OCI image proxy requests)
+    if request.path.startswith("/api/") or request.path.startswith("/v2/"):
+        # Probe URL map to distinguish unknown routes (-> 404) from known-but-auth-gated (-> 401).
+        # We must do this ourselves because before_request fires before route matching.
+        _adapter = app.url_map.bind(request.host)
         try:
-            ssl_sock = self.connection
-            der = ssl_sock.getpeercert(binary_form=True)
-            if der:
-                import ssl as _ssl
-                pem = _ssl.DER_cert_to_PEM_cert(der)
-                environ["SSL_CLIENT_CERT"] = pem
-        except Exception:
-            pass
-        return environ
+            _adapter.match(request.path, method=request.method)
+        except Exception as _e:
+            _ename = type(_e).__name__
+            if _ename == "NotFound":
+                return jsonify({"error": "not found"}), 404
+            # MethodNotAllowed / RequestRedirect -> route exists, fall through to auth
 
-
-def rebuild_mtls_server():
-    """
-    Rebuild the mTLS SSL context with the current peer CA bundle.
-
-    Runs in a background thread to avoid deadlocking when called from within
-    a request handler (shutdown() waits for in-flight requests).
-    """
-    peer_ca_pems = [
-        p.ca_pem.encode() if isinstance(p.ca_pem, str) else p.ca_pem
-        for p in state.peers.values() if p.ca_pem
-    ]
-    ssl_ctx = tls.make_server_ssl_context(
-        state.AGENT_CERT_PATH, state.AGENT_KEY_PATH, peer_ca_pems=peer_ca_pems)
-
-    def _swap():
-        global _mtls_server
-        with _mtls_lock:
-            old = _mtls_server
-            _mtls_server = None
-        if old is not None:
-            old.shutdown()
-        import time as _time
-        for _ in range(10):
-            try:
-                new_server = make_server(
-                    "0.0.0.0", 8443, app,
-                    ssl_context=ssl_ctx, threaded=True,
-                    request_handler=_MTLSRequestHandler,
-                )
-                with _mtls_lock:
-                    _mtls_server = new_server
-                threading.Thread(target=new_server.serve_forever, daemon=True).start()
-                log.info("mTLS context rebuilt (%d peer CA(s) trusted)", len(peer_ca_pems))
-                return
-            except OSError:
-                _time.sleep(0.3)
-        log.error("Failed to rebind mTLS server on port 8443 after shutdown")
-
-    threading.Thread(target=_swap, daemon=True).start()
-
-
-# Wire the rebuild callback into state so blueprints can call it
-state._rebuild_mtls_callback = rebuild_mtls_server
-
-
-def _reconstruct_remote_apps():
-    """
-    Rebuild state.remote_apps from live k8s Deployments after a restart.
-
-    Lists all Deployments in the porpulsion namespace labelled with
-    porpulsion.io/remote-app-id, reconstructs a minimal RemoteApp for each,
-    and sets status based on ready replicas. Skips IDs already in state.
-    Runs as a daemon thread so it doesn't block startup.
-    """
-    try:
-        from kubernetes import client as _k8s, config as _kube_config
-        try:
-            _kube_config.load_incluster_config()
-        except Exception:
-            _kube_config.load_kube_config()
-        apps_v1 = _k8s.AppsV1Api()
-        deploys = apps_v1.list_namespaced_deployment(
-            state.NAMESPACE,
-            label_selector="porpulsion.io/remote-app-id",
-        )
-        restored = 0
-        for dep in deploys.items:
-            labels = dep.metadata.labels or {}
-            app_id     = labels.get("porpulsion.io/remote-app-id", "")
-            source_peer = labels.get("porpulsion.io/source-peer", "unknown")
-            if not app_id or app_id in state.remote_apps:
-                continue
-            ready = dep.status.ready_replicas or 0
-            desired = dep.spec.replicas or 1
-            status = "Running" if ready >= desired else "Pending"
-            # Reconstruct name from deploy_name: "ra-{id}-{name}" → strip prefix
-            deploy_name = dep.metadata.name
-            name = deploy_name[len(f"ra-{app_id}-"):] if deploy_name.startswith(f"ra-{app_id}-") else deploy_name
-            ra = RemoteApp(
-                id=app_id, name=name, spec={},
-                source_peer=source_peer, status=status,
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Basic "):
+            ip = request.remote_addr or "unknown"
+            from porpulsion.routes.auth import (
+                _load_users, _verify_password, _is_rate_limited, _record_failure, _clear_failures,
             )
-            state.remote_apps[app_id] = ra
-            restored += 1
-        log.info("Reconstructed %d remote app(s) from k8s Deployments", restored)
-    except Exception as exc:
-        log.warning("Could not reconstruct remote_apps from k8s: %s", exc)
+            if _is_rate_limited(ip):
+                return jsonify({"error": "too many failed attempts"}), 429
+            try:
+                username, password = _b64.b64decode(auth_header[6:]).decode().split(":", 1)
+                users = _load_users()
+                if username in users and _verify_password(password, users[username]["hash"]):
+                    _clear_failures(ip)
+                    return
+            except Exception:
+                pass
+            _record_failure(ip)
+        # For OCI/containerd clients, include WWW-Authenticate so they retry with credentials
+        if request.path.startswith("/v2/"):
+            resp = jsonify({"errors": [{"code": "UNAUTHORIZED", "message": "authentication required"}]})
+            resp.status_code = 401
+            resp.headers["WWW-Authenticate"] = 'Basic realm="porpulsion"'
+            resp.headers["Docker-Distribution-Api-Version"] = "registry/2.0"
+            return resp
+        return jsonify({"error": "unauthorized"}), 401
+    # For static assets, return 404 (asset simply won't load; user sees login page)
+    from flask import abort
+    abort(404)
 
 
-# ── Main ──────────────────────────────────────────────────────
+@app.route("/api/openapi.json")
+def openapi_json():
+    """Serve generated OpenAPI 3 spec (JSON)."""
+    from porpulsion.openapi_spec import get_openapi_dict
+    return jsonify(get_openapi_dict())
+
+
+@app.route("/api/openapi.yaml")
+def openapi_yaml():
+    """Serve generated OpenAPI 3 spec (YAML)."""
+    from porpulsion.openapi_spec import get_openapi_yaml
+    return Response(get_openapi_yaml(), mimetype="application/x-yaml")
+
+
+# -- Main
+
+def _run_kopf():
+    """Start the kopf operator in a background thread (inside the gunicorn worker after fork)."""
+    import asyncio
+    import kopf
+    import porpulsion.k8s.kopf_handlers  # noqa: F401 - registers handlers via decorators
+
+    def _loop():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(kopf.operator(
+            namespace=state.NAMESPACE,
+            clusterwide=False,
+            standalone=True,
+            liveness_endpoint=None,
+        ))
+
+    threading.Thread(target=_loop, daemon=True, name="kopf-operator").start()
+    log.info("Kopf operator started for namespace %s", state.NAMESPACE)
+
 
 if __name__ == "__main__":
     log.info("Starting agent %s", state.AGENT_NAME)
@@ -242,9 +321,38 @@ if __name__ == "__main__":
     level = getattr(logging, state.settings.log_level.upper(), logging.INFO)
     logging.getLogger().setLevel(level)
 
-    rebuild_mtls_server()
-    log.info("mTLS listener started on port 8443")
+    import gunicorn.app.base
 
-    threading.Thread(target=_reconstruct_remote_apps, daemon=True).start()
+    class _StandaloneApp(gunicorn.app.base.BaseApplication):
+        def __init__(self, application, options=None):
+            self.options = options or {}
+            self.application = application
+            super().__init__()
 
-    app.run(host="0.0.0.0", port=8000)
+        def load_config(self):
+            for key, value in self.options.items():
+                self.cfg.set(key.lower(), value)
+
+        def load(self):
+            return self.application
+
+    def _post_fork(server, worker):
+        """Start kopf and peer reconnect inside the gunicorn worker after fork."""
+        threading.Thread(target=_reconnect_persisted_peers, daemon=True).start()
+        _run_kopf()
+
+    worker_threads = int(os.environ.get("GUNICORN_THREADS", "4"))
+    _StandaloneApp(app, {
+        "bind":            "0.0.0.0:8000",
+        "workers":         1,
+        "worker_class":    "gthread",
+        "threads":         worker_threads,
+        "timeout":         120,
+        "keepalive":       5,
+        "loglevel":        "warning",
+        "accesslog":       "-",
+        "errorlog":        "-",
+        "worker_tmp_dir":         "/tmp",
+        "control_socket_disable": True,
+        "post_fork":              _post_fork,
+    }).run()

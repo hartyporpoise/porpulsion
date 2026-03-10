@@ -1,0 +1,71 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: remoteapps.porpulsion.io
+  labels:
+    app: {{ include "porpulsion.fullname" . }}
+spec:
+  group: porpulsion.io
+  names:
+    kind: RemoteApp
+    listKind: RemoteAppList
+    plural: remoteapps
+    singular: remoteapp
+    shortNames:
+      - ra
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      additionalPrinterColumns:
+        - name: Status
+          type: string
+          jsonPath: .status.phase
+        - name: Peer
+          type: string
+          jsonPath: .spec.targetPeer
+        - name: Image
+          type: string
+          jsonPath: .spec.image
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      subresources:
+        status: {}
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [image, targetPeer]
+              description: >
+                RemoteApp spec — defines a containerised workload to deploy on a peer cluster.
+              properties:
+{{ .Files.Get "files/schema.yaml" | indent 16 }}
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  description: Current lifecycle phase reported by the agent
+                appId:
+                  type: string
+                  description: Internal RemoteApp ID assigned by the agent
+                sourcePeer:
+                  type: string
+                  description: Name of the peer that submitted this app
+                resourceName:
+                  type: string
+                  description: Sanitized k8s resource name used for Deployment/CM/Secret/PVC
+                message:
+                  type: string
+                  description: Human-readable status message
+                createdAt:
+                  type: string
+                  description: ISO-8601 timestamp when this CR was created
+                updatedAt:
+                  type: string
+                  description: ISO-8601 timestamp of last spec or status update

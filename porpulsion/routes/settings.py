@@ -36,12 +36,6 @@ def update_settings():
     if "allow_inbound_tunnels" in data:
         state.settings.allow_inbound_tunnels = bool(data["allow_inbound_tunnels"])
 
-    if "max_tunnels_per_peer" in data:
-        try:
-            state.settings.max_tunnels_per_peer = max(0, int(data["max_tunnels_per_peer"]))
-        except (ValueError, TypeError):
-            return jsonify({"error": "max_tunnels_per_peer must be an integer"}), 400
-
     if "log_level" in data:
         level = data["log_level"].upper()
         if level not in ("DEBUG", "INFO", "WARNING", "ERROR"):
@@ -49,15 +43,42 @@ def update_settings():
         state.settings.log_level = level
         _apply_log_level(level)
 
-    float_fields = ("max_cpu_per_pod", "max_total_cpu")
-    int_fields   = ("max_memory_mb_per_pod", "max_replicas_per_app",
-                    "max_total_deployments", "max_total_memory_mb")
-    for fld in float_fields:
+    bool_fields = (
+        "require_remoteapp_approval", "require_resource_requests",
+        "require_resource_limits", "allow_pvcs", "registry_pull_enabled",
+    )
+    for fld in bool_fields:
         if fld in data:
+            setattr(state.settings, fld, bool(data[fld]))
+
+    # React to registry_pull_enabled toggle immediately (no restart needed)
+    if "registry_pull_enabled" in data:
+        if data["registry_pull_enabled"]:
             try:
-                setattr(state.settings, fld, max(0.0, float(data[fld])))
-            except (ValueError, TypeError):
-                return jsonify({"error": f"{fld} must be a number"}), 400
+                from porpulsion.k8s.registry_proxy import ensure_registry_setup
+                ensure_registry_setup(state.NAMESPACE, state.SELF_URL)
+            except Exception as _exc:
+                log.warning("Could not set up registry proxy: %s", _exc)
+        else:
+            try:
+                from porpulsion.k8s.registry_proxy import teardown_registry_setup
+                teardown_registry_setup(state.NAMESPACE)
+            except Exception as _exc:
+                log.warning("Could not tear down registry proxy: %s", _exc)
+
+    str_fields = (
+        "allowed_images", "blocked_images", "allowed_source_peers", "allowed_tunnel_peers",
+        "max_cpu_request_per_pod", "max_cpu_limit_per_pod",
+        "max_memory_request_per_pod", "max_memory_limit_per_pod",
+        "max_total_cpu_requests", "max_total_memory_requests",
+        "registry_api_url",
+    )
+    for fld in str_fields:
+        if fld in data:
+            setattr(state.settings, fld, str(data[fld]).strip())
+
+    int_fields = ("max_replicas_per_app", "max_total_deployments", "max_total_pods",
+                  "max_pvc_storage_per_pvc_gb", "max_pvc_storage_total_gb")
     for fld in int_fields:
         if fld in data:
             try:
@@ -65,6 +86,35 @@ def update_settings():
             except (ValueError, TypeError):
                 return jsonify({"error": f"{fld} must be an integer"}), 400
 
+    # If registry_api_url changed while the proxy is enabled, rebuild the pull secret
+    if "registry_api_url" in data and state.settings.registry_pull_enabled:
+        try:
+            from porpulsion.k8s.registry_proxy import ensure_registry_setup
+            ensure_registry_setup(state.NAMESPACE, state.SELF_URL)
+        except Exception as _exc:
+            log.warning("Could not rebuild pull secret after api_url change: %s", _exc)
+
+    # If registry proxy settings changed, push updated proxy URL to all connected peers
+    if "registry_pull_enabled" in data or "registry_api_url" in data:
+        _push_registry_info_to_peers()
+
     log.info("Settings updated: %s", state.settings.to_dict())
-    tls.save_state_configmap(state.NAMESPACE, state.local_apps, state.settings)
+    tls.save_state_configmap(state.NAMESPACE, state.settings, state.pending_approval)
     return jsonify(state.settings.to_dict())
+
+
+def _push_registry_info_to_peers():
+    """Push our current registry_proxy_url to all connected peers via peer/info-update."""
+    try:
+        from porpulsion.channel import get_channel
+        proxy_url = state.registry_proxy_url()
+        for peer_name in list(state.peer_channels.keys()):
+            try:
+                get_channel(peer_name, wait=0).push("peer/info-update", {
+                    "name":               state.AGENT_NAME,
+                    "registry_proxy_url": proxy_url,
+                })
+            except Exception as exc:
+                log.debug("Could not push info-update to %s: %s", peer_name, exc)
+    except Exception as exc:
+        log.debug("_push_registry_info_to_peers failed: %s", exc)

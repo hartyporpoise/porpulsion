@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Sign in — porpulsion</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="icon" type="image/png" href="{{ url_for('static', filename='logo.png') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+  <script>
+    (function() {
+      var mq = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)');
+      function apply() { document.documentElement.setAttribute('data-theme', mq && mq.matches ? 'light' : 'dark'); }
+      apply(); if (mq) mq.addEventListener('change', apply);
+    })();
+  </script>
+  <style>
+    html, body {
+      height: 100%;
+      margin: 0;
+    }
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 1.5rem;
+      box-sizing: border-box;
+      background-image:
+        radial-gradient(ellipse 70% 55% at 15% 10%, rgba(125, 179, 255, 0.13) 0%, transparent 65%),
+        radial-gradient(ellipse 55% 40% at 85% 90%, rgba(130, 177, 255, 0.09) 0%, transparent 60%);
+    }
+    [data-theme="light"] body {
+      background-image:
+        radial-gradient(ellipse 70% 55% at 15% 10%, rgba(26, 95, 204, 0.09) 0%, transparent 65%),
+        radial-gradient(ellipse 55% 40% at 85% 90%, rgba(26, 95, 204, 0.06) 0%, transparent 60%);
+    }
+
+    /* ── Card ── */
+    .auth-wrap {
+      width: 100%;
+      max-width: 420px;
+    }
+    .auth-logo {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      margin-bottom: 2.25rem;
+    }
+    .auth-logo img {
+      width: 40px;
+      height: 40px;
+      border-radius: 8px;
+    }
+    .auth-logo-text {
+      font-size: 1.55rem;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      line-height: 1;
+    }
+    .auth-logo-text .p1 {
+      color: var(--accent);
+      background: linear-gradient(90deg, var(--accent), #93c5fd);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .auth-logo-text .p2 { color: var(--text); -webkit-text-fill-color: var(--text); }
+
+    .auth-card {
+      background: var(--glass-bg-card);
+      backdrop-filter: blur(24px) saturate(180%);
+      -webkit-backdrop-filter: blur(24px) saturate(180%);
+      border: 1px solid var(--glass-border);
+      border-radius: 20px;
+      padding: 2rem 2rem 1.75rem;
+      box-shadow:
+        0 2px 4px rgba(0,0,0,0.08),
+        0 8px 32px rgba(0,0,0,0.2),
+        var(--glass-highlight);
+    }
+    [data-theme="light"] .auth-card {
+      box-shadow: 0 2px 8px rgba(0,0,0,0.06), 0 8px 32px rgba(0,0,0,0.08), var(--glass-highlight);
+    }
+    @supports not (backdrop-filter: blur(1px)) {
+      .auth-card { background: var(--surface); border-color: var(--border); }
+    }
+
+    .auth-heading {
+      font-size: 1.3rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--text);
+      margin: 0 0 0.3rem;
+    }
+    .auth-sub {
+      font-size: 0.845rem;
+      color: var(--muted2);
+      margin: 0 0 1.75rem;
+      line-height: 1.5;
+    }
+
+    /* ── Fields ── */
+    .auth-field { margin-bottom: 1rem; }
+    .auth-label {
+      display: block;
+      font-size: 0.72rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--muted);
+      margin-bottom: 0.45rem;
+    }
+    .auth-input {
+      width: 100%;
+      box-sizing: border-box;
+      background: var(--surface2);
+      border: 1px solid var(--border2);
+      border-radius: 10px;
+      padding: 0.7rem 0.95rem;
+      font-size: 0.945rem;
+      color: var(--text);
+      -webkit-text-fill-color: var(--text);
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .auth-input::placeholder { color: var(--muted2); -webkit-text-fill-color: var(--muted2); }
+    .auth-input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px rgba(125, 179, 255, 0.18);
+    }
+    [data-theme="light"] .auth-input:focus {
+      box-shadow: 0 0 0 2px rgba(26, 95, 204, 0.14);
+    }
+
+    /* ── Submit button — matches app inset-glow style ── */
+    .auth-submit {
+      width: 100%;
+      margin-top: 0.65rem;
+      padding: 0.72rem 1rem;
+      border-radius: 50px;
+      font-size: 0.92rem;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+      /* override pill button pseudo styles */
+      color: #fff;
+    }
+    [data-theme="light"] .auth-submit { color: #1a3a6e; }
+    [data-theme="light"] .auth-submit:hover:not(:disabled) { color: #fff; }
+
+    /* ── Alerts ── */
+    .auth-alert {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.65rem;
+      padding: 0.7rem 0.9rem;
+      border-radius: 10px;
+      font-size: 0.845rem;
+      margin-bottom: 1.25rem;
+      line-height: 1.45;
+    }
+    .auth-alert svg { flex-shrink: 0; margin-top: 1px; }
+    .auth-alert-error {
+      background: var(--red-dim);
+      border: 1px solid var(--red);
+      color: var(--red);
+    }
+    .auth-alert-success {
+      background: var(--green-dim);
+      border: 1px solid var(--green);
+      color: var(--green);
+    }
+
+    /* ── Badge ── */
+    .first-run-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      background: var(--accent-glow);
+      border: 1px solid rgba(125, 179, 255, 0.35);
+      border-radius: 20px;
+      color: var(--accent);
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      padding: 0.2rem 0.65rem;
+      margin-bottom: 1rem;
+    }
+
+    /* ── Footer link ── */
+    .auth-footer {
+      margin-top: 1.5rem;
+      padding-top: 1.25rem;
+      border-top: 1px solid var(--border);
+      text-align: center;
+      font-size: 0.82rem;
+      color: var(--muted2);
+    }
+    .auth-footer a {
+      color: var(--accent);
+      text-decoration: none;
+      font-weight: 500;
+    }
+    .auth-footer a:hover { text-decoration: underline; }
+
+    /* ── Password hint ── */
+    .auth-hint {
+      margin-top: 0.35rem;
+      font-size: 0.74rem;
+      color: var(--muted2);
+    }
+
+    /* ── Divider ── */
+    .auth-divider {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin: 1.5rem 0 0;
+      color: var(--muted2);
+      font-size: 0.72rem;
+    }
+    .auth-divider::before, .auth-divider::after {
+      content: "";
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+  </style>
+</head>
+<body>
+  <div class="auth-wrap">
+
+    <div class="auth-logo">
+      <img src="{{ url_for('static', filename='logo.png') }}" alt="porpulsion logo">
+      <span class="auth-logo-text"><span class="p1">porp</span><span class="p2">ulsion</span></span>
+    </div>
+
+    <div class="auth-card">
+      <h1 class="auth-heading">Welcome back</h1>
+      <p class="auth-sub">Sign in to manage your agent.</p>
+
+      {% if error %}
+      <div class="auth-alert auth-alert-error">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        {{ error }}
+      </div>
+      {% endif %}
+
+      <form method="post" autocomplete="on">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="auth-field">
+          <label class="auth-label" for="username">Username</label>
+          <input class="auth-input" type="text" id="username" name="username"
+                 required autofocus autocomplete="username" spellcheck="false"
+                 placeholder="your-username">
+        </div>
+        <div class="auth-field">
+          <label class="auth-label" for="password">Password</label>
+          <input class="auth-input" type="password" id="password" name="password"
+                 required autocomplete="current-password"
+                 placeholder="••••••••">
+        </div>
+        <button class="auth-submit" type="submit">Sign in</button>
+      </form>
+    </div>
+
+  </div>
+</body>
+</html>

@@ -3,18 +3,17 @@ HTTP proxy helper for porpulsion RemoteApp port forwarding.
 
 Provides `proxy_request` — used by the executing agent to forward an
 inbound HTTP request (received from the submitting agent over mTLS) to
-the correct pod running a RemoteApp, then stream the response back.
+the RemoteApp's Service (load-balanced across pods), then stream the response back.
 
-Scope enforcement: pod IP is resolved fresh from k8s at call time using
-the porpulsion.io/remote-app-id label, so the caller never supplies a
-target address directly.
+Scope enforcement: Service is resolved from k8s at call time using the
+porpulsion.io/remote-app-id label, so the caller never supplies a target address.
 """
 import logging
+from porpulsion import state
 
 log = logging.getLogger("porpulsion.tunnel")
 
-import os
-NAMESPACE = os.environ.get("PORPULSION_NAMESPACE", "porpulsion")
+NAMESPACE = state.NAMESPACE
 
 
 def _k8s_core_v1():
@@ -26,35 +25,36 @@ def _k8s_core_v1():
     return client.CoreV1Api()
 
 
-def resolve_pod_ip(remote_app_id: str) -> str:
+def resolve_service_host(remote_app_id: str) -> str:
     """
-    Look up the IP of a running pod owned by remote_app_id.
-    Raises ValueError if no running pod is found.
+    Look up the Service name for a RemoteApp (same namespace).
+    Returns host suitable for in-cluster HTTP: '<name>.<namespace>.svc.cluster.local'
+    or short form '<name>' when in same namespace.
+    Raises ValueError if no Service is found.
     """
     core_v1 = _k8s_core_v1()
-    pods = core_v1.list_namespaced_pod(
+    services = core_v1.list_namespaced_service(
         namespace=NAMESPACE,
         label_selector=f"porpulsion.io/remote-app-id={remote_app_id}",
     )
-    running = [p for p in pods.items if p.status.phase == "Running" and p.status.pod_ip]
-    if not running:
-        raise ValueError(f"no running pods for remote-app-id={remote_app_id}")
-    return running[0].status.pod_ip
+    if not services.items:
+        raise ValueError(f"no service for remote-app-id={remote_app_id}")
+    name = services.items[0].metadata.name
+    return f"{name}.{NAMESPACE}.svc.cluster.local"
 
 
 def proxy_request(remote_app_id: str, port: int,
                   method: str, path: str,
                   headers: dict, body: bytes) -> tuple[int, dict, bytes]:
     """
-    Forward an HTTP request to a pod running a RemoteApp.
+    Forward an HTTP request to the RemoteApp's Service (load-balanced across pods).
 
     Returns (status_code, response_headers, response_body).
-    The pod IP is resolved fresh from k8s to enforce scope.
     """
     import requests as _req
 
-    pod_ip = resolve_pod_ip(remote_app_id)
-    url = f"http://{pod_ip}:{port}/{path.lstrip('/')}"
+    host = resolve_service_host(remote_app_id)
+    url = f"http://{host}:{port}/{path.lstrip('/')}"
 
     # Strip hop-by-hop headers that must not be forwarded
     _skip = {"host", "transfer-encoding", "connection", "keep-alive",
