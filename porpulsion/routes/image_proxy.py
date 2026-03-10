@@ -42,19 +42,21 @@ _STRIP   = {"transfer-encoding", "connection", "content-length"}
 
 def _find_source_peer_for_host(upstream_host: str) -> str | None:
     """
-    Return the peer name that submitted a workload whose image is served from
+    Return the peer name that submitted a workload whose image routes through
     upstream_host, or None if no match is found.
 
-    We look at all ExecutingApp CRs on this cluster and find one whose
-    spec.image starts with '{upstream_host}/'.
+    The image in the ExecutingApp CR spec is already proxy-prefixed by the UI,
+    e.g. 'porpulsion.danquack.dev/cr.sturgeon.lab.porp.me/myapp:tag'.
+    We match on '/{upstream_host}/' appearing anywhere in the image string.
     """
+    needle = f"/{upstream_host}/"
     try:
         from porpulsion import state
         from porpulsion.k8s.store import list_executingapp_crs, cr_to_dict
         for cr in list_executingapp_crs(state.NAMESPACE):
             d = cr_to_dict(cr, "executing")
             image = (d.get("spec") or {}).get("image", "")
-            if image.startswith(upstream_host + "/"):
+            if needle in image or image.startswith(upstream_host + "/"):
                 return d.get("source_peer") or None
     except Exception as exc:
         log.debug("Could not look up source peer for %s: %s", upstream_host, exc)
