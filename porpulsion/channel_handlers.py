@@ -317,6 +317,65 @@ def handle_proxy_request(payload: dict, peer_name: str = "") -> dict:
     }
 
 
+# -- Image proxy tunnel
+
+def handle_image_proxy_request(payload: dict) -> dict:
+    """
+    Proxy an OCI Distribution API request to the upstream registry on behalf of
+    the executing peer.  Called on the *submitting* side, which has network access
+    to the private registry.
+
+    Payload:
+      method  - HTTP method (GET, HEAD)
+      url     - full upstream URL (https://registry/v2/...)
+      headers - dict of headers to forward (Accept, Range, ...)
+    Reply:
+      status  - HTTP status int
+      headers - response header dict
+      body    - base64-encoded response body
+    """
+    import base64
+    import ssl
+    import urllib.error
+    import urllib.request
+
+    method  = payload.get("method", "GET")
+    url     = payload.get("url", "")
+    headers = payload.get("headers", {})
+
+    if not url.startswith("https://"):
+        raise RuntimeError("image-proxy: only https upstream URLs are supported")
+
+    req = urllib.request.Request(url, method=method)
+    for k, v in headers.items():
+        req.add_header(k, v)
+    req.add_unredirected_header("Accept-Encoding", "identity")
+
+    _STRIP = {"transfer-encoding", "connection", "content-length"}
+    ctx = ssl.create_default_context()
+    try:
+        with urllib.request.urlopen(req, context=ctx, timeout=120) as resp:
+            data = resp.read()
+            resp_headers = {k: v for k, v in resp.headers.items()
+                            if k.lower() not in _STRIP}
+            if "Content-Length" in resp.headers:
+                resp_headers["Content-Length"] = resp.headers["Content-Length"]
+            return {
+                "status": resp.status,
+                "headers": resp_headers,
+                "body": base64.b64encode(data).decode(),
+            }
+    except urllib.error.HTTPError as exc:
+        data = exc.read()
+        resp_headers = {k: v for k, v in exc.headers.items()
+                        if k.lower() not in _STRIP}
+        return {
+            "status": exc.code,
+            "headers": resp_headers,
+            "body": base64.b64encode(data).decode(),
+        }
+
+
 # -- Peer lifecycle
 
 def handle_peer_bidirectional(payload: dict):
