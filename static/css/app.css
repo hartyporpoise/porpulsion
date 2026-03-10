@@ -2565,3 +2565,167 @@ button:focus-visible, a:focus-visible {
   margin-bottom: 0.5rem;
 }
 #proxy-apps-list .proxy-app-name > strong { font-size: 0.9375rem; }
+
+/* ── Proxy open button ───────────────────────────────────────── */
+.proxy-open-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  text-decoration: none;
+  transition: opacity 0.15s;
+}
+.proxy-open-btn:hover { opacity: 0.85; color: #fff; text-decoration: none; }
+.proxy-open-btn svg { flex-shrink: 0; }
+
+/* ── Mesh health pill (topbar) ───────────────────────────────── */
+.mesh-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  padding: 3px 9px;
+  border-radius: 20px;
+  line-height: 1;
+  white-space: nowrap;
+}
+.mesh-dot {
+  font-size: 0.65rem;
+  line-height: 1;
+}
+.mesh-pill-green  { background: rgba(52,199,89,.15);  color: #34c759; }
+.mesh-pill-yellow { background: rgba(255,214,10,.15); color: #c9a800; }
+.mesh-pill-grey   { background: var(--surface3);      color: var(--muted); }
+@media (prefers-color-scheme: light) {
+  .mesh-pill-green  { background: rgba(52,199,89,.12); color: #1a8a35; }
+  .mesh-pill-yellow { background: rgba(255,159,10,.12); color: #a06000; }
+}
+
+/* ── Settings accordion ──────────────────────────────────────── */
+.settings-accordion {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.acc-section {
+  border-bottom: var(--sep) solid var(--border);
+}
+.acc-section:last-child { border-bottom: none; }
+.acc-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 14px 1.25rem;
+  cursor: pointer;
+  text-align: left;
+  color: var(--text);
+  min-height: 52px;
+  transition: background 0.15s;
+}
+.acc-header:hover { background: var(--surface3); }
+.acc-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--accent-dim, rgba(10,132,255,.18));
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.acc-icon svg { display: block; }
+.acc-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  flex: 1;
+  min-width: 0;
+}
+.acc-summary {
+  font-size: 0.75rem;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 180px;
+}
+.acc-chevron {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--muted);
+  transition: transform 0.2s ease;
+}
+.acc-section.acc-open .acc-chevron { transform: rotate(90deg); }
+.acc-body {
+  padding: 0 1.25rem 1.25rem;
+}
+@media (max-width: 480px) {
+  .acc-summary { max-width: 100px; }
+}
+
+/* ── Proxy how-it-works banner ───────────────────────────────── */
+.proxy-how-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  background: var(--surface2);
+  border-radius: 12px;
+  margin: 0 1.25rem 0.25rem;
+}
+.proxy-how-steps {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.proxy-how-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.proxy-how-num {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.proxy-how-text {
+  font-size: 0.78rem;
+  color: var(--muted);
+  line-height: 1.35;
+}
+.proxy-how-text strong { color: var(--text); }
+.proxy-how-arrow {
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+@media (max-width: 640px) {
+  .proxy-how-banner { flex-direction: column; align-items: flex-start; }
+  .proxy-settings-link { align-self: flex-end; }
+}
+@media (max-width: 480px) {
+  .proxy-how-steps { gap: 6px; }
+  .proxy-how-arrow { display: none; }
+}
