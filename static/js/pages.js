@@ -1346,8 +1346,6 @@
           var newSpec = JSON.parse(JSON.stringify(spec));
           var hasNewEntries = false;
           ['configmap', 'secret'].forEach(function (kind) {
-            var bodyEl = el('add-' + kind + '-body');
-            if (!bodyEl || bodyEl.hidden) return;
             var name = (el('add-' + kind + '-name') || {}).value || '';
             var mount = (el('add-' + kind + '-mount') || {}).value || '';
             if (!name.trim() || !mount.trim()) return;
@@ -1360,16 +1358,13 @@
             if (kind === 'configmap') { newSpec.configMaps = (newSpec.configMaps || []).concat([entry]); }
             else { newSpec.secrets = (newSpec.secrets || []).concat([entry]); }
           });
-          var pvcBodyEl = el('add-pvc-body');
-          if (pvcBodyEl && !pvcBodyEl.hidden) {
-            var pvcName = (el('add-pvc-name') || {}).value || '';
-            var pvcMount = (el('add-pvc-mount') || {}).value || '';
-            var pvcStorage = (el('add-pvc-storage') || {}).value || '1Gi';
-            var pvcMode = (el('add-pvc-mode') || {}).value || 'ReadWriteOnce';
-            if (pvcName.trim() && pvcMount.trim()) {
-              hasNewEntries = true;
-              newSpec.pvcs = (newSpec.pvcs || []).concat([{ name: pvcName.trim(), mountPath: pvcMount.trim(), storage: pvcStorage.trim(), accessMode: pvcMode }]);
-            }
+          var pvcName = (el('add-pvc-name') || {}).value || '';
+          var pvcMount = (el('add-pvc-mount') || {}).value || '';
+          var pvcStorage = (el('add-pvc-storage') || {}).value || '1Gi';
+          var pvcMode = (el('add-pvc-mode') || {}).value || 'ReadWriteOnce';
+          if (pvcName.trim() && pvcMount.trim()) {
+            hasNewEntries = true;
+            newSpec.pvcs = (newSpec.pvcs || []).concat([{ name: pvcName.trim(), mountPath: pvcMount.trim(), storage: pvcStorage.trim(), accessMode: pvcMode }]);
           }
 
           // KV patches for existing CMs/secrets
