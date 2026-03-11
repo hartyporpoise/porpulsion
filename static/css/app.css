@@ -1805,13 +1805,13 @@ select { display: none; }
 /* KV editor (configmap / secret) */
 .kv-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.5rem;
   padding: 0.375rem 0;
   border-bottom: var(--sep) solid var(--border);
 }
 .kv-row:last-child { border-bottom: none; }
-.kv-row input { flex: 1; }
+.kv-row input, .kv-row textarea { flex: 1; }
 .kv-add {
   background: transparent;
   border: none;
