@@ -851,7 +851,11 @@
         lines.push('  - name: ' + cm.name + '\n    mountPath: ' + (cm.mountPath || ''));
         if (cm.data && Object.keys(cm.data).length) {
           lines.push('    data:');
-          Object.keys(cm.data).forEach(function (k) { lines.push('      ' + k + ': ' + cm.data[k]); });
+          Object.keys(cm.data).forEach(function (k) {
+            var v = (cm.data[k] || '').toString();
+            if (v.indexOf('\n') >= 0) lines.push('      ' + k + ': |\n        ' + v.replace(/\n/g, '\n        '));
+            else lines.push('      ' + k + ': ' + v);
+          });
         }
       });
     }
@@ -861,7 +865,11 @@
         lines.push('  - name: ' + sec.name + '\n    mountPath: ' + (sec.mountPath || ''));
         if (sec.data && Object.keys(sec.data).length) {
           lines.push('    data:');
-          Object.keys(sec.data).forEach(function (k) { lines.push('      ' + k + ': ' + sec.data[k]); });
+          Object.keys(sec.data).forEach(function (k) {
+            var v = (sec.data[k] || '').toString();
+            if (v.indexOf('\n') >= 0) lines.push('      ' + k + ': |\n        ' + v.replace(/\n/g, '\n        '));
+            else lines.push('      ' + k + ': ' + v);
+          });
         }
       });
     }
@@ -955,11 +963,9 @@
         keyIn.type = 'text'; keyIn.value = pair.k; keyIn.readOnly = readOnly;
         keyIn.style.flex = '1'; keyIn.style.fontSize = '0.78rem';
         keyIn.dataset.idx = idx; keyIn.dataset.role = 'cfg-key';
-        var valIn = document.createElement('input');
-        valIn.type = isSecret ? 'password' : 'text';
-        valIn.value = pair.v; valIn.readOnly = readOnly;
-        valIn.style.flex = '2'; valIn.style.fontSize = '0.78rem';
-        valIn.dataset.idx = idx; valIn.dataset.role = 'cfg-val';
+        var valIn = _makeValInput('cfg-val', isSecret, pair.v);
+        valIn.readOnly = readOnly;
+        valIn.dataset.idx = idx;
         row.appendChild(keyIn); row.appendChild(valIn);
         if (isSecret) row.appendChild(_makeEyeBtn(valIn));
         if (!readOnly) {
@@ -987,10 +993,7 @@
         var newKey = document.createElement('input');
         newKey.type = 'text'; newKey.placeholder = 'new-key'; newKey.style.flex = '1'; newKey.style.fontSize = '0.78rem';
         newKey.dataset.role = 'cfg-pending-key';
-        var newVal = document.createElement('input');
-        newVal.type = isSecret ? 'password' : 'text';
-        newVal.placeholder = 'value'; newVal.style.flex = '2'; newVal.style.fontSize = '0.78rem';
-        newVal.dataset.role = 'cfg-pending-val';
+        var newVal = _makeValInput('cfg-pending-val', isSecret);
         if (isSecret) addRow.appendChild(newKey), addRow.appendChild(newVal), addRow.appendChild(_makeEyeBtn(newVal));
         else addRow.appendChild(newKey), addRow.appendChild(newVal);
         var addBtn = document.createElement('button');
@@ -1158,6 +1161,38 @@
     '</div>';
   }
 
+  // Creates a value input that expands to a textarea on Shift+Enter (configmap only).
+  // Keeps the same data-role so existing collectors work unchanged.
+  function _makeValInput(role, isSecret, initialValue) {
+    var el = document.createElement(isSecret ? 'input' : 'input');
+    el.type = isSecret ? 'password' : 'text';
+    el.placeholder = 'value';
+    el.style.flex = '2';
+    el.style.fontSize = '0.78rem';
+    el.dataset.role = role;
+    if (initialValue != null) el.value = initialValue;
+    if (!isSecret) {
+      el.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && e.shiftKey) {
+          e.preventDefault();
+          var ta = document.createElement('textarea');
+          ta.value = el.value + '\n';
+          ta.style.flex = '2';
+          ta.style.fontSize = '0.78rem';
+          ta.style.resize = 'vertical';
+          ta.style.minHeight = '3.5rem';
+          ta.dataset.role = role;
+          if (el.dataset.idx != null) ta.dataset.idx = el.dataset.idx;
+          if (el.readOnly) ta.readOnly = true;
+          el.parentNode.replaceChild(ta, el);
+          ta.focus();
+          ta.selectionStart = ta.selectionEnd = ta.value.length;
+        }
+      });
+    }
+    return el;
+  }
+
   function _initAddKvEditor(wrap, isSecret) {
     function addRow() {
       var row = document.createElement('div');
@@ -1165,10 +1200,7 @@
       var keyIn = document.createElement('input');
       keyIn.type = 'text'; keyIn.placeholder = 'key'; keyIn.style.flex = '1'; keyIn.style.fontSize = '0.78rem';
       keyIn.dataset.role = 'add-kv-key';
-      var valIn = document.createElement('input');
-      valIn.type = isSecret ? 'password' : 'text';
-      valIn.placeholder = 'value'; valIn.style.flex = '2'; valIn.style.fontSize = '0.78rem';
-      valIn.dataset.role = 'add-kv-val';
+      var valIn = _makeValInput('add-kv-val', isSecret);
       row.appendChild(keyIn); row.appendChild(valIn);
       if (isSecret) row.appendChild(_makeEyeBtn(valIn));
       var del = document.createElement('button');
@@ -1311,7 +1343,7 @@
           cfgSaveBtn.disabled = true; cfgSaveBtn.textContent = 'Saving…';
 
           // Check for open add-forms (new CM/secret/PVC entries)
-          var newSpec = JSON.parse(JSON.stringify(app.spec || {}));
+          var newSpec = JSON.parse(JSON.stringify(spec));
           var hasNewEntries = false;
           ['configmap', 'secret'].forEach(function (kind) {
             var bodyEl = el('add-' + kind + '-body');

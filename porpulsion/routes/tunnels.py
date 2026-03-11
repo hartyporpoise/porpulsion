@@ -62,9 +62,10 @@ def _rewrite_body(body: bytes, content_type: str, proxy_prefix: str) -> bytes:
     elif ct in ("application/javascript", "text/javascript", "application/x-javascript"):
         # Rewrite quoted root-relative paths in JS bundles.
         # Catches: fetch('/api/...'), import('/chunk.js'), src: '/img/logo.png'
-        # Excludes: "//..." (protocol-relative), "/ " (space after slash)
+        # Requires path segment to start with a letter to avoid mangling
+        # numeric expressions in minified JS (e.g. e[2108/4], "/"+n/2).
         body = re.sub(
-            rb"""(["'])(/(?![/"' ])[^"']*)(\1)""",
+            rb"""(["'])(/[a-zA-Z][^"']*)(\1)""",
             lambda m: m.group(1) + prefix_b + m.group(2) + m.group(3),
             body,
         )
