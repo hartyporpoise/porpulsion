@@ -439,7 +439,12 @@ def remoteapp_detail(app_id):
         import yaml as _yaml
         spec = dict(cr.get("spec", {}))
         spec.pop("targetPeer", None)
-        resp = {"app": d, "k8s": detail, "cr": cr, "spec_yaml": _yaml.dump(spec, default_flow_style=False, allow_unicode=True)}
+        def _literal_representer(dumper, data):
+            if '\n' in data:
+                return dumper.represent_scalar('tag:yaml.org,2002:str', data, style='|')
+            return dumper.represent_scalar('tag:yaml.org,2002:str', data)
+        _yaml.add_representer(str, _literal_representer, Dumper=_yaml.Dumper)
+        resp = {"app": d, "k8s": detail, "cr": cr, "spec_yaml": _yaml.dump(spec, default_flow_style=False, allow_unicode=True, Dumper=_yaml.Dumper)}
         return jsonify(resp)
 
     if side == "executing":

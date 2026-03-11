@@ -453,11 +453,33 @@
         keyIn.type = 'text'; keyIn.placeholder = 'key'; keyIn.spellcheck = false;
         keyIn.dataset.role = 'kv-key';
         if (k) keyIn.value = k;
-        var valIn = document.createElement('input');
-        valIn.type = isSecret ? 'password' : 'text';
+        var isMultiLine = !isSecret && v != null && v.toString().indexOf('\n') >= 0;
+        var valIn;
+        if (isMultiLine) {
+          valIn = document.createElement('textarea');
+          valIn.style.resize = 'vertical'; valIn.style.minHeight = '3.5rem';
+        } else {
+          valIn = document.createElement('input');
+          valIn.type = isSecret ? 'password' : 'text';
+        }
         valIn.placeholder = 'value'; valIn.spellcheck = false;
         valIn.className = 'kv-val'; valIn.dataset.role = 'kv-val';
         if (v !== undefined) valIn.value = v;
+        if (!isSecret && !isMultiLine) {
+          valIn.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' && e.shiftKey) {
+              e.preventDefault();
+              var ta = document.createElement('textarea');
+              ta.value = valIn.value + '\n';
+              ta.style.resize = 'vertical'; ta.style.minHeight = '3.5rem';
+              ta.placeholder = 'value'; ta.spellcheck = false;
+              ta.className = 'kv-val'; ta.dataset.role = 'kv-val';
+              valIn.parentNode.replaceChild(ta, valIn);
+              valIn = ta;
+              ta.focus(); ta.selectionStart = ta.selectionEnd = ta.value.length;
+            }
+          });
+        }
         krow.appendChild(keyIn); krow.appendChild(valIn);
         if (isSecret) krow.appendChild(eyeBtn(valIn));
         krow.appendChild(trashBtn(function () { kvList.removeChild(krow); }));
@@ -625,7 +647,11 @@
         lines.push('    mountPath: ' + c.mountPath);
         if (c.data && Object.keys(c.data).length) {
           lines.push('    data:');
-          Object.keys(c.data).forEach(function (k) { lines.push('      ' + k + ': ' + c.data[k]); });
+          Object.keys(c.data).forEach(function (k) {
+            var v = (c.data[k] || '').toString();
+            if (v.indexOf('\n') >= 0) lines.push('      ' + k + ': |\n        ' + v.replace(/\n/g, '\n        '));
+            else lines.push('      ' + k + ': ' + v);
+          });
         }
       });
     }
@@ -636,7 +662,11 @@
         lines.push('    mountPath: ' + s.mountPath);
         if (s.data && Object.keys(s.data).length) {
           lines.push('    data:');
-          Object.keys(s.data).forEach(function (k) { lines.push('      ' + k + ': ' + s.data[k]); });
+          Object.keys(s.data).forEach(function (k) {
+            var v = (s.data[k] || '').toString();
+            if (v.indexOf('\n') >= 0) lines.push('      ' + k + ': |\n        ' + v.replace(/\n/g, '\n        '));
+            else lines.push('      ' + k + ': ' + v);
+          });
         }
       });
     }

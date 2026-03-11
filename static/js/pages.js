@@ -1164,14 +1164,22 @@
   // Creates a value input that expands to a textarea on Shift+Enter (configmap only).
   // Keeps the same data-role so existing collectors work unchanged.
   function _makeValInput(role, isSecret, initialValue) {
-    var el = document.createElement(isSecret ? 'input' : 'input');
-    el.type = isSecret ? 'password' : 'text';
+    var isMultiLine = !isSecret && initialValue != null && initialValue.toString().indexOf('\n') >= 0;
+    var el;
+    if (isMultiLine) {
+      el = document.createElement('textarea');
+      el.style.resize = 'vertical';
+      el.style.minHeight = '3.5rem';
+    } else {
+      el = document.createElement('input');
+      el.type = isSecret ? 'password' : 'text';
+    }
     el.placeholder = 'value';
     el.style.flex = '2';
     el.style.fontSize = '0.78rem';
     el.dataset.role = role;
     if (initialValue != null) el.value = initialValue;
-    if (!isSecret) {
+    if (!isSecret && !isMultiLine) {
       el.addEventListener('keydown', function (e) {
         if (e.key === 'Enter' && e.shiftKey) {
           e.preventDefault();
