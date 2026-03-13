@@ -403,7 +403,11 @@
       var healthDot = el('health-dot');
       if (healthDot) healthDot.className = 'health-dot';
       var lastRefresh = el('last-refresh');
-      if (lastRefresh) lastRefresh.textContent = new Date().toLocaleTimeString();
+      if (lastRefresh) {
+        var now = new Date();
+        lastRefresh.textContent = now.toLocaleTimeString();
+        lastRefresh.title = now.toLocaleString();
+      }
     }).catch(function () {
       var healthDot = el('health-dot');
       if (healthDot) healthDot.className = 'health-dot red';
@@ -958,7 +962,7 @@
 
       entries.forEach(function (pair, idx) {
         var row = document.createElement('div');
-        row.style.cssText = 'display:flex;gap:0.5rem;align-items:center;margin-bottom:0.3rem;';
+        row.style.cssText = 'display:flex;gap:0.5rem;align-items:flex-start;margin-bottom:0.3rem;';
         var keyIn = document.createElement('input');
         keyIn.type = 'text'; keyIn.value = pair.k; keyIn.readOnly = readOnly;
         keyIn.style.flex = '1'; keyIn.style.fontSize = '0.78rem';
@@ -967,10 +971,11 @@
         valIn.readOnly = readOnly;
         valIn.dataset.idx = idx;
         row.appendChild(keyIn); row.appendChild(valIn);
-        if (isSecret) row.appendChild(_makeEyeBtn(valIn));
+        var eyeBtn = isSecret ? _makeEyeBtn(valIn) : null;
+        if (eyeBtn) { eyeBtn.classList.add('kv-inline-btn-top'); row.appendChild(eyeBtn); }
         if (!readOnly) {
           var del = document.createElement('button');
-          del.type = 'button'; del.className = 'btn-icon btn-icon-danger';
+          del.type = 'button'; del.className = 'btn-icon btn-icon-danger kv-inline-btn-top';
           del.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>';
           del.addEventListener('click', function () {
             // Capture current edits from DOM before re-rendering
@@ -989,15 +994,20 @@
 
       if (!readOnly) {
         var addRow = document.createElement('div');
-        addRow.style.cssText = 'display:flex;gap:0.5rem;align-items:center;margin-top:0.25rem;';
+        addRow.style.cssText = 'display:flex;gap:0.5rem;align-items:flex-start;margin-top:0.25rem;';
         var newKey = document.createElement('input');
         newKey.type = 'text'; newKey.placeholder = 'new-key'; newKey.style.flex = '1'; newKey.style.fontSize = '0.78rem';
         newKey.dataset.role = 'cfg-pending-key';
         var newVal = _makeValInput('cfg-pending-val', isSecret);
-        if (isSecret) addRow.appendChild(newKey), addRow.appendChild(newVal), addRow.appendChild(_makeEyeBtn(newVal));
-        else addRow.appendChild(newKey), addRow.appendChild(newVal);
+        if (isSecret) {
+          var pendingEye = _makeEyeBtn(newVal);
+          pendingEye.classList.add('kv-inline-btn-top');
+          addRow.appendChild(newKey); addRow.appendChild(newVal); addRow.appendChild(pendingEye);
+        } else {
+          addRow.appendChild(newKey); addRow.appendChild(newVal);
+        }
         var addBtn = document.createElement('button');
-        addBtn.type = 'button'; addBtn.className = 'btn-sm btn-outline'; addBtn.style.flexShrink = '0';
+        addBtn.type = 'button'; addBtn.className = 'btn-sm btn-outline kv-inline-btn-top'; addBtn.style.flexShrink = '0';
         addBtn.textContent = '+ Add';
         addBtn.addEventListener('click', function () {
           var k = newKey.value.trim();
@@ -1014,6 +1024,13 @@
         addRow.appendChild(addBtn);
         wrap.appendChild(addRow);
       }
+
+      // Auto-size all value textareas that already have content (deferred to allow layout)
+      setTimeout(function () {
+        wrap.querySelectorAll('textarea.kv-val-ta').forEach(function (ta) {
+          _autoGrowTextarea(ta);
+        });
+      }, 0);
     }
 
     // Register a collector function so the tab-level save button can harvest all editors
@@ -1161,58 +1178,55 @@
     '</div>';
   }
 
-  // Creates a value input that expands to a textarea on Shift+Enter (configmap only).
+  // Auto-grow helper: adjusts textarea height to fit its content.
+  function _autoGrowTextarea(ta) {
+    ta.style.height = 'auto';
+    ta.style.height = Math.max(ta.scrollHeight, 32) + 'px';
+  }
+
+  // Creates a value input. For secrets: a password input. For configmap/plain: a
+  // single-row textarea that auto-grows as the user types multi-line content.
   // Keeps the same data-role so existing collectors work unchanged.
   function _makeValInput(role, isSecret, initialValue) {
-    var isMultiLine = !isSecret && initialValue != null && initialValue.toString().indexOf('\n') >= 0;
-    var el;
-    if (isMultiLine) {
-      el = document.createElement('textarea');
-      el.style.resize = 'vertical';
-      el.style.minHeight = '3.5rem';
+    var inputEl;
+    if (isSecret) {
+      inputEl = document.createElement('input');
+      inputEl.type = 'password';
+      inputEl.placeholder = 'value';
+      inputEl.style.flex = '2';
+      inputEl.style.fontSize = '0.78rem';
+      inputEl.dataset.role = role;
+      if (initialValue != null) inputEl.value = initialValue;
     } else {
-      el = document.createElement('input');
-      el.type = isSecret ? 'password' : 'text';
+      inputEl = document.createElement('textarea');
+      inputEl.placeholder = 'value';
+      inputEl.className = 'kv-val-ta';
+      inputEl.dataset.role = role;
+      if (initialValue != null) inputEl.value = initialValue;
+      // Auto-grow on input
+      inputEl.addEventListener('input', function () { _autoGrowTextarea(inputEl); });
+      // Initial size (deferred so it works even before DOM insertion)
+      setTimeout(function () { _autoGrowTextarea(inputEl); }, 0);
     }
-    el.placeholder = 'value';
-    el.style.flex = '2';
-    el.style.fontSize = '0.78rem';
-    el.dataset.role = role;
-    if (initialValue != null) el.value = initialValue;
-    if (!isSecret && !isMultiLine) {
-      el.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter' && e.shiftKey) {
-          e.preventDefault();
-          var ta = document.createElement('textarea');
-          ta.value = el.value + '\n';
-          ta.style.flex = '2';
-          ta.style.fontSize = '0.78rem';
-          ta.style.resize = 'vertical';
-          ta.style.minHeight = '3.5rem';
-          ta.dataset.role = role;
-          if (el.dataset.idx != null) ta.dataset.idx = el.dataset.idx;
-          if (el.readOnly) ta.readOnly = true;
-          el.parentNode.replaceChild(ta, el);
-          ta.focus();
-          ta.selectionStart = ta.selectionEnd = ta.value.length;
-        }
-      });
-    }
-    return el;
+    return inputEl;
   }
 
   function _initAddKvEditor(wrap, isSecret) {
     function addRow() {
       var row = document.createElement('div');
-      row.style.cssText = 'display:flex;gap:0.5rem;align-items:center;margin-bottom:0.3rem;';
+      row.style.cssText = 'display:flex;gap:0.5rem;align-items:flex-start;margin-bottom:0.3rem;';
       var keyIn = document.createElement('input');
       keyIn.type = 'text'; keyIn.placeholder = 'key'; keyIn.style.flex = '1'; keyIn.style.fontSize = '0.78rem';
       keyIn.dataset.role = 'add-kv-key';
       var valIn = _makeValInput('add-kv-val', isSecret);
       row.appendChild(keyIn); row.appendChild(valIn);
-      if (isSecret) row.appendChild(_makeEyeBtn(valIn));
+      if (isSecret) {
+        var eyeB = _makeEyeBtn(valIn);
+        eyeB.classList.add('kv-inline-btn-top');
+        row.appendChild(eyeB);
+      }
       var del = document.createElement('button');
-      del.type = 'button'; del.className = 'btn-icon btn-icon-danger';
+      del.type = 'button'; del.className = 'btn-icon btn-icon-danger kv-inline-btn-top';
       del.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>';
       del.addEventListener('click', function () { wrap.removeChild(row); });
       row.appendChild(del);

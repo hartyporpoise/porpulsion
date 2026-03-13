@@ -6,8 +6,8 @@
 <section id="deploy-page" data-page="deploy">
 
   <!-- ── Mode toggle ─────────────────────────────────────────────── -->
-  <div style="margin-bottom:1rem;">
-    <div class="seg-ctrl" id="deploy-mode-ctrl" style="width:auto;">
+  <div class="mb1">
+    <div class="seg-ctrl" id="deploy-mode-ctrl" role="group" aria-label="Deploy mode">
       <button class="seg-btn active" data-mode="form" type="button">Form</button>
       <button class="seg-btn" data-mode="yaml" type="button">YAML</button>
     </div>
@@ -17,15 +17,15 @@
   <div id="deploy-form-wrap">
 
     <!-- Target -->
-    <div class="card" style="margin-bottom:1rem;">
+    <div class="card mb1">
       <div class="card-header"><h2>Deploy RemoteApp</h2></div>
       <div class="card-body">
         <div class="form-row-2">
-          <div class="form-group" style="margin-bottom:0;">
+          <div class="form-group mb0">
             <label class="form-label" for="deploy-name">App name <span class="req">*</span></label>
             <input type="text" id="deploy-name" placeholder="e.g. my-nginx" autocomplete="off" spellcheck="false">
           </div>
-          <div class="form-group" style="margin-bottom:0;">
+          <div class="form-group mb0">
             <label class="form-label" for="deploy-target-peer">Target peer <span class="req">*</span></label>
             <select id="deploy-target-peer">
               <option value="" disabled hidden selected>— select peer —</option>
@@ -36,7 +36,7 @@
     </div>
 
     <!-- Container -->
-    <div class="card" style="margin-bottom:1rem;">
+    <div class="card mb1">
       <div class="card-header"><h2>Container</h2></div>
       <div class="card-body">
         <div class="form-group">
@@ -44,11 +44,11 @@
           <input type="text" id="deploy-image" placeholder="e.g. nginx:latest" autocomplete="off" spellcheck="false">
         </div>
         <div class="form-row-3">
-          <div class="form-group" style="margin-bottom:0;">
+          <div class="form-group mb0">
             <label class="form-label" for="deploy-replicas">Replicas</label>
             <input type="number" id="deploy-replicas" value="1" min="0" max="100">
           </div>
-          <div class="form-group" style="margin-bottom:0;">
+          <div class="form-group mb0">
             <label class="form-label" for="deploy-pull-policy">Pull policy</label>
             <select id="deploy-pull-policy">
               <option value="IfNotPresent" selected>IfNotPresent</option>
@@ -69,21 +69,21 @@
         <div style="margin-top:1rem;">
           <div class="section-label-sm">Resources</div>
           <div class="form-row-2" style="margin-bottom:0.5rem;">
-            <div class="form-group" style="margin-bottom:0;">
+            <div class="form-group mb0">
               <label class="form-label">CPU request</label>
               <input type="text" id="deploy-cpu-req" placeholder="e.g. 250m" autocomplete="off">
             </div>
-            <div class="form-group" style="margin-bottom:0;">
+            <div class="form-group mb0">
               <label class="form-label">CPU limit</label>
               <input type="text" id="deploy-cpu-lim" placeholder="e.g. 500m" autocomplete="off">
             </div>
           </div>
           <div class="form-row-2">
-            <div class="form-group" style="margin-bottom:0;">
+            <div class="form-group mb0">
               <label class="form-label">Memory request</label>
               <input type="text" id="deploy-mem-req" placeholder="e.g. 64Mi" autocomplete="off">
             </div>
-            <div class="form-group" style="margin-bottom:0;">
+            <div class="form-group mb0">
               <label class="form-label">Memory limit</label>
               <input type="text" id="deploy-mem-lim" placeholder="e.g. 128Mi" autocomplete="off">
             </div>
@@ -93,7 +93,7 @@
     </div>
 
     <!-- Command & Args -->
-    <div class="card collapsed" style="margin-bottom:1rem;" id="card-cmd-args">
+    <div class="card collapsed mb1" id="card-cmd-args">
       <div class="card-header card-header-collapsible" data-collapse="card-cmd-args" role="button" tabindex="0" aria-expanded="false">
         <h2>Command &amp; Args</h2>
         <span class="card-header-sub">Override container ENTRYPOINT / CMD</span>
@@ -105,7 +105,7 @@
           <input type="text" id="deploy-command" placeholder='e.g. /bin/sh  or  ["/bin/sh", "-c"]' autocomplete="off" spellcheck="false">
           <span class="form-hint">Space-separated args become a list. Use JSON array syntax for precise control.</span>
         </div>
-        <div class="form-group" style="margin-bottom:0;">
+        <div class="form-group mb0">
           <label class="form-label" for="deploy-args">Args (CMD override)</label>
           <input type="text" id="deploy-args" placeholder='e.g. echo hello  or  ["echo", "hello"]' autocomplete="off" spellcheck="false">
           <span class="form-hint">Space-separated args become a list.</span>
@@ -114,7 +114,7 @@
     </div>
 
     <!-- Environment Variables -->
-    <div class="card" style="margin-bottom:1rem;">
+    <div class="card mb1">
       <div class="card-header"><h2>Environment Variables</h2></div>
       <div class="card-body">
         <div id="deploy-env-list"></div>
@@ -123,7 +123,7 @@
     </div>
 
     <!-- Volumes (ConfigMaps / Secrets / PVCs) -->
-    <div class="card" style="margin-bottom:1rem;">
+    <div class="card mb1">
       <div class="card-header">
         <h2>Volumes</h2>
         <span class="card-header-sub">ConfigMaps · Secrets · PVCs</span>
@@ -140,7 +140,7 @@
 
 
     <!-- Registry Proxy -->
-    <div class="card" style="margin-bottom:1rem;">
+    <div class="card mb1">
       <div class="card-header"><h2>Registry Proxy</h2></div>
       <div class="card-body" style="padding:0.75rem 1rem;">
         <div class="toggle-row" style="border:none;padding:0;margin-bottom:0;">
@@ -166,15 +166,15 @@
   <div id="deploy-yaml-wrap" style="display:none;">
 
     <!-- Target + name (visible in yaml mode too) -->
-    <div class="card" style="margin-bottom:1rem;">
+    <div class="card mb1">
       <div class="card-header"><h2>Deploy RemoteApp</h2></div>
       <div class="card-body">
         <div class="form-row-2">
-          <div class="form-group" style="margin-bottom:0;">
+          <div class="form-group mb0">
             <label class="form-label" for="deploy-name-yaml">App name <span class="req">*</span></label>
             <input type="text" id="deploy-name-yaml" placeholder="e.g. my-nginx" autocomplete="off" spellcheck="false">
           </div>
-          <div class="form-group" style="margin-bottom:0;">
+          <div class="form-group mb0">
             <label class="form-label" for="deploy-target-peer-yaml">Target peer <span class="req">*</span></label>
             <select id="deploy-target-peer-yaml">
               <option value="" disabled hidden selected>— select peer —</option>
@@ -208,6 +208,21 @@
   </div><!-- /#deploy-yaml-wrap -->
 
 </section>
+{% endblock %}
+
+{% block head %}
+<script>
+  (function() {
+    var s = document.createElement('script');
+    s.src = 'https://unpkg.com/monaco-editor@0.52.2/min/vs/loader.js';
+    s.onload = function() {
+      if (window.require && window.require.config) {
+        window.require.config({ paths: { vs: 'https://unpkg.com/monaco-editor@0.52.2/min/vs' } });
+      }
+    };
+    document.head.appendChild(s);
+  })();
+</script>
 {% endblock %}
 
 {% block scripts %}

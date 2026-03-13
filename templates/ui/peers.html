@@ -15,7 +15,7 @@
           <h2>Connect a Peer</h2>
         </div>
         <div class="card-body">
-          <p class="text-sm text-muted" style="margin-bottom:1.25rem;">
+          <p class="text-sm text-muted mb1">
             Paste their invite bundle below. The bundle is cryptographically
             signed — no separate fingerprint needed.
           </p>
@@ -41,7 +41,7 @@
           <h2>Your Invite Bundle</h2>
         </div>
         <div class="card-body">
-          <p class="text-sm text-muted" style="margin-bottom:1rem;">
+          <p class="text-sm text-muted mb1">
             Share this bundle with the peer who wants to connect to you.
             It is self-contained and cryptographically signed.
           </p>
@@ -79,20 +79,20 @@
     </div>
 
     <!-- All peers table -->
-    <div class="card" style="margin-top:1rem;">
+    <div class="card mt1">
       <div class="card-header">
         <h2>All Peers</h2>
         <span class="badge badge-pending" id="all-peers-count">0</span>
       </div>
       <div class="card-body no-pad">
-        <div class="table-wrap">
+        <div class="table-wrap table-wrap-wide">
           <table>
             <thead><tr><th>Name</th><th class="col-hide-tablet">URL</th><th class="col-hide-mobile">Direction</th><th>Channel</th><th class="col-hide-mobile">Latency</th><th class="col-hide-tablet">Connected</th><th></th></tr></thead>
             <tbody id="all-peers-body"></tbody>
           </table>
         </div>
         <div class="empty-state" id="all-peers-empty">
-          <div class="empty-icon">&#8644;</div>No peers yet
+          <div class="empty-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="7" r="3"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/><path d="M21 21v-2a4 4 0 0 0-3-3.85"/></svg></div>No peers yet
         </div>
       </div>
     </div>
