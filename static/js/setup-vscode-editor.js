@@ -212,13 +212,31 @@
   // ── Modal spec editor (used in app detail modal Spec tab) ──────
   var _modalSpecEditors = {}; // keyed by hostId
 
+  // Queue of callbacks waiting for Monaco to finish loading
+  var _monacoLoadCallbacks = null; // null = not loading; [] = loading in-flight
+
   function _ensureMonacoLoaded(callback) {
     if (window.monaco) { callback(window.monaco); return; }
-    if (window.require) {
-      // require.config is pre-called in base.html; just load the main bundle
+
+    // Already loading — queue up behind it
+    if (_monacoLoadCallbacks) { _monacoLoadCallbacks.push(callback); return; }
+
+    _monacoLoadCallbacks = [callback];
+    function _resolve(mc) {
+      var cbs = _monacoLoadCallbacks;
+      _monacoLoadCallbacks = null;
+      cbs.forEach(function (cb) { cb(mc); });
+    }
+
+    function _doLoad() {
       window.require(['vs/editor/editor.main'], function () {
-        callback(window.monaco || null);
-      }, function () { callback(null); });
+        _resolve(window.monaco || null);
+      }, function () { _resolve(null); });
+    }
+
+    if (window.require) {
+      // loader.js is already on the page with require.config set in base.html
+      _doLoad();
       return;
     }
     // Fallback: loader.js wasn't on the page — inject it
@@ -226,11 +244,9 @@
     s.src = 'https://unpkg.com/monaco-editor@0.52.2/min/vs/loader.js';
     s.onload = function () {
       window.require.config({ paths: { vs: 'https://unpkg.com/monaco-editor@0.52.2/min/vs' } });
-      window.require(['vs/editor/editor.main'], function () {
-        callback(window.monaco || null);
-      }, function () { callback(null); });
+      _doLoad();
     };
-    s.onerror = function () { callback(null); };
+    s.onerror = function () { _resolve(null); };
     document.head.appendChild(s);
   }
 

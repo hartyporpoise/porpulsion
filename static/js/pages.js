@@ -914,6 +914,7 @@
         footer.innerHTML = '';
       }
     }
+    if (tabName !== 'terminal' && _execWs) { try { _execWs.close(); } catch(e) {} _execWs = null; }
     if (tabName === 'logs') _fetchModalLogs();
     if (tabName === 'terminal') _initExecTab();
     if (tabName === 'edit' && window.PorpulsionVscodeEditor) {
@@ -1074,7 +1075,10 @@
     _execSetStatus('connecting');
     var sbText = el('exec-statusbar-text');
     if (sbText) sbText.textContent = 'Loading pods…';
+    var initAppId = _currentAppId;
     P.getAppPods(_currentAppId).then(function (d) {
+      // Modal was closed while we were fetching — discard
+      if (_currentAppId !== initAppId) return;
       var pods = (d && d.pods) ? d.pods : [];
       if (!pods.length) {
         sel.innerHTML = '<option value="">No running pods</option>';
@@ -1090,6 +1094,7 @@
       }).join('');
       _execConnect(sel.value);
     }).catch(function () {
+      if (_currentAppId !== initAppId) return;
       sel.innerHTML = '<option value="">Failed to load pods</option>';
       _execSetStatus('error');
       if (sbText) sbText.textContent = 'Failed to list pods';
@@ -1212,9 +1217,9 @@
       }, 0);
     }
 
-    // Register a collector function so the tab-level save button can harvest all editors
-    _kvEditors[kind + '/' + volName] = {
-      appId: appId, kind: kind, volName: volName,
+    // Register a collector function so the tab-level save button can harvest all editors.
+    // dirty is set to true only when the user actually changes something in this editor.
+    var editorEntry = { appId: appId, kind: kind, volName: volName, dirty: false,
       collect: function () {
         var out = {};
         wrap.querySelectorAll('[data-role="cfg-key"]').forEach(function (ki) {
@@ -1231,6 +1236,10 @@
         return out;
       },
     };
+    _kvEditors[kind + '/' + volName] = editorEntry;
+
+    // Mark dirty on any user input inside this editor's container
+    wrap.addEventListener('input', function () { editorEntry.dirty = true; });
 
     // Load current data from server
     var url = P.API_BASE + '/remoteapp/' + appId + '/config/' + kind + '/' + encodeURIComponent(volName);
@@ -1584,7 +1593,9 @@
           newSpec.pvcs = (newSpec.pvcs || []).concat([{ name: pvcName.trim(), mountPath: pvcMount.trim(), storage: pvcStorage.trim(), accessMode: pvcMode }]);
         }
         var doKvPatches = function () {
-          var patches = Object.values(_kvEditors).map(function (ed) {
+          var patches = Object.values(_kvEditors).filter(function (ed) {
+            return ed.dirty;
+          }).map(function (ed) {
             var data = ed.collect();
             var url = P.API_BASE + '/remoteapp/' + ed.appId + '/config/' + ed.kind + '/' + encodeURIComponent(ed.volName);
             return fetch(url, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data: data }) })
@@ -1622,10 +1633,12 @@
         });
       }
 
-      // Footer event delegation — handles dynamically injected save buttons
+      // Footer event delegation — replace the footer element each open so listeners don't stack
       var footer = el('app-modal-footer');
       if (footer) {
-        footer.addEventListener('click', function (e) {
+        var newFooter = footer.cloneNode(false);
+        footer.parentNode.replaceChild(newFooter, footer);
+        newFooter.addEventListener('click', function (e) {
           var btn = e.target.closest('button');
           if (!btn) return;
           if (btn.id === 'cfg-tab-save') _doCfgSave(btn);
