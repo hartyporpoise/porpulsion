@@ -10,7 +10,7 @@ from porpulsion.channel import get_channel
 from porpulsion.k8s.executor import (
     scale_workload, get_deployment_status, get_pod_logs,
     get_configmap_data, patch_configmap_data, patch_secret_data,
-    rollout_restart,
+    rollout_restart, list_pods, exec_in_pod,
 )
 from porpulsion.k8s.store import (
     create_remoteapp_cr, delete_remoteapp_cr,
@@ -494,6 +494,109 @@ def remoteapp_logs(app_id):
         return jsonify(result)
 
     return jsonify({"error": "app not found", "lines": []}), 404
+
+
+@bp.route("/remoteapp/<app_id>/pods")
+def remoteapp_pods(app_id):
+    """List running pods for a RemoteApp (proxied to executing peer if submitted side)."""
+    cr, side = get_cr_by_app_id(state.NAMESPACE, app_id)
+    if cr is None:
+        return jsonify({"error": "app not found", "pods": []}), 404
+
+    d = cr_to_dict(cr, side)
+
+    if side == "submitted":
+        peer = state.peers.get(d["target_peer"])
+        if not peer:
+            return jsonify({"error": "peer not connected", "pods": []}), 200
+        try:
+            result = get_channel(peer.name).call("remoteapp/pods", {"id": app_id})
+        except Exception as e:
+            return jsonify({"error": str(e), "pods": []}), 502
+        return jsonify(result)
+
+    if side == "executing":
+        ra = RemoteApp(
+            id=app_id, name=d["name"],
+            spec=RemoteAppSpec.from_dict(d.get("spec", {})),
+            source_peer=d["source_peer"],
+        )
+        return jsonify(list_pods(ra))
+
+    return jsonify({"error": "app not found", "pods": []}), 404
+
+
+@bp.route("/remoteapp/<app_id>/exec", methods=["POST"])
+def remoteapp_exec(app_id):
+    """Run a command in a specific pod (proxied to executing peer if submitted side)."""
+    data = request.json or {}
+    pod_name = (data.get("pod") or "").strip()
+    command = (data.get("command") or "").strip()
+    if not pod_name or not command:
+        return jsonify({"error": "pod and command are required"}), 400
+
+    cr, side = get_cr_by_app_id(state.NAMESPACE, app_id)
+    if cr is None:
+        return jsonify({"error": "app not found"}), 404
+
+    d = cr_to_dict(cr, side)
+
+    if side == "submitted":
+        peer = state.peers.get(d["target_peer"])
+        if not peer:
+            return jsonify({"error": "peer not connected"}), 503
+        try:
+            result = get_channel(peer.name).call(
+                "remoteapp/exec", {"id": app_id, "pod": pod_name, "command": command},
+                timeout=30.0,
+            )
+        except Exception as e:
+            return jsonify({"error": str(e)}), 502
+        return jsonify(result)
+
+    if side == "executing":
+        ra = RemoteApp(
+            id=app_id, name=d["name"],
+            spec=RemoteAppSpec.from_dict(d.get("spec", {})),
+            source_peer=d["source_peer"],
+        )
+        return jsonify(exec_in_pod(ra, pod_name, command))
+
+    return jsonify({"error": "app not found"}), 404
+
+
+@bp.route("/remoteapp/<app_id>/restart", methods=["POST"])
+def remoteapp_restart(app_id):
+    """Trigger a rollout restart for a RemoteApp deployment."""
+    cr, side = get_cr_by_app_id(state.NAMESPACE, app_id)
+    if cr is None:
+        return jsonify({"error": "app not found"}), 404
+
+    d = cr_to_dict(cr, side)
+
+    if side == "submitted":
+        peer = state.peers.get(d["target_peer"])
+        if not peer:
+            return jsonify({"error": "peer not connected"}), 503
+        try:
+            result = get_channel(peer.name).call("remoteapp/restart", {"id": app_id})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 502
+        return jsonify(result)
+
+    if side == "executing":
+        ra = RemoteApp(
+            id=app_id, name=d["name"],
+            spec=RemoteAppSpec.from_dict(d.get("spec", {})),
+            source_peer=d["source_peer"],
+        )
+        try:
+            rollout_restart(ra)
+            return jsonify({"ok": True})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    return jsonify({"error": "app not found"}), 404
 
 
 @bp.route("/remoteapp/<app_id>/spec", methods=["PUT"])

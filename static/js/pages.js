@@ -210,7 +210,7 @@
         '<td><a href="#" class="app-open-link">' + _esc(a.name) + '</a></td>' +
         '<td>' + typeLabel + '</td><td>' + statusBadge(a.status) + '</td>' +
         '<td class="time-ago">' + timeAgo(a.updated_at) + '</td>' +
-        '<td><span class="btn-row"><button type="button" class="btn-icon app-detail-btn" title="Detail" aria-label="Detail"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="8.5"/><line x1="12" y1="12" x2="12" y2="16"/></svg></button><button type="button" class="btn-icon btn-icon-danger app-delete-btn" title="Delete" aria-label="Delete"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></button></span></td></tr>';
+        '<td><span class="btn-row"><button type="button" class="btn-icon app-detail-btn" title="Detail" aria-label="Detail"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="8.5"/><line x1="12" y1="12" x2="12" y2="16"/></svg></button><button type="button" class="btn-icon app-restart-btn" title="Rollout restart" aria-label="Rollout restart"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button><button type="button" class="btn-icon btn-icon-danger app-delete-btn" title="Delete" aria-label="Delete"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></button></span></td></tr>';
     }).join('');
   }
 
@@ -236,12 +236,13 @@
         var proxyUrl = window.location.origin + P.API_BASE + '/remoteapp/' + a.id + '/proxy/' + firstPort;
         proxyBtn = '<a href="' + _esc(proxyUrl) + '" target="_blank" rel="noopener" class="btn-icon" title="Open proxy (:' + firstPort + ')" aria-label="Open proxy">' + ICON_PROXY_OPEN + '</a>';
       }
+      var restartBtn = isDead ? '' : '<button type="button" class="btn-icon app-restart-btn" title="Rollout restart" aria-label="Rollout restart"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>';
       return '<tr' + (isDead ? ' style="opacity:0.55;"' : '') + ' data-app-id="' + _esc(a.id) + '" data-app-name="' + _esc(a.name) + '"' + typeAttr + '>' +
         '<td><a href="#" class="app-open-link">' + _esc(a.name) + '</a></td>' +
         '<td class="mono col-hide-mobile">' + _esc(a.id) + '</td><td>' + statusBadge(a.status) + '</td>' +
         '<td class="text-muted text-sm col-hide-tablet">' + _esc(peerVal) + '</td>' +
         '<td class="time-ago col-hide-tablet">' + timeAgo(a.updated_at) + '</td>' +
-        '<td><span class="btn-row">' + proxyBtn + '<button type="button" class="btn-icon app-detail-btn" title="Detail" aria-label="Detail"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="8.5"/><line x1="12" y1="12" x2="12" y2="16"/></svg></button><button type="button" class="btn-icon btn-icon-danger app-delete-btn" title="Delete" aria-label="Delete"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></button></span></td></tr>';
+        '<td><span class="btn-row">' + proxyBtn + '<button type="button" class="btn-icon app-detail-btn" title="Detail" aria-label="Detail"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="8.5"/><line x1="12" y1="12" x2="12" y2="16"/></svg></button>' + restartBtn + '<button type="button" class="btn-icon btn-icon-danger app-delete-btn" title="Delete" aria-label="Delete"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></button></span></td></tr>';
     }).join('');
   }
 
@@ -699,6 +700,14 @@
       var row = btn.closest('[data-app-id]');
       if (!appId && row) appId = row.dataset.appId;
       if (appId) openAppModal(appId);
+    } else if (btn.classList.contains('app-restart-btn')) {
+      e.preventDefault();
+      var row = btn.closest('tr[data-app-id]');
+      if (!row) return;
+      var appId = row.dataset.appId, appName = row.dataset.appName;
+      showConfirm('Rollout restart?', 'Restart all pods in "' + (appName || appId) + '" one by one. Running traffic will continue during the rollout.', 'Restart', '', function () {
+        P.restartApp(appId).then(function () { toast('Rollout restart triggered', 'ok'); }).catch(function (err) { toast('Error: ' + err.message, 'error'); });
+      });
     } else if (btn.classList.contains('app-delete-btn')) {
       e.preventDefault();
       var row = btn.closest('tr[data-app-id]');
@@ -891,9 +900,22 @@
     if (!body) return;
     body.querySelectorAll('.modal-tab').forEach(function (t) { t.classList.toggle('active', t.dataset.tab === tabName); });
     body.querySelectorAll('.modal-tab-panel').forEach(function (p) { p.classList.toggle('active', p.dataset.panel === tabName); });
-    var cfgSave = el('cfg-tab-save');
-    if (cfgSave) cfgSave.style.display = tabName === 'config' ? '' : 'none';
+    // Terminal tab needs full-height flex layout with no padding
+    body.classList.toggle('modal-body-terminal', tabName === 'terminal');
+    // Show footer Save button for config and spec tabs only
+    var footer = el('app-modal-footer');
+    if (footer) {
+      if (tabName === 'config' || tabName === 'edit') {
+        var btnId = tabName === 'config' ? 'cfg-tab-save' : 'spec-tab-save';
+        footer.style.display = '';
+        footer.innerHTML = '<button type="button" class="btn-sm" id="' + btnId + '">Save</button>';
+      } else {
+        footer.style.display = 'none';
+        footer.innerHTML = '';
+      }
+    }
     if (tabName === 'logs') _fetchModalLogs();
+    if (tabName === 'terminal') _initExecTab();
     if (tabName === 'edit' && window.PorpulsionVscodeEditor) {
       var specYamlEl = el('modal-spec-textarea');
       var initialVal = specYamlEl ? specYamlEl.dataset.specYaml || '' : '';
@@ -919,6 +941,163 @@
       }).join('\n') || '(no logs)';
     }).catch(function (err) { pre.textContent = 'Error: ' + (err.message || 'failed'); });
   }
+
+  var _execWs = null;
+  var _execTerm = null;
+  var _execFitAddon = null;
+  var _execResizeObserver = null;
+
+  function _execSetStatus(state) {
+    // state: 'connecting' | 'connected' | 'disconnected' | 'error'
+    var statusEl = el('exec-status');
+    var sbText = el('exec-statusbar-text');
+    var labels = { connecting: 'Connecting…', connected: 'Connected', disconnected: 'Disconnected', error: 'Error' };
+    var colors = { connecting: '#f0a732', connected: '#3fb950', disconnected: '#6e7681', error: '#ff7b72' };
+    if (statusEl) {
+      var dot = statusEl.querySelector('.exec-status-dot');
+      var txt = statusEl.querySelector('.exec-status-text');
+      if (dot) {
+        dot.style.background = colors[state] || '#6e7681';
+        dot.style.animation = state === 'connecting' ? 'exec-pulse 1s ease-in-out infinite' : '';
+      }
+      if (txt) txt.textContent = labels[state] || state;
+    }
+    if (sbText) {
+      if (state === 'connected') {
+        var podSel = el('exec-pod-select');
+        var shellSel = el('exec-shell-select');
+        sbText.textContent = (podSel ? podSel.value : '') + '  \u00b7  ' + (shellSel ? shellSel.value : '');
+      } else {
+        sbText.textContent = labels[state] || state;
+      }
+    }
+  }
+
+  function _execEnsureTerminal() {
+    var wrap = el('exec-terminal-wrap');
+    if (!wrap) return false;
+    if (_execTerm) return true;
+    if (!window.Terminal) return false;
+    _execTerm = new window.Terminal({
+      cursorBlink: true,
+      cursorStyle: 'block',
+      fontSize: 13,
+      fontFamily: "'SF Mono', 'Menlo', 'Monaco', 'Consolas', 'Courier New', monospace",
+      theme: {
+        background: '#0d1117',
+        foreground: '#c9d1d9',
+        cursor: '#58a6ff',
+        cursorAccent: '#0d1117',
+        selectionBackground: 'rgba(88, 166, 255, 0.3)',
+        black:   '#484f58', red:     '#ff7b72', green:   '#3fb950',
+        yellow:  '#d29922', blue:    '#58a6ff', magenta: '#bc8cff',
+        cyan:    '#39c5cf', white:   '#b1bac4',
+        brightBlack:   '#6e7681', brightRed:   '#ffa198', brightGreen: '#56d364',
+        brightYellow:  '#e3b341', brightBlue:  '#79c0ff', brightMagenta: '#d2a8ff',
+        brightCyan:    '#56d4dd', brightWhite: '#f0f6fc'
+      },
+      allowProposedApi: false,
+      scrollback: 3000,
+      convertEol: false,
+    });
+    if (window.FitAddon) {
+      _execFitAddon = new window.FitAddon.FitAddon();
+      _execTerm.loadAddon(_execFitAddon);
+    }
+    _execTerm.open(wrap);
+    if (_execFitAddon) {
+      try { _execFitAddon.fit(); } catch(e) {}
+    }
+    _execTerm.onData(function (data) {
+      if (_execWs && _execWs.readyState === WebSocket.OPEN) {
+        _execWs.send(data);
+      }
+    });
+    // Resize observer — refit terminal when container size changes
+    if (window.ResizeObserver) {
+      _execResizeObserver = new ResizeObserver(function () {
+        if (_execFitAddon) {
+          try { _execFitAddon.fit(); } catch(e) {}
+        }
+      });
+      _execResizeObserver.observe(wrap);
+    }
+    return true;
+  }
+
+  function _execDestroyTerminal() {
+    if (_execResizeObserver) { try { _execResizeObserver.disconnect(); } catch(e) {} _execResizeObserver = null; }
+    if (_execTerm) { try { _execTerm.dispose(); } catch(e) {} _execTerm = null; }
+    _execFitAddon = null;
+  }
+
+  function _execConnect(pod) {
+    if (_execWs) { try { _execWs.close(); } catch(e) {} _execWs = null; }
+    if (!_execEnsureTerminal()) return;
+    _execTerm.clear();
+    _execSetStatus('connecting');
+
+    var shellSel = el('exec-shell-select');
+    var shell = shellSel ? shellSel.value : '/bin/sh';
+    var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    var url = proto + '//' + location.host + '/api/remoteapp/' + encodeURIComponent(_currentAppId) + '/exec-ws?pod=' + encodeURIComponent(pod) + '&shell=' + encodeURIComponent(shell);
+    var ws = new WebSocket(url);
+    _execWs = ws;
+
+    ws.onopen = function () {
+      _execSetStatus('connected');
+      if (_execFitAddon) { try { _execFitAddon.fit(); } catch(e) {} }
+      if (_execTerm) _execTerm.focus();
+    };
+    ws.onmessage = function (e) {
+      if (_execTerm) _execTerm.write(e.data);
+    };
+    ws.onerror = function () {
+      _execSetStatus('error');
+      if (_execTerm) _execTerm.write('\r\n\x1b[31m[connection error]\x1b[0m\r\n');
+    };
+    ws.onclose = function () {
+      if (_execWs === ws) _execWs = null;
+      _execSetStatus('disconnected');
+      if (_execTerm) _execTerm.write('\r\n\x1b[33m[session closed]\x1b[0m\r\n');
+    };
+  }
+
+  function _initExecTab() {
+    // Destroy and recreate terminal on each tab visit (clean slate)
+    if (_execWs) { try { _execWs.close(); } catch(e) {} _execWs = null; }
+    _execDestroyTerminal();
+    _execSetStatus('disconnected');
+    var sel = el('exec-pod-select');
+    if (!sel || !_currentAppId) return;
+    sel.innerHTML = '<option value="">Loading…</option>';
+    _execSetStatus('connecting');
+    var sbText = el('exec-statusbar-text');
+    if (sbText) sbText.textContent = 'Loading pods…';
+    P.getAppPods(_currentAppId).then(function (d) {
+      var pods = (d && d.pods) ? d.pods : [];
+      if (!pods.length) {
+        sel.innerHTML = '<option value="">No running pods</option>';
+        _execSetStatus('disconnected');
+        if (sbText) sbText.textContent = 'No running pods found';
+        _execEnsureTerminal();
+        if (_execTerm) _execTerm.write('\r\n\x1b[33mNo running pods found.\x1b[0m\r\n');
+        return;
+      }
+      sel.innerHTML = pods.map(function (p) {
+        var label = p.name + (p.ready ? '' : ' (not ready)');
+        return '<option value="' + _esc(p.name) + '">' + _esc(label) + '</option>';
+      }).join('');
+      _execConnect(sel.value);
+    }).catch(function () {
+      sel.innerHTML = '<option value="">Failed to load pods</option>';
+      _execSetStatus('error');
+      if (sbText) sbText.textContent = 'Failed to list pods';
+      _execEnsureTerminal();
+      if (_execTerm) _execTerm.write('\r\n\x1b[31mFailed to list pods.\x1b[0m\r\n');
+    });
+  }
+
 
   // ── Config tab helpers ──────────────────────────────────────
   // Registry of all active KV editors in the current modal, keyed by "kind/volName"
@@ -1297,6 +1476,8 @@
         });
         overviewHtml += '</div>';
       }
+      // Delete button lives only in the overview tab
+      overviewHtml += '<div class="overview-actions"><button type="button" class="btn-sm btn-danger app-modal-delete-btn">Delete workload</button></div>';
 
       // ── Logs tab ──────────────────────────────────────────────
       var logsHtml =
@@ -1321,31 +1502,49 @@
           '<div class="monaco-editor-wrap" id="modal-spec-editor-wrap">' +
             '<div id="modal-spec-editor-host" class="monaco-editor-host" style="height:' + specEditorPx + 'px;" aria-label="YAML spec editor"></div>' +
             '<textarea id="modal-spec-textarea" class="monaco-fallback-textarea modal-spec-editor" rows="' + specLineCount + '" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" data-spec-yaml="' + _esc(specYaml) + '">' + _esc(specYaml) + '</textarea>' +
-          '</div>' +
-          '<div class="flex-end mt1"><button type="button" class="btn-sm" id="modal-spec-save">Save &amp; apply</button></div>'
+          '</div>'
         : '<p class="text-sm text-muted">Editing is only available for workloads you submitted.</p>';
+
+      // ── Terminal tab ──────────────────────────────────────────
+      var termHtml =
+        '<div class="exec-toolbar">' +
+          '<div class="exec-toolbar-left">' +
+            '<label class="exec-label" for="exec-pod-select">Pod</label>' +
+            '<select id="exec-pod-select" class="exec-pod-select"><option value="">Loading…</option></select>' +
+            '<label class="exec-label" for="exec-shell-select">Shell</label>' +
+            '<select id="exec-shell-select" class="exec-pod-select exec-shell-select">' +
+              '<option value="/bin/sh">/bin/sh</option>' +
+              '<option value="/bin/bash">/bin/bash</option>' +
+            '</select>' +
+          '</div>' +
+          '<div class="exec-toolbar-right">' +
+            '<div class="exec-status" id="exec-status"><span class="exec-status-dot"></span><span class="exec-status-text">Disconnected</span></div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="exec-terminal-wrap" id="exec-terminal-wrap"></div>' +
+        '<div class="exec-statusbar" id="exec-statusbar">' +
+          '<span id="exec-statusbar-text">Initializing…</span>' +
+        '</div>';
 
       // ── Assemble tabs ─────────────────────────────────────────
       var podReady = app.status === 'Running' || app.status === 'Ready';
       var configTabDisabled = !podReady;
+      var termTabDisabled = !podReady;
       var tabsHtml =
         '<div class="modal-tabs">' +
           '<button type="button" class="modal-tab active" data-tab="overview">Overview</button>' +
           '<button type="button" class="modal-tab" data-tab="logs">Logs</button>' +
+          '<button type="button" class="modal-tab' + (termTabDisabled ? ' modal-tab-disabled' : '') + '" data-tab="terminal"' + (termTabDisabled ? ' disabled title="Available when pod is Running"' : '') + '>Terminal</button>' +
           (isSubmitted ? '<button type="button" class="modal-tab' + (configTabDisabled ? ' modal-tab-disabled' : '') + '" data-tab="config"' + (configTabDisabled ? ' disabled title="Available when pod is Running"' : '') + '>Config</button>' : '') +
           (isSubmitted ? '<button type="button" class="modal-tab" data-tab="edit">Spec</button>' : '') +
         '</div>' +
         '<div class="modal-tab-panel active" data-panel="overview">' + overviewHtml + '</div>' +
         '<div class="modal-tab-panel" data-panel="logs">' + logsHtml + '</div>' +
+        '<div class="modal-tab-panel modal-tab-panel-terminal" data-panel="terminal">' + termHtml + '</div>' +
         (isSubmitted ? '<div class="modal-tab-panel" data-panel="config"><div id="cfg-panel-body"' + (configTabDisabled ? ' style="opacity:0.4;pointer-events:none;"' : '') + '>' + configHtml + '</div></div>' : '') +
         (isSubmitted ? '<div class="modal-tab-panel" data-panel="edit">' + editHtml + '</div>' : '');
 
-      var actionsHtml = '<div class="detail-actions">' +
-        '<button type="button" class="btn-sm btn-danger app-modal-delete-btn">Delete workload</button>' +
-        (isSubmitted ? '<button type="button" class="btn-sm" id="cfg-tab-save" style="display:none;margin-left:auto;">Save &amp; restart</button>' : '') +
-        '</div>';
-
-      body.innerHTML = tabsHtml + actionsHtml;
+      body.innerHTML = tabsHtml;
       if (initialTab) _showModalTab(initialTab);
       initCustomDropdowns();
       initNumSpinners();
@@ -1358,61 +1557,79 @@
         _buildKvEditor('cfg-sec-' + i, app.id, 'secret', sec.name, !isSubmitted);
       });
 
-      // Save & restart — patches existing KV editors + applies any open add-forms
-      var cfgSaveBtn = el('cfg-tab-save');
-      if (cfgSaveBtn) {
-        cfgSaveBtn.addEventListener('click', function () {
-          cfgSaveBtn.disabled = true; cfgSaveBtn.textContent = 'Saving…';
-
-          // Check for open add-forms (new CM/secret/PVC entries)
-          var newSpec = JSON.parse(JSON.stringify(spec));
-          var hasNewEntries = false;
-          ['configmap', 'secret'].forEach(function (kind) {
-            var name = (el('add-' + kind + '-name') || {}).value || '';
-            var mount = (el('add-' + kind + '-mount') || {}).value || '';
-            if (!name.trim() || !mount.trim()) return;
-            hasNewEntries = true;
-            var kvPairs = _readAddKvEditor('add-' + kind + '-kv');
-            var entryData = {};
-            kvPairs.forEach(function (p) { if (p.key) entryData[p.key] = p.value; });
-            var entry = { name: name.trim(), mountPath: mount.trim() };
-            if (Object.keys(entryData).length) entry.data = entryData;
-            if (kind === 'configmap') { newSpec.configMaps = (newSpec.configMaps || []).concat([entry]); }
-            else { newSpec.secrets = (newSpec.secrets || []).concat([entry]); }
+      // Config save — delegated via footer (button is injected by _showModalTab)
+      function _doCfgSave(btn) {
+        btn.disabled = true; btn.textContent = 'Saving…';
+        var newSpec = JSON.parse(JSON.stringify(spec));
+        var hasNewEntries = false;
+        ['configmap', 'secret'].forEach(function (kind) {
+          var name = (el('add-' + kind + '-name') || {}).value || '';
+          var mount = (el('add-' + kind + '-mount') || {}).value || '';
+          if (!name.trim() || !mount.trim()) return;
+          hasNewEntries = true;
+          var kvPairs = _readAddKvEditor('add-' + kind + '-kv');
+          var entryData = {};
+          kvPairs.forEach(function (p) { if (p.key) entryData[p.key] = p.value; });
+          var entry = { name: name.trim(), mountPath: mount.trim() };
+          if (Object.keys(entryData).length) entry.data = entryData;
+          if (kind === 'configmap') { newSpec.configMaps = (newSpec.configMaps || []).concat([entry]); }
+          else { newSpec.secrets = (newSpec.secrets || []).concat([entry]); }
+        });
+        var pvcName = (el('add-pvc-name') || {}).value || '';
+        var pvcMount = (el('add-pvc-mount') || {}).value || '';
+        var pvcStorage = (el('add-pvc-storage') || {}).value || '1Gi';
+        var pvcMode = (el('add-pvc-mode') || {}).value || 'ReadWriteOnce';
+        if (pvcName.trim() && pvcMount.trim()) {
+          hasNewEntries = true;
+          newSpec.pvcs = (newSpec.pvcs || []).concat([{ name: pvcName.trim(), mountPath: pvcMount.trim(), storage: pvcStorage.trim(), accessMode: pvcMode }]);
+        }
+        var doKvPatches = function () {
+          var patches = Object.values(_kvEditors).map(function (ed) {
+            var data = ed.collect();
+            var url = P.API_BASE + '/remoteapp/' + ed.appId + '/config/' + ed.kind + '/' + encodeURIComponent(ed.volName);
+            return fetch(url, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data: data }) })
+              .then(function (r) { return r.json(); })
+              .then(function (res) { if (!res.ok) throw new Error(res.error || 'patch failed'); });
           });
-          var pvcName = (el('add-pvc-name') || {}).value || '';
-          var pvcMount = (el('add-pvc-mount') || {}).value || '';
-          var pvcStorage = (el('add-pvc-storage') || {}).value || '1Gi';
-          var pvcMode = (el('add-pvc-mode') || {}).value || 'ReadWriteOnce';
-          if (pvcName.trim() && pvcMount.trim()) {
-            hasNewEntries = true;
-            newSpec.pvcs = (newSpec.pvcs || []).concat([{ name: pvcName.trim(), mountPath: pvcMount.trim(), storage: pvcStorage.trim(), accessMode: pvcMode }]);
-          }
+          return Promise.all(patches);
+        };
+        var work = hasNewEntries ? P.updateAppSpec(app.id, _specToYaml(newSpec)) : doKvPatches();
+        work.then(function () {
+          toast('Saved', 'ok');
+          closeAppModal();
+          refresh();
+        }).catch(function (err) {
+          toast('Error: ' + err.message, 'error');
+          btn.disabled = false; btn.textContent = 'Save';
+        });
+      }
 
-          // KV patches for existing CMs/secrets
-          var doKvPatches = function () {
-            var patches = Object.values(_kvEditors).map(function (ed) {
-              var data = ed.collect();
-              var url = P.API_BASE + '/remoteapp/' + ed.appId + '/config/' + ed.kind + '/' + encodeURIComponent(ed.volName);
-              return fetch(url, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data: data }) })
-                .then(function (r) { return r.json(); })
-                .then(function (res) { if (!res.ok) throw new Error(res.error || 'patch failed'); });
-            });
-            return Promise.all(patches);
-          };
+      // Spec save — delegated via footer
+      function _doSpecSave(btn) {
+        var yamlStr = window.PorpulsionVscodeEditor
+          ? window.PorpulsionVscodeEditor.getModalSpecEditorValue('modal-spec-editor-host', 'modal-spec-textarea')
+          : (el('modal-spec-textarea') || {}).value || '';
+        if (!yamlStr.trim()) { toast('Spec cannot be empty', 'error'); return; }
+        if (yamlStr.indexOf('image:') === -1) { toast('Spec must include an image field', 'error'); return; }
+        btn.disabled = true; btn.textContent = 'Saving…';
+        P.updateAppSpec(app.id, yamlStr).then(function () {
+          toast('Saved', 'ok');
+          closeAppModal();
+          refresh();
+        }).catch(function (err) {
+          toast('Error: ' + err.message, 'error');
+          btn.disabled = false; btn.textContent = 'Save';
+        });
+      }
 
-          // New entries go through spec update; existing KV edits go direct via PATCH
-          var work = hasNewEntries
-            ? P.updateAppSpec(app.id, _specToYaml(newSpec))
-            : doKvPatches();
-
-          work.then(function () {
-            toast('Saved — rollout restarting', 'ok');
-            closeAppModal();
-          }).catch(function (err) {
-            toast('Error: ' + err.message, 'error');
-            cfgSaveBtn.disabled = false; cfgSaveBtn.textContent = 'Save & restart';
-          });
+      // Footer event delegation — handles dynamically injected save buttons
+      var footer = el('app-modal-footer');
+      if (footer) {
+        footer.addEventListener('click', function (e) {
+          var btn = e.target.closest('button');
+          if (!btn) return;
+          if (btn.id === 'cfg-tab-save') _doCfgSave(btn);
+          else if (btn.id === 'spec-tab-save') _doSpecSave(btn);
         });
       }
 
@@ -1478,29 +1695,16 @@
       var logsTailSel = el('modal-logs-tail');
       if (logsTailSel) logsTailSel.addEventListener('change', _fetchModalLogs);
 
-      // Spec save
-      var specSaveBtn = el('modal-spec-save');
-      if (specSaveBtn) {
-        specSaveBtn.addEventListener('click', function () {
-          var yamlStr = window.PorpulsionVscodeEditor
-            ? window.PorpulsionVscodeEditor.getModalSpecEditorValue('modal-spec-editor-host', 'modal-spec-textarea')
-            : (el('modal-spec-textarea') || {}).value || '';
-          if (!yamlStr.trim()) { toast('Spec cannot be empty', 'error'); return; }
-          if (yamlStr.indexOf('image:') === -1) { toast('Spec must include an image field', 'error'); return; }
-          specSaveBtn.disabled = true;
-          specSaveBtn.textContent = 'Saving…';
-          P.updateAppSpec(app.id, yamlStr).then(function () {
-            toast('Spec updated', 'ok');
-            specSaveBtn.disabled = false;
-            specSaveBtn.textContent = 'Save & apply';
-            refresh();
-          }).catch(function (err) {
-            toast('Error: ' + err.message, 'error');
-            specSaveBtn.disabled = false;
-            specSaveBtn.textContent = 'Save & apply';
-          });
-        });
+      // Terminal exec — xterm.js handles all input, just wire up pod/shell selects
+      var execPodSel = el('exec-pod-select');
+      var execShellSel = el('exec-shell-select');
+      function _execReconnect() {
+        var pod = execPodSel ? execPodSel.value : '';
+        if (!pod) return;
+        _execConnect(pod);
       }
+      if (execPodSel) execPodSel.addEventListener('change', _execReconnect);
+      if (execShellSel) execShellSel.addEventListener('change', _execReconnect);
 
       // Delete
       var delBtn = body.querySelector('.app-modal-delete-btn');
@@ -1519,6 +1723,12 @@
 
   function closeAppModal() {
     _currentAppId = null;
+    if (_execWs) { try { _execWs.close(); } catch(e) {} _execWs = null; }
+    _execDestroyTerminal();
+    var body = el('app-modal-body');
+    if (body) body.classList.remove('modal-body-terminal');
+    var footer = el('app-modal-footer');
+    if (footer) { footer.style.display = 'none'; footer.innerHTML = ''; }
     var modal = el('app-modal');
     if (modal) modal.classList.remove('open');
     if (window.PorpulsionVscodeEditor) {

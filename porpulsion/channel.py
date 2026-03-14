@@ -805,6 +805,13 @@ def _register_handlers(ch: "PeerChannel"):
         handle_remoteapp_scale,
         handle_remoteapp_detail,
         handle_remoteapp_logs,
+        handle_remoteapp_pods,
+        handle_remoteapp_exec,
+        handle_remoteapp_exec_open,
+        handle_remoteapp_exec_stdin,
+        handle_remoteapp_exec_close,
+        handle_remoteapp_exec_stdout,
+        handle_remoteapp_restart,
         handle_remoteapp_spec_update,
         handle_remoteapp_config_patch,
         handle_proxy_request,
@@ -827,6 +834,15 @@ def _register_handlers(ch: "PeerChannel"):
     ch.register("remoteapp/scale",         handle_remoteapp_scale)
     ch.register("remoteapp/detail",        handle_remoteapp_detail)
     ch.register("remoteapp/logs",          handle_remoteapp_logs)
+    ch.register("remoteapp/pods",          handle_remoteapp_pods)
+    ch.register("remoteapp/exec",          handle_remoteapp_exec)
+    ch.register("remoteapp/exec-stdin",    handle_remoteapp_exec_stdin)
+    ch.register("remoteapp/exec-close",    handle_remoteapp_exec_close)
+    ch.register("remoteapp/exec-stdout",   handle_remoteapp_exec_stdout)
+    ch.register("remoteapp/restart",       handle_remoteapp_restart)
+    def _exec_open_handler(payload, _ch=ch):
+        return handle_remoteapp_exec_open(payload, _ch)
+    ch.register("remoteapp/exec-open",     _exec_open_handler)
     ch.register("remoteapp/spec-update",   handle_remoteapp_spec_update)
     ch.register("remoteapp/config-patch",  handle_remoteapp_config_patch)
     # Wrap proxy handler so it can enforce the per-peer tunnel allowlist.

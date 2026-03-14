@@ -82,6 +82,13 @@
     getAppLogs: function (appId, tail, order) {
       return getJson(API_BASE + '/remoteapp/' + encodeURIComponent(appId) + '/logs?tail=' + (tail || 200) + '&order=' + (order || 'pod'));
     },
+    restartApp: function (id) { return postJson(API_BASE + '/remoteapp/' + encodeURIComponent(id) + '/restart', {}); },
+    getAppPods: function (appId) {
+      return getJson(API_BASE + '/remoteapp/' + encodeURIComponent(appId) + '/pods');
+    },
+    execInPod: function (appId, pod, command) {
+      return postJson(API_BASE + '/remoteapp/' + encodeURIComponent(appId) + '/exec', { pod: pod, command: command });
+    },
     proxyUrl: function (appId, port) {
       return window.location.origin + API_BASE + '/remoteapp/' + appId + '/proxy/' + port;
     },
