@@ -193,8 +193,13 @@
   </div>
   <script src="https://unpkg.com/xterm@5.3.0/lib/xterm.js"></script>
   <script src="https://unpkg.com/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
-  <script src="https://unpkg.com/htmx.org@1.9.10"></script>
-  <script src="https://unpkg.com/htmx.org@1.9.10/dist/ext/json-enc.js"></script>
+  <!-- Monaco AMD loader — loaded eagerly so the editor is available on any page instantly -->
+  <script src="https://unpkg.com/monaco-editor@0.52.2/min/vs/loader.js"></script>
+  <script>
+    if (window.require && window.require.config) {
+      window.require.config({ paths: { vs: 'https://unpkg.com/monaco-editor@0.52.2/min/vs' } });
+    }
+  </script>
   <script src="https://unpkg.com/alpinejs@3.13.3/dist/cdn.min.js" defer></script>
   <script src="{{ url_for('static', filename='js/api.js') }}"></script>
   <script src="{{ url_for('static', filename='js/app.js') }}"></script>
