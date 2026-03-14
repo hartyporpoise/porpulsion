@@ -589,6 +589,7 @@ def remoteapp_restart(app_id):
             id=app_id, name=d["name"],
             spec=RemoteAppSpec.from_dict(d.get("spec", {})),
             source_peer=d["source_peer"],
+            resource_name=d.get("resource_name", ""),
         )
         try:
             rollout_restart(ra)
@@ -696,6 +697,7 @@ def patch_app_configmap(app_id, name):
             id=app_id, name=d["name"],
             spec=RemoteAppSpec.from_dict(d.get("spec", {})),
             source_peer=d["source_peer"],
+            resource_name=d.get("resource_name", ""),
         )
         try:
             patch_configmap_data(app_id, name, data)
@@ -752,6 +754,7 @@ def patch_app_secret(app_id, name):
             id=app_id, name=d["name"],
             spec=RemoteAppSpec.from_dict(d.get("spec", {})),
             source_peer=d["source_peer"],
+            resource_name=d.get("resource_name", ""),
         )
         try:
             patch_secret_data(app_id, name, data)

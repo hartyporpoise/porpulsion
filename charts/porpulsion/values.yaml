@@ -6,7 +6,7 @@
 # -- Agent
 agent:
   # -- Container image for the porpulsion agent.
-  image: ghcr.io/hartyporpoise/porpulsion:1.1.1
+  image: ghcr.io/hartyporpoise/porpulsion:1.1.2
 
   # -- Image pull policy. Use `Always` when pushing to a remote registry.
   pullPolicy: IfNotPresent

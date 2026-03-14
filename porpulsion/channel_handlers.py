@@ -340,6 +340,7 @@ def handle_remoteapp_restart(payload: dict) -> dict:
         id=app_id, name=d["name"],
         spec=RemoteAppSpec.from_dict(d.get("spec", {})),
         source_peer=d["source_peer"],
+        resource_name=d.get("resource_name", ""),
     )
     rollout_restart(ra)
     return {"ok": True}
@@ -366,6 +367,7 @@ def handle_remoteapp_config_patch(payload: dict) -> dict:
         id=app_id, name=d["name"],
         spec=RemoteAppSpec.from_dict(d.get("spec", {})),
         source_peer=d["source_peer"],
+        resource_name=d.get("resource_name", ""),
     )
     if kind == "configmap":
         patch_configmap_data(app_id, name, data)
