@@ -181,6 +181,186 @@ _Session(app)
 _sock = Sock(app)
 _sock.route("/ws")(peer_ws)
 
+
+def _exec_ws_handler(ws, app_id):
+    """
+    Browser-facing WebSocket for an interactive PTY exec session.
+
+    URL: /api/remoteapp/<app_id>/exec-ws?pod=<pod_name>
+    Session auth is enforced by checking the Flask session before upgrading.
+
+    Executing side: bridges browser WS directly to the k8s exec stream via
+    exec_open_session / exec_send_stdin.
+
+    Submitted side: opens the session on the executing peer via the peer channel
+    (remoteapp/exec-open), then forwards browser↔peer stdout/stdin using push
+    messages and a queue.
+    """
+    import queue as _queue
+    from flask import request as _req
+    from porpulsion.channel_handlers import (
+        register_exec_stdout_queue, unregister_exec_stdout_queue,
+    )
+    from porpulsion.k8s.store import get_cr_by_app_id, cr_to_dict
+    from porpulsion.models import RemoteApp, RemoteAppSpec
+    from porpulsion.channel import get_channel
+    from porpulsion.k8s.executor import exec_open_session, exec_send_stdin, exec_close_session
+
+    pod_name = (_req.args.get("pod") or "").strip()
+    shell = (_req.args.get("shell") or "/bin/sh").strip()
+
+    log.info("exec-ws: app_id=%s pod=%s shell=%s", app_id, pod_name, shell)
+
+    if not app_id or not pod_name:
+        ws.send("\r\nMissing app_id or pod\r\n")
+        ws.close()
+        return
+
+    cr, side = get_cr_by_app_id(state.NAMESPACE, app_id)
+    if cr is None:
+        log.warning("exec-ws: app %s not found", app_id)
+        ws.send("\r\nApp not found\r\n")
+        ws.close()
+        return
+
+    log.info("exec-ws: side=%s", side)
+    d = cr_to_dict(cr, side)
+
+    if side == "executing":
+        # Direct: bridge browser WS ↔ k8s exec stream
+        ra = RemoteApp(
+            id=app_id, name=d["name"],
+            spec=RemoteAppSpec.from_dict(d.get("spec", {})),
+            source_peer=d["source_peer"],
+        )
+
+        session_id = None
+        out_q = _queue.Queue()
+
+        def _on_stdout(data):
+            out_q.put(data)
+
+        try:
+            log.info("exec-ws: opening session pod=%s shell=%s", pod_name, shell)
+            session_id = exec_open_session(ra, pod_name, _on_stdout, shell=shell)
+            log.info("exec-ws: session opened %s", session_id)
+        except Exception as e:
+            log.warning("exec-ws: exec_open_session failed: %s", e)
+            ws.send(f"\r\n\033[31mError: {e}\033[0m\r\n")
+            ws.close()
+            return
+
+        import threading as _threading
+        stop = _threading.Event()
+
+        def _send_output():
+            while not stop.is_set():
+                try:
+                    data = out_q.get(timeout=1)
+                except _queue.Empty:
+                    continue
+                if data is None:
+                    break
+                try:
+                    ws.send(data)
+                except Exception:
+                    break
+            stop.set()
+
+        t = _threading.Thread(target=_send_output, daemon=True)
+        t.start()
+
+        try:
+            while not stop.is_set():
+                try:
+                    data = ws.receive()
+                except Exception:
+                    break
+                if data is None:
+                    break
+                try:
+                    exec_send_stdin(session_id, data if isinstance(data, str) else data.decode())
+                except Exception:
+                    break
+        finally:
+            stop.set()
+            if session_id:
+                exec_close_session(session_id)
+            t.join(timeout=2)
+
+    elif side == "submitted":
+        # Proxy: open session on executing peer, relay stdin/stdout via peer channel
+        peer = state.peers.get(d["target_peer"])
+        if not peer:
+            ws.send("\r\nPeer not connected\r\n")
+            ws.close()
+            return
+
+        out_q = _queue.Queue()
+        register_exec_stdout_queue(app_id, out_q)
+
+        try:
+            log.info("exec-ws: calling exec-open on peer %s", peer.name)
+            result = get_channel(peer.name).call(
+                "remoteapp/exec-open", {"id": app_id, "pod": pod_name, "shell": shell}, timeout=15.0,
+            )
+            log.info("exec-ws: exec-open result: %s", result)
+        except Exception as e:
+            log.warning("exec-ws: exec-open failed: %s", e)
+            unregister_exec_stdout_queue(app_id)
+            ws.send(f"\r\n\033[31mError: {e}\033[0m\r\n")
+            ws.close()
+            return
+
+        session_id = result.get("session_id", "")
+
+        import threading as _threading
+        stop = _threading.Event()
+
+        def _send_output():
+            while not stop.is_set():
+                try:
+                    data = out_q.get(timeout=1)
+                except _queue.Empty:
+                    continue
+                if data is None:
+                    break
+                try:
+                    ws.send(data)
+                except Exception:
+                    break
+            stop.set()
+
+        t = _threading.Thread(target=_send_output, daemon=True)
+        t.start()
+
+        try:
+            while not stop.is_set():
+                try:
+                    data = ws.receive()
+                except Exception:
+                    break
+                if data is None:
+                    break
+                try:
+                    get_channel(peer.name).push(
+                        "remoteapp/exec-stdin",
+                        {"session_id": session_id, "data": data if isinstance(data, str) else data.decode()},
+                    )
+                except Exception:
+                    break
+        finally:
+            stop.set()
+            unregister_exec_stdout_queue(app_id)
+            try:
+                get_channel(peer.name).push("remoteapp/exec-close", {"session_id": session_id})
+            except Exception:
+                pass
+            t.join(timeout=2)
+
+
+_sock.route("/api/remoteapp/<app_id>/exec-ws")(_exec_ws_handler)
+
 app.register_blueprint(auth_bp.bp)
 app.register_blueprint(peers_bp.bp, url_prefix="/api")
 app.register_blueprint(workloads_bp.bp, url_prefix="/api")

@@ -271,7 +271,7 @@
     var peerName = ((el('deploy-target-peer') || {}).value || '').trim();
     if (!peerName) return '';
     var peer = _confirmedPeers.find(function (p) { return p.name === peerName; });
-    return (peer && peer.registry_proxy_url) ? peer.registry_proxy_url.replace(/\/$/, '') : '';
+    return (peer && peer.registry_proxy_url) ? peer.registry_proxy_url.replace(/^https?:\/\//, '').replace(/\/$/, '') : '';
   }
 
   function _applyRegistryProxy() {

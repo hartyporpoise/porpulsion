@@ -199,6 +199,150 @@ def handle_remoteapp_logs(payload: dict) -> dict:
     return get_pod_logs(ra, tail=tail, pod_name=pod_name, order_by_time=order_by_time)
 
 
+def handle_remoteapp_pods(payload: dict) -> dict:
+    """Return list of running pods for a RemoteApp (executing on this cluster)."""
+    from porpulsion import state
+    from porpulsion.k8s.executor import list_pods
+    from porpulsion.k8s.store import get_ea_cr_by_app_id, cr_to_dict
+    from porpulsion.models import RemoteApp, RemoteAppSpec
+
+    app_id = payload.get("id", "")
+    ea_cr = get_ea_cr_by_app_id(state.NAMESPACE, app_id)
+    if ea_cr is None:
+        raise RuntimeError("app not found")
+
+    d = cr_to_dict(ea_cr, "executing")
+    ra = RemoteApp(
+        id=app_id, name=d["name"],
+        spec=RemoteAppSpec.from_dict(d.get("spec", {})),
+        source_peer=d["source_peer"],
+    )
+    return list_pods(ra)
+
+
+def handle_remoteapp_exec(payload: dict) -> dict:
+    """Run a command in a pod for a RemoteApp (executing on this cluster)."""
+    from porpulsion import state
+    from porpulsion.k8s.executor import exec_in_pod
+    from porpulsion.k8s.store import get_ea_cr_by_app_id, cr_to_dict
+    from porpulsion.models import RemoteApp, RemoteAppSpec
+
+    app_id = payload.get("id", "")
+    pod_name = (payload.get("pod") or "").strip()
+    command = (payload.get("command") or "").strip()
+
+    ea_cr = get_ea_cr_by_app_id(state.NAMESPACE, app_id)
+    if ea_cr is None:
+        raise RuntimeError("app not found")
+
+    d = cr_to_dict(ea_cr, "executing")
+    ra = RemoteApp(
+        id=app_id, name=d["name"],
+        spec=RemoteAppSpec.from_dict(d.get("spec", {})),
+        source_peer=d["source_peer"],
+    )
+    return exec_in_pod(ra, pod_name, command)
+
+
+def handle_remoteapp_exec_open(payload: dict, ch) -> dict:
+    """
+    Open a PTY shell session in a pod (executing side).
+    Streams stdout back to the submitted side via push("remoteapp/exec-stdout").
+    Returns {session_id}.
+    """
+    from porpulsion import state
+    from porpulsion.k8s.executor import exec_open_session
+    from porpulsion.k8s.store import get_ea_cr_by_app_id, cr_to_dict
+    from porpulsion.models import RemoteApp, RemoteAppSpec
+
+    app_id = payload.get("id", "")
+    pod_name = (payload.get("pod") or "").strip()
+    shell = (payload.get("shell") or "/bin/sh").strip()
+
+    ea_cr = get_ea_cr_by_app_id(state.NAMESPACE, app_id)
+    if ea_cr is None:
+        raise RuntimeError("app not found")
+
+    d = cr_to_dict(ea_cr, "executing")
+    ra = RemoteApp(
+        id=app_id, name=d["name"],
+        spec=RemoteAppSpec.from_dict(d.get("spec", {})),
+        source_peer=d["source_peer"],
+    )
+
+    def _on_stdout(data):
+        # data is None on EOF
+        ch.push("remoteapp/exec-stdout", {"id": app_id, "data": data})
+
+    session_id = exec_open_session(ra, pod_name, _on_stdout, shell=shell)
+    return {"session_id": session_id}
+
+
+def handle_remoteapp_exec_stdin(payload: dict) -> dict:
+    """Forward stdin data to a running exec session (executing side)."""
+    from porpulsion.k8s.executor import exec_send_stdin
+
+    session_id = payload.get("session_id", "")
+    data = payload.get("data", "")
+    exec_send_stdin(session_id, data)
+    return {}
+
+
+def handle_remoteapp_exec_close(payload: dict) -> dict:
+    """Close a running exec session (executing side)."""
+    from porpulsion.k8s.executor import exec_close_session
+
+    session_id = payload.get("session_id", "")
+    exec_close_session(session_id)
+    return {}
+
+
+# Registry of browser-side queues waiting for exec stdout pushes.
+# Keyed by app_id (one active terminal per app at a time is fine).
+_exec_stdout_queues: dict[str, object] = {}
+_exec_stdout_lock = __import__("threading").Lock()
+
+
+def register_exec_stdout_queue(app_id: str, q):
+    with _exec_stdout_lock:
+        _exec_stdout_queues[app_id] = q
+
+
+def unregister_exec_stdout_queue(app_id: str):
+    with _exec_stdout_lock:
+        _exec_stdout_queues.pop(app_id, None)
+
+
+def handle_remoteapp_exec_stdout(payload: dict):
+    """Receive stdout push from executing peer and route to waiting browser WS."""
+    app_id = payload.get("id", "")
+    data = payload.get("data")
+    with _exec_stdout_lock:
+        q = _exec_stdout_queues.get(app_id)
+    if q is not None:
+        q.put(data)  # None signals EOF
+
+
+def handle_remoteapp_restart(payload: dict) -> dict:
+    """Trigger a rollout restart for a RemoteApp (executing on this cluster)."""
+    from porpulsion import state
+    from porpulsion.k8s.executor import rollout_restart
+    from porpulsion.k8s.store import get_ea_cr_by_app_id, cr_to_dict
+    from porpulsion.models import RemoteApp, RemoteAppSpec
+
+    app_id = payload.get("id", "")
+    ea_cr = get_ea_cr_by_app_id(state.NAMESPACE, app_id)
+    if ea_cr is None:
+        raise RuntimeError("app not found")
+
+    d = cr_to_dict(ea_cr, "executing")
+    ra = RemoteApp(
+        id=app_id, name=d["name"],
+        spec=RemoteAppSpec.from_dict(d.get("spec", {})),
+        source_peer=d["source_peer"],
+    )
+    rollout_restart(ra)
+    return {"ok": True}
 
 
 def handle_remoteapp_config_patch(payload: dict) -> dict:

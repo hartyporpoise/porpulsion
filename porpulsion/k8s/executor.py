@@ -765,3 +765,167 @@ def get_pod_logs(remote_app, tail: int = 200, pod_name: str | None = None, order
         if e.status == 404:
             return {"lines": [], "error": "deployment not found"}
         return {"lines": [], "error": str(e.reason)}
+
+
+def list_pods(remote_app) -> dict:
+    """Return running pods for a RemoteApp deployment."""
+    try:
+        pods = core_v1.list_namespaced_pod(
+            NAMESPACE,
+            label_selector=f"porpulsion.io/remote-app-id={remote_app.id}",
+        )
+        pod_list = []
+        for p in pods.items:
+            ready = all(c.ready for c in (p.status.container_statuses or []))
+            pod_list.append({
+                "name": p.metadata.name,
+                "phase": p.status.phase or "Unknown",
+                "ready": ready,
+            })
+        return {"pods": pod_list}
+    except client.ApiException as e:
+        return {"pods": [], "error": str(e.reason)}
+
+
+
+# -- Interactive exec sessions (PTY over peer channel)
+#
+# Each session is keyed by a UUID. The executing side owns the k8s exec stream
+# and pushes stdout chunks back over the peer channel. The submitted side
+# bridges those chunks to the browser WebSocket via a Queue.
+
+import queue as _queue
+
+_exec_sessions: dict[str, dict] = {}   # session_id -> {exec_ws, stop, on_stdout}
+_exec_sessions_lock = threading.Lock()
+
+
+_ALLOWED_SHELLS = {"/bin/sh", "/bin/bash"}
+
+
+def exec_open_session(remote_app, pod_name: str, on_stdout, shell: str = "/bin/sh") -> str:
+    """
+    Start an interactive PTY session in a pod using the given shell. Returns a session_id.
+    on_stdout(data: str) is called from a background thread whenever the shell
+    produces output — the caller should forward it over the peer channel.
+    Raises RuntimeError on failure.
+    """
+    from kubernetes.stream import stream as k8s_stream
+
+    if shell not in _ALLOWED_SHELLS:
+        shell = "/bin/sh"
+
+    # Verify pod belongs to this app
+    pods = core_v1.list_namespaced_pod(
+        NAMESPACE,
+        label_selector=f"porpulsion.io/remote-app-id={remote_app.id}",
+    )
+    pod_names = {p.metadata.name for p in pods.items}
+    if pod_name not in pod_names:
+        raise RuntimeError(f"pod {pod_name!r} not found for this app")
+
+    exec_ws = k8s_stream(
+        core_v1.connect_get_namespaced_pod_exec,
+        pod_name,
+        NAMESPACE,
+        command=[shell],
+        stderr=True,
+        stdin=True,
+        stdout=True,
+        tty=True,
+        _preload_content=False,
+    )
+
+    import uuid as _uuid
+    session_id = _uuid.uuid4().hex
+    stop = threading.Event()
+
+    session = {"exec_ws": exec_ws, "stop": stop, "on_stdout": on_stdout}
+    with _exec_sessions_lock:
+        _exec_sessions[session_id] = session
+
+    def _read_loop():
+        try:
+            while not stop.is_set() and exec_ws.is_open():
+                exec_ws.update(timeout=1)
+                for ch in (1, 2):  # stdout, stderr channels
+                    data = exec_ws.read_channel(ch)
+                    if data:
+                        try:
+                            on_stdout(data)
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+        finally:
+            stop.set()
+            try:
+                on_stdout(None)  # signal EOF to caller
+            except Exception:
+                pass
+            with _exec_sessions_lock:
+                _exec_sessions.pop(session_id, None)
+
+    threading.Thread(target=_read_loop, daemon=True).start()
+    return session_id
+
+
+def exec_send_stdin(session_id: str, data: str):
+    """Forward stdin data to a running exec session."""
+    with _exec_sessions_lock:
+        session = _exec_sessions.get(session_id)
+    if not session or session["stop"].is_set():
+        raise RuntimeError("session not found or closed")
+    session["exec_ws"].write_channel(0, data)
+
+
+def exec_close_session(session_id: str):
+    """Close a running exec session."""
+    with _exec_sessions_lock:
+        session = _exec_sessions.pop(session_id, None)
+    if session:
+        session["stop"].set()
+        try:
+            session["exec_ws"].close()
+        except Exception:
+            pass
+
+
+def exec_in_pod(remote_app, pod_name: str, command: str) -> dict:
+    """
+    Run a command in a pod and return combined stdout+stderr output.
+    Command is passed to sh -c so pipes, redirects, etc. work.
+    """
+    from kubernetes.stream import stream
+
+    if not pod_name or not command:
+        return {"output": "", "error": "pod_name and command are required"}
+
+    # Verify the pod belongs to this app
+    try:
+        pods = core_v1.list_namespaced_pod(
+            NAMESPACE,
+            label_selector=f"porpulsion.io/remote-app-id={remote_app.id}",
+        )
+        pod_names = {p.metadata.name for p in pods.items}
+        if pod_name not in pod_names:
+            return {"output": "", "error": f"pod {pod_name!r} not found for this app"}
+    except client.ApiException as e:
+        return {"output": "", "error": str(e.reason)}
+
+    try:
+        resp = stream(
+            core_v1.connect_get_namespaced_pod_exec,
+            pod_name,
+            NAMESPACE,
+            command=["sh", "-c", command],
+            stderr=True,
+            stdin=False,
+            stdout=True,
+            tty=False,
+        )
+        return {"output": resp or ""}
+    except client.ApiException as e:
+        return {"output": "", "error": str(e.reason)}
+    except Exception as e:
+        return {"output": "", "error": str(e)}
