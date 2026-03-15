@@ -46,16 +46,14 @@ spec:
             matchLabels:
               k8s-app: kube-dns
 
+    # Kubernetes API server - no 'to' means any destination, ports restrict scope
     - ports:
         - port: 443
           protocol: TCP
         - port: 6443
           protocol: TCP
-      to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: kube-system
 
+    # Public internet egress - unrestricted on non-API ports
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
