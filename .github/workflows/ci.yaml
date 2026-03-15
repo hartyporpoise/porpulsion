@@ -317,6 +317,23 @@ jobs:
           app_version=$(grep '^appVersion:' charts/porpulsion/Chart.yaml | sed 's/appVersion: *"\(.*\)"/\1/')
           echo "app_version=$app_version" >> "$GITHUB_OUTPUT"
 
+      - name: Fail if version not bumped before release-candidate
+        if: >
+          github.event_name == 'pull_request' && (
+            contains(github.event.pull_request.labels.*.name, 'release-candidate') ||
+            github.event.label.name == 'release-candidate'
+          )
+        run: |
+          BASE_APP=$(git show "origin/${{ github.event.pull_request.base.ref }}:charts/porpulsion/Chart.yaml" | grep '^appVersion:' | sed 's/appVersion: *"\(.*\)"/\1/')
+          PR_APP="${{ steps.chart.outputs.app_version }}"
+          echo "base appVersion: $BASE_APP"
+          echo "PR appVersion:   $PR_APP"
+          if [ "$BASE_APP" = "$PR_APP" ]; then
+            echo "ERROR: appVersion has not been bumped. Add a bump:app:* label before adding release-candidate."
+            exit 1
+          fi
+          echo "Version bumped — OK"
+
       - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -350,8 +367,7 @@ jobs:
       - name: No release-candidate label — skipping image build
         if: >
           github.event_name == 'pull_request' &&
-          !contains(github.event.pull_request.labels.*.name, 'release-candidate') &&
-          github.event.label.name != 'release-candidate'
+          !contains(github.event.pull_request.labels.*.name, 'release-candidate')
         run: echo "No release-candidate label present. Add it to build and push an RC image."
 
   # ---------------------------------------------------------------------------
