@@ -2223,6 +2223,22 @@ select { display: none; }
 }
 
 .modal-spec-editor { min-height: 320px; font-size: 0.8125rem; }
+.cr-yaml-section { display: flex; flex-direction: column; gap: 0.4rem; }
+.cr-yaml-label { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text2); }
+.cr-yaml-block {
+  background: var(--surface2);
+  border: var(--sep) solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  font-family: 'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace;
+  font-size: 0.78rem;
+  line-height: 1.55;
+  color: var(--text1);
+  white-space: pre;
+  overflow-x: auto;
+  margin: 0;
+  user-select: text;
+}
 
 /* ── Deploy form ─────────────────────────────────────────────── */
 #deploy-form-wrap,

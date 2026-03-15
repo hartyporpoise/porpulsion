@@ -181,7 +181,7 @@ def cr_to_dict(cr: dict, side: str) -> dict:
         "cr_name":       meta.get("name", ""),
         "resource_name": status.get("resourceName", ""),
         "side":          side,
-        "created_at":    status.get("createdAt", meta.get("creationTimestamp", "")),
+        "created_at":    meta.get("creationTimestamp", ""),
         "updated_at":    status.get("updatedAt", status.get("lastUpdated", "")),
     }
 
@@ -280,7 +280,6 @@ def create_remoteapp_cr(namespace: str, app_id: str, app_name: str, spec_dict: d
             "namespace": namespace,
             "labels": {
                 "porpulsion.io/app-id":     app_id,
-                "porpulsion.io/target-peer": target_peer,
                 "porpulsion.io/source-peer": source_peer,
             },
         },
@@ -295,7 +294,6 @@ def create_remoteapp_cr(namespace: str, app_id: str, app_name: str, spec_dict: d
             "appId":        app_id,
             "sourcePeer":   source_peer,
             "resourceName": safe_resource_name(app_id, app_name),
-            "createdAt":    now,
             "updatedAt":    now,
         })
         return cr_name
@@ -397,7 +395,6 @@ def create_executingapp_cr(namespace: str, app_id: str, app_name: str, spec_dict
             "appId":        app_id,
             "sourcePeer":   source_peer,
             "resourceName": safe_resource_name(app_id, app_name),
-            "createdAt":    now,
             "updatedAt":    now,
         })
         return cr_name
@@ -599,7 +596,7 @@ def compare_spec_schemas(local_props: dict, remote_props: dict) -> dict:
 
 
 def bootstrap_cr_status(namespace: str, plural: str, cr_name: str, meta: dict,
-                        spec: dict, existing_status: dict) -> str | None:
+                        existing_status: dict) -> str | None:
     """
     For CRs that have no status.appId (e.g. manually kubectl-applied), generate
     a fresh app-id and write it to status. Returns the app_id if bootstrapped,
@@ -619,18 +616,14 @@ def bootstrap_cr_status(namespace: str, plural: str, cr_name: str, meta: dict,
         return None  # already bootstrapped
 
     app_id = _uuid.uuid4().hex[:8]
-    target_peer = spec.get("targetPeer", "")
     log.info("Bootstrapping status for CR %s with generated app-id=%s", cr_name, app_id)
     _patch_status(namespace, plural, cr_name, {
         "phase":        "Pending",
         "appId":        app_id,
         "resourceName": safe_resource_name(app_id, cr_name),
-        "createdAt":    meta.get("creationTimestamp", _now_iso()),
         "updatedAt":    _now_iso(),
     })
     stamp_labels: dict = {"porpulsion.io/app-id": app_id}
-    if target_peer:
-        stamp_labels["porpulsion.io/target-peer"] = target_peer
     try:
         _crd_api.patch_namespaced_custom_object(
             GROUP, VERSION, namespace, plural, cr_name,

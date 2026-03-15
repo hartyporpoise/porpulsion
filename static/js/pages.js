@@ -873,7 +873,8 @@
     // Show footer Save button for config and spec tabs only
     var footer = el('app-modal-footer');
     if (footer) {
-      if (tabName === 'config' || tabName === 'edit') {
+      var showEditSave = tabName === 'edit' && !!el('modal-spec-textarea');
+      if (tabName === 'config' || showEditSave) {
         var btnId = tabName === 'config' ? 'cfg-tab-save' : 'spec-tab-save';
         footer.style.display = '';
         footer.innerHTML = '<button type="button" class="btn-sm" id="' + btnId + '">Save</button>';
@@ -1667,17 +1668,26 @@
       // ── Config tab ────────────────────────────────────────────
       var configHtml = _buildConfigTab(spec, isSubmitted);
 
-      // ── Spec tab ──────────────────────────────────────────────
+      // ── CR tab ────────────────────────────────────────────────
+      var crYaml = d.cr_yaml || '';
       var specYaml = d.spec_yaml || _specToYaml(spec);
       var specLineCount = specYaml ? specYaml.split('\n').length : 1;
       var specEditorPx = Math.max(180, Math.min(480, specLineCount * 19 + 16));
-      var editHtml = isSubmitted
-        ? '<p class="text-sm text-muted" style="margin-bottom:0.75rem;">Edit the YAML spec and save to update the running deployment.</p>' +
-          '<div class="monaco-editor-wrap" id="modal-spec-editor-wrap">' +
-            '<div id="modal-spec-editor-host" class="monaco-editor-host" style="height:' + specEditorPx + 'px;" aria-label="YAML spec editor"></div>' +
-            '<textarea id="modal-spec-textarea" class="monaco-fallback-textarea modal-spec-editor" rows="' + specLineCount + '" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" data-spec-yaml="' + _esc(specYaml) + '">' + _esc(specYaml) + '</textarea>' +
-          '</div>'
-        : '<p class="text-sm text-muted">Editing is only available for workloads you submitted.</p>';
+      var editHtml =
+        '<div class="cr-yaml-section">' +
+          '<div class="cr-yaml-label">Full CR</div>' +
+          '<pre class="cr-yaml-block">' + _esc(crYaml) + '</pre>' +
+        '</div>' +
+        (isSubmitted
+          ? '<div class="cr-yaml-section" style="margin-top:1.25rem;">' +
+              '<div class="cr-yaml-label">Edit spec</div>' +
+              '<p class="text-sm text-muted" style="margin-bottom:0.75rem;">Edit the YAML spec and save to update the running deployment.</p>' +
+              '<div class="monaco-editor-wrap" id="modal-spec-editor-wrap">' +
+                '<div id="modal-spec-editor-host" class="monaco-editor-host" style="height:' + specEditorPx + 'px;" aria-label="YAML spec editor"></div>' +
+                '<textarea id="modal-spec-textarea" class="monaco-fallback-textarea modal-spec-editor" rows="' + specLineCount + '" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" data-spec-yaml="' + _esc(specYaml) + '">' + _esc(specYaml) + '</textarea>' +
+              '</div>' +
+            '</div>'
+          : '');
 
       // ── Terminal tab ──────────────────────────────────────────
       var termHtml =
@@ -1718,7 +1728,7 @@
             '<button type="button" class="modal-tab" data-tab="logs">Logs</button>' +
             (isSubmitted ? '<button type="button" class="modal-tab' + (termTabDisabled ? ' modal-tab-disabled' : '') + '" data-tab="terminal"' + (termTabDisabled ? ' disabled title="Available when pod is Running"' : '') + '>Terminal</button>' : '') +
             (isSubmitted ? '<button type="button" class="modal-tab' + (configTabDisabled ? ' modal-tab-disabled' : '') + '" data-tab="config"' + (configTabDisabled ? ' disabled title="Available when pod is Running"' : '') + '>Config</button>' : '') +
-            (isSubmitted ? '<button type="button" class="modal-tab" data-tab="edit">Spec</button>' : '') +
+            '<button type="button" class="modal-tab" data-tab="edit">CR</button>' +
           '</div>';
       }
 
@@ -1727,7 +1737,7 @@
         '<div class="modal-tab-panel modal-tab-panel-terminal" data-panel="logs">' + logsHtml + '</div>' +
         (isSubmitted ? '<div class="modal-tab-panel modal-tab-panel-terminal" data-panel="terminal">' + termHtml + '</div>' : '') +
         (isSubmitted ? '<div class="modal-tab-panel" data-panel="config"><div id="cfg-panel-body"' + (configTabDisabled ? ' style="opacity:0.4;pointer-events:none;"' : '') + '>' + configHtml + '</div></div>' : '') +
-        (isSubmitted ? '<div class="modal-tab-panel" data-panel="edit">' + editHtml + '</div>' : '');
+        '<div class="modal-tab-panel" data-panel="edit">' + editHtml + '</div>';
       if (initialTab) _showModalTab(initialTab);
       initCustomDropdowns();
       initExecDropdowns();
