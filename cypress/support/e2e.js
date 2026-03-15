@@ -2,6 +2,19 @@
 
 Cypress.on('uncaught:exception', () => false);
 
+// Force dark mode via CDP before every test
+before(() => {
+  cy.wrap(
+    Cypress.automation('remote:debugger:protocol', {
+      command: 'Emulation.setEmulatedMedia',
+      params: {
+        media: 'page',
+        features: [{ name: 'prefers-color-scheme', value: 'dark' }],
+      },
+    })
+  );
+});
+
 const USERNAME = () => Cypress.env('USERNAME');
 const PASSWORD = () => Cypress.env('PASSWORD');
 
@@ -127,19 +140,67 @@ Cypress.Commands.add('execTerminalType', (command) => {
 });
 
 /**
- * Poll /api/remoteapps on an agent until an app reaches a given phase.
- * /api/remoteapps returns { submitted: [...], executing: [...] }
+ * Visit Agent B's settings page via cy.origin and set executing-tab toggles.
+ * settings: { inboundApps, requireApproval, allowPvcs } — each boolean, all optional.
+ * Clears cookies first so the Agent A session doesn't bleed over.
  */
-Cypress.Commands.add('waitForAppPhase', (agentUrl, appName, phase, maxAttempts = 20, intervalMs = 5000) => {
-  const poll = (attempt) => {
-    return cy.apiRequest('GET', `${agentUrl}/api/remoteapps`).then((resp) => {
-      const all = [...(resp.body?.submitted || []), ...(resp.body?.executing || [])];
-      const app = all.find((a) => a.name === appName);
-      if (app && app.status === phase) return app;
-      if (attempt >= maxAttempts) throw new Error(`App ${appName} never reached phase ${phase} (last: ${app?.status})`);
-      cy.wait(intervalMs);
-      return poll(attempt + 1);
-    });
-  };
-  return poll(0);
+Cypress.Commands.add('agentBSettings', (agentBUrl, settings = {}) => {
+  const user = USERNAME();
+  const pass = PASSWORD();
+  cy.origin(agentBUrl, { args: { agentBUrl, settings, user, pass } },
+    ({ agentBUrl, settings, user, pass }) => {
+      function setToggle(id, value) {
+        cy.get(id).then(($el) => {
+          if ($el.prop('checked') !== value) cy.wrap($el).click();
+        });
+      }
+      cy.visit(`${agentBUrl}/login`);
+      cy.get('#username').type(user);
+      cy.get('#password').type(pass);
+      cy.get('button[type="submit"]').click();
+      cy.url({ timeout: 10000 }).should('not.include', '/login');
+      cy.visit(`${agentBUrl}/settings`);
+      if (settings.inboundApps !== undefined || settings.requireApproval !== undefined || settings.allowPvcs !== undefined) {
+        cy.get('.stg-tab[data-section="executing"]').click();
+        if (settings.inboundApps !== undefined)    setToggle('#setting-inbound-apps',     settings.inboundApps);
+        if (settings.requireApproval !== undefined) setToggle('#setting-require-approval', settings.requireApproval);
+        if (settings.allowPvcs !== undefined)       setToggle('#setting-allow-pvcs',       settings.allowPvcs);
+      }
+      if (settings.blockedImages !== undefined || settings.allowedImages !== undefined) {
+        cy.get('.stg-tab[data-section="executing"]').click();
+        if (settings.blockedImages !== undefined) {
+          cy.get('#setting-blocked-images').clear().type(settings.blockedImages);
+        }
+        if (settings.allowedImages !== undefined) {
+          cy.get('#setting-allowed-images').clear().type(settings.allowedImages);
+        }
+        cy.get('#setting-filters-save').click();
+      }
+    }
+  );
+});
+
+/**
+ * Log into Agent B via cy.origin, go to /workloads, and wait until the
+ * named app appears in #executing-body with the expected status text.
+ * Clears cookies first so the Agent A session doesn't bleed over.
+ */
+Cypress.Commands.add('waitForExecutingApp', (agentBUrl, appName, status = 'Ready', maxAttempts = 18, intervalMs = 5000) => {
+  const user = USERNAME();
+  const pass = PASSWORD();
+  const timeoutMs = maxAttempts * intervalMs;
+  cy.origin(agentBUrl, { args: { agentBUrl, appName, status, user, pass, timeoutMs } },
+    ({ agentBUrl, appName, status, user, pass, timeoutMs }) => {
+      cy.visit(`${agentBUrl}/login`);
+      cy.get('#username').type(user);
+      cy.get('#password').type(pass);
+      cy.get('button[type="submit"]').click();
+      cy.url({ timeout: 10000 }).should('not.include', '/login');
+      cy.visit(`${agentBUrl}/workloads`);
+      // Status is in the 3rd td of the row (rendered by statusBadge())
+      cy.contains('#executing-body tr', appName, { timeout: timeoutMs })
+        .find('td:nth-child(3)')
+        .should('contain.text', status);
+    }
+  );
 });

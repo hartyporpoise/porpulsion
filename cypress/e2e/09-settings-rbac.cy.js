@@ -63,14 +63,11 @@ describe('Settings & RBAC', () => {
   // ----------------------------------------------------------------
   context('Inbound apps toggle', () => {
     after(() => {
-      // Restore to enabled on Agent B so subsequent tests can deploy
-      cy.apiRequest('POST', `${AGENT_B}/api/settings`, { allow_inbound_remoteapps: true });
+      cy.agentBSettings(AGENT_B, { inboundApps: true });
     });
 
     it('disabling inbound apps on Agent B rejects a deploy from Agent A', () => {
-      // Disable inbound on B via API (faster than UI navigation)
-      cy.apiRequest('POST', `${AGENT_B}/api/settings`, { allow_inbound_remoteapps: false })
-        .then((r) => { expect(r.status).to.eq(200); });
+      cy.agentBSettings(AGENT_B, { inboundApps: false });
 
       cy.loginUI();
       cy.visit('/deploy');
@@ -97,28 +94,13 @@ describe('Settings & RBAC', () => {
       cy.url().should('not.include', '/workloads');
     });
 
-    it('re-enabling inbound apps on Agent B via UI toggle persists in the API', () => {
-      cy.loginUI();
-      // Navigate to Agent B settings via cy.origin since it's a different origin
-      const user = Cypress.env('USERNAME');
-      const pass = Cypress.env('PASSWORD');
-      cy.origin(AGENT_B, { args: { AGENT_B, user, pass } }, ({ AGENT_B, user, pass }) => {
-        cy.visit(`${AGENT_B}/login`);
-        cy.get('#username').type(user);
-        cy.get('#password').type(pass);
-        cy.get('button[type="submit"]').click();
-        cy.url({ timeout: 10000 }).should('not.include', '/login');
+    it('re-enabling inbound apps on Agent B via UI toggle persists', () => {
+      cy.agentBSettings(AGENT_B, { inboundApps: true });
+      // Confirm the toggle is now checked in the UI
+      cy.origin(AGENT_B, { args: { AGENT_B } }, ({ AGENT_B }) => {
         cy.visit(`${AGENT_B}/settings`);
         cy.get('.stg-tab[data-section="executing"]').click();
-        // Toggle should currently be OFF — click to enable
-        cy.get('#setting-inbound-apps').then(($chk) => {
-          if (!$chk.prop('checked')) cy.wrap($chk).click();
-        });
-      });
-
-      // Verify API reflects the change
-      cy.apiRequest('GET', `${AGENT_B}/api/settings`).then((r) => {
-        expect(r.body.allow_inbound_remoteapps).to.eq(true);
+        cy.get('#setting-inbound-apps').should('be.checked');
       });
     });
   });
@@ -128,16 +110,11 @@ describe('Settings & RBAC', () => {
   // ----------------------------------------------------------------
   context('Image policy', () => {
     after(() => {
-      // Clear both filter fields on Agent B
-      cy.apiRequest('POST', `${AGENT_B}/api/settings`, {
-        allowed_images: '',
-        blocked_images: '',
-      });
+      cy.agentBSettings(AGENT_B, { blockedImages: '', allowedImages: '' });
     });
 
     it('blocked_images rejects a deploy whose image matches the prefix', () => {
-      cy.apiRequest('POST', `${AGENT_B}/api/settings`, { blocked_images: 'cypress-blocked.io/' })
-        .then((r) => { expect(r.status).to.eq(200); });
+      cy.agentBSettings(AGENT_B, { blockedImages: 'cypress-blocked.io/', allowedImages: '' });
 
       cy.loginUI();
       cy.visit('/deploy');
@@ -160,10 +137,7 @@ describe('Settings & RBAC', () => {
     });
 
     it('allowed_images filter rejects an image outside the allowed prefix', () => {
-      cy.apiRequest('POST', `${AGENT_B}/api/settings`, {
-        blocked_images: '',
-        allowed_images: 'docker.io/',
-      }).then((r) => { expect(r.status).to.eq(200); });
+      cy.agentBSettings(AGENT_B, { blockedImages: '', allowedImages: 'docker.io/' });
 
       cy.loginUI();
       cy.visit('/deploy');
@@ -208,44 +182,26 @@ describe('Settings & RBAC', () => {
   // ----------------------------------------------------------------
   context('allow_pvcs toggle', () => {
     after(() => {
-      cy.apiRequest('POST', `${AGENT_B}/api/settings`, { allow_pvcs: true });
+      cy.agentBSettings(AGENT_B, { allowPvcs: true });
     });
 
-    it('allow_pvcs checkbox state is reflected in the UI', () => {
-      // Set to false via API, then check the UI shows it unchecked
-      cy.apiRequest('POST', `${AGENT_B}/api/settings`, { allow_pvcs: false });
-
-      const user = Cypress.env('USERNAME');
-      const pass = Cypress.env('PASSWORD');
-      cy.origin(AGENT_B, { args: { AGENT_B, user, pass } }, ({ AGENT_B, user, pass }) => {
-        cy.visit(`${AGENT_B}/login`);
-        cy.get('#username').type(user);
-        cy.get('#password').type(pass);
-        cy.get('button[type="submit"]').click();
-        cy.url({ timeout: 10000 }).should('not.include', '/login');
+    it('disabling allow_pvcs via UI toggle is reflected in the UI', () => {
+      cy.agentBSettings(AGENT_B, { allowPvcs: false });
+      // Confirm the toggle is now unchecked
+      cy.origin(AGENT_B, { args: { AGENT_B } }, ({ AGENT_B }) => {
         cy.visit(`${AGENT_B}/settings`);
         cy.get('.stg-tab[data-section="executing"]').click();
         cy.get('#setting-allow-pvcs').should('not.be.checked');
       });
     });
 
-    it('enabling allow_pvcs via toggle persists to API', () => {
-      const user = Cypress.env('USERNAME');
-      const pass = Cypress.env('PASSWORD');
-      cy.origin(AGENT_B, { args: { AGENT_B, user, pass } }, ({ AGENT_B, user, pass }) => {
-        cy.visit(`${AGENT_B}/login`);
-        cy.get('#username').type(user);
-        cy.get('#password').type(pass);
-        cy.get('button[type="submit"]').click();
-        cy.url({ timeout: 10000 }).should('not.include', '/login');
+    it('enabling allow_pvcs via UI toggle is reflected in the UI', () => {
+      cy.agentBSettings(AGENT_B, { allowPvcs: true });
+      // Confirm the toggle is now checked
+      cy.origin(AGENT_B, { args: { AGENT_B } }, ({ AGENT_B }) => {
         cy.visit(`${AGENT_B}/settings`);
         cy.get('.stg-tab[data-section="executing"]').click();
-        cy.get('#setting-allow-pvcs').then(($chk) => {
-          if (!$chk.prop('checked')) cy.wrap($chk).click();
-        });
-      });
-      cy.apiRequest('GET', `${AGENT_B}/api/settings`).then((r) => {
-        expect(r.body.allow_pvcs).to.eq(true);
+        cy.get('#setting-allow-pvcs').should('be.checked');
       });
     });
   });

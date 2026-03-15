@@ -16,8 +16,8 @@ describe('PVC persistence', () => {
   const SENTINEL = 'porpulsion-pvc-ok';
 
   before(() => {
-    // Belt-and-suspenders: make sure PVCs are allowed on Agent B
-    cy.apiRequest('POST', `${AGENT_B}/api/settings`, { allow_pvcs: true });
+    // Make sure PVCs are allowed on Agent B via the settings UI
+    cy.agentBSettings(AGENT_B, { inboundApps: true, requireApproval: false, allowPvcs: true });
 
     const waitForPeer = (attempts = 0) => {
       cy.apiRequest('GET', `${AGENT_A}/api/peers`).then((resp) => {
@@ -68,8 +68,8 @@ describe('PVC persistence', () => {
     cy.get('#submitted-body', { timeout: 15000 }).should('contain.text', 'cypress-pvc');
   });
 
-  it('app reaches Running on Agent B (up to 120s — PVC provisioning can be slow)', () => {
-    cy.waitForAppPhase(AGENT_B, 'cypress-pvc', 'Ready', 24, 5000);
+  it('app reaches Ready on Agent B (up to 120s — PVC provisioning can be slow)', () => {
+    cy.waitForExecutingApp(AGENT_B, 'cypress-pvc', 'Ready', 24, 5000);
   });
 
   it('detail modal Overview mentions the PVC volume', () => {
@@ -131,9 +131,9 @@ describe('PVC persistence', () => {
     });
   });
 
-  it('app returns to Running after restart (up to 90s)', () => {
+  it('app returns to Ready after restart (up to 90s)', () => {
     cy.wait(5000); // let the rollout begin
-    cy.waitForAppPhase(AGENT_B, 'cypress-pvc', 'Ready', 18, 5000);
+    cy.waitForExecutingApp(AGENT_B, 'cypress-pvc', 'Ready', 18, 5000);
   });
 
   it('sentinel file is still in /data after pod restart (PVC persisted)', () => {

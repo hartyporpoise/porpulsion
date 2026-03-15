@@ -18,11 +18,6 @@ agent:
   #    during peer handshakes. Defaults to the hostname if unset.
   agentName: ""
 
-  # -- Allow inbound RemoteApps to request PersistentVolumeClaims.
-  #    When true, the Role gains PVC create/delete permissions.
-  #    Defaults to false  enable only on clusters where you trust peers to claim storage.
-  allowPvcs: false
-
   # -- CPU/memory requests and limits for the agent container.
   resources:
     requests:

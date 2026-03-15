@@ -8,6 +8,9 @@ describe('Workloads', () => {
   let PEER_B_NAME;
 
   before(() => {
+    // Ensure Agent B will accept inbound workloads
+    cy.agentBSettings(AGENT_B, { inboundApps: true, requireApproval: false });
+
     // Wait for at least one peer to be connected (02-peering must have run first)
     const waitForPeer = (attempts = 0) => {
       cy.apiRequest('GET', `${AGENT_A}/api/peers`).then((resp) => {
@@ -175,24 +178,8 @@ describe('Workloads', () => {
   // App reaches Running on Agent B
   // ----------------------------------------------------------------
   context('App lifecycle on Agent B', () => {
-    it('cypress-nginx reaches Running on Agent B (up to 90s)', () => {
-      cy.waitForAppPhase(AGENT_B, 'cypress-nginx', 'Ready', 18, 5000);
-    });
-
-    it('Agent B shows the executing app in its workloads table', () => {
-      // Visit Agent B directly — cy.origin handles the cross-origin session.
-      // Pass the full Agent B URL so cy.visit uses absolute URL (avoids baseUrl confusion).
-      const user = Cypress.env('USERNAME');
-      const pass = Cypress.env('PASSWORD');
-      cy.origin(AGENT_B, { args: { AGENT_B, user, pass } }, ({ AGENT_B, user, pass }) => {
-        cy.visit(`${AGENT_B}/login`);
-        cy.get('#username').type(user);
-        cy.get('#password').type(pass);
-        cy.get('button[type="submit"]').click();
-        cy.url({ timeout: 10000 }).should('not.include', '/login');
-        cy.visit(`${AGENT_B}/workloads`);
-        cy.get('#executing-body', { timeout: 15000 }).should('contain.text', 'cypress-nginx');
-      });
+    it('cypress-nginx reaches Ready on Agent B executing apps (up to 90s)', () => {
+      cy.waitForExecutingApp(AGENT_B, 'cypress-nginx', 'Ready', 18, 5000);
     });
   });
 

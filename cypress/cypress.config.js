@@ -9,9 +9,6 @@ module.exports = defineConfig({
           launchOptions.preferences.width = 1920;
           launchOptions.preferences.height = 1080;
           launchOptions.preferences.fullscreen = true;
-          launchOptions.preferences.darkTheme = true;
-          launchOptions.args.push('--force-dark-mode');
-          launchOptions.args.push('--blink-settings=forceDarkModeEnabled=true');
         }
         return launchOptions;
       });

@@ -9,6 +9,9 @@ describe('Terminal (exec)', () => {
   let PEER_B_NAME;
 
   before(() => {
+    // Ensure Agent B will accept inbound workloads (may have been toggled by 09-settings-rbac)
+    cy.agentBSettings(AGENT_B, { inboundApps: true, requireApproval: false });
+
     const waitForPeer = (attempts = 0) => {
       cy.apiRequest('GET', `${AGENT_A}/api/peers`).then((resp) => {
         const peer = resp.body.find((p) => p.channel === 'connected') || resp.body[0];
@@ -44,8 +47,8 @@ describe('Terminal (exec)', () => {
     cy.url({ timeout: 15000 }).should('include', '/workloads');
   });
 
-  it('app reaches Running on Agent B (up to 90s)', () => {
-    cy.waitForAppPhase(AGENT_B, 'cypress-exec', 'Ready', 18, 5000);
+  it('app reaches Ready on Agent B (up to 90s)', () => {
+    cy.waitForExecutingApp(AGENT_B, 'cypress-exec', 'Ready', 18, 5000);
   });
 
   it('detail modal has an enabled Terminal tab when app is Running', () => {

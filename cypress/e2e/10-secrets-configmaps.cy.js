@@ -12,6 +12,8 @@ describe('Secrets & ConfigMaps', () => {
   let APP_ID;
 
   before(() => {
+    cy.agentBSettings(AGENT_B, { inboundApps: true, requireApproval: false });
+
     const waitForPeer = (attempts = 0) => {
       cy.apiRequest('GET', `${AGENT_A}/api/peers`).then((resp) => {
         const peer = resp.body.find((p) => p.channel === 'connected') || resp.body[0];
@@ -68,8 +70,8 @@ describe('Secrets & ConfigMaps', () => {
     cy.get('#submitted-body', { timeout: 15000 }).should('contain.text', 'cypress-cfg-test');
   });
 
-  it('app reaches Running on Agent B (up to 90s)', () => {
-    cy.waitForAppPhase(AGENT_B, 'cypress-cfg-test', 'Ready', 18, 5000);
+  it('app reaches Ready on Agent B (up to 90s)', () => {
+    cy.waitForExecutingApp(AGENT_B, 'cypress-cfg-test', 'Ready', 18, 5000);
   });
 
   // ----------------------------------------------------------------
