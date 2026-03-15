@@ -286,16 +286,7 @@ jobs:
 
   build-image:
     needs: [check]
-    if: >
-      always() && (
-        github.event_name == 'push' ||
-        (
-          github.event_name == 'pull_request' && (
-            contains(github.event.pull_request.labels.*.name, 'release-candidate') ||
-            github.event.label.name == 'release-candidate'
-          )
-        )
-      )
+    if: always() && (github.event_name == 'push' || github.event_name == 'pull_request')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -341,6 +332,10 @@ jobs:
             type=raw,value=rc-${{ steps.chart.outputs.app_version }},enable=${{ github.event_name == 'pull_request' }}
 
       - name: Build and push Docker image
+        if: >
+          github.event_name == 'push' ||
+          contains(github.event.pull_request.labels.*.name, 'release-candidate') ||
+          github.event.label.name == 'release-candidate'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -351,6 +346,13 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: No release-candidate label — skipping image build
+        if: >
+          github.event_name == 'pull_request' &&
+          !contains(github.event.pull_request.labels.*.name, 'release-candidate') &&
+          github.event.label.name != 'release-candidate'
+        run: echo "No release-candidate label present. Add it to build and push an RC image."
 
   # ---------------------------------------------------------------------------
   # PR: security scan (always, non-blocking)
