@@ -291,6 +291,17 @@ def handle_remoteapp_exec_stdin(payload: dict) -> dict:
     return {}
 
 
+def handle_remoteapp_exec_resize(payload: dict) -> dict:
+    """Forward a PTY resize event to a running exec session (executing side)."""
+    from porpulsion.k8s.executor import exec_resize_session
+
+    session_id = payload.get("session_id", "")
+    cols = int(payload.get("cols", 80))
+    rows = int(payload.get("rows", 24))
+    exec_resize_session(session_id, cols, rows)
+    return {}
+
+
 def handle_remoteapp_exec_close(payload: dict) -> dict:
     """Close a running exec session (executing side)."""
     from porpulsion.k8s.executor import exec_close_session

@@ -181,7 +181,7 @@ def cr_to_dict(cr: dict, side: str) -> dict:
         "cr_name":       meta.get("name", ""),
         "resource_name": status.get("resourceName", ""),
         "side":          side,
-        "created_at":    status.get("createdAt", meta.get("creationTimestamp", "")),
+        "created_at":    meta.get("creationTimestamp", ""),
         "updated_at":    status.get("updatedAt", status.get("lastUpdated", "")),
     }
 
@@ -192,26 +192,35 @@ def get_cr_by_app_id(namespace: str, app_id: str) -> tuple[dict | None, str]:
     Checks status.appId and porpulsion.io/app-id label across both CR types.
     Returns (cr_dict, "submitted"|"executing") or (None, "").
     """
-    for plural, side in [(PLURAL, "submitted"), (PLURAL_EA, "executing")]:
-        try:
-            # Fast path: label selector
-            result = _crd_api.list_namespaced_custom_object(
-                GROUP, VERSION, namespace, plural,
-                label_selector=f"porpulsion.io/app-id={app_id}",
-            )
-            items = result.get("items", [])
-            if items:
-                return items[0], side
-        except Exception:
-            pass
-        try:
-            # Slow path: scan all CRs and match on status.appId (supports manually-applied CRs)
-            result = _crd_api.list_namespaced_custom_object(GROUP, VERSION, namespace, plural)
-            for item in result.get("items", []):
-                if item.get("status", {}).get("appId") == app_id:
-                    return item, side
-        except Exception:
-            pass
+    # RemoteApp: scan only (user-owned CRs carry no porpulsion labels)
+    try:
+        result = _crd_api.list_namespaced_custom_object(GROUP, VERSION, namespace, PLURAL)
+        for item in result.get("items", []):
+            if item.get("status", {}).get("appId") == app_id:
+                return item, "submitted"
+    except Exception:
+        pass
+
+    # ExecutingApp: label-selector fast path (agent-owned, always labelled)
+    try:
+        result = _crd_api.list_namespaced_custom_object(
+            GROUP, VERSION, namespace, PLURAL_EA,
+            label_selector=f"porpulsion.io/app-id={app_id}",
+        )
+        items = result.get("items", [])
+        if items:
+            return items[0], "executing"
+    except Exception:
+        pass
+    # Fallback scan for ExecutingApp
+    try:
+        result = _crd_api.list_namespaced_custom_object(GROUP, VERSION, namespace, PLURAL_EA)
+        for item in result.get("items", []):
+            if item.get("status", {}).get("appId") == app_id:
+                return item, "executing"
+    except Exception:
+        pass
+
     return None, ""
 
 
@@ -259,7 +268,7 @@ def validate_remoteapp_spec(namespace: str, app_id: str, app_name: str, spec_dic
 
 
 def create_remoteapp_cr(namespace: str, app_id: str, app_name: str, spec_dict: dict,
-                        target_peer: str, source_peer: str = "") -> str | None:
+                        target_peer: str) -> str | None:
     """
     Create a RemoteApp CR on the local cluster. Returns the CR name, or None if unavailable.
     spec_dict should already have secret data base64-encoded.
@@ -278,11 +287,6 @@ def create_remoteapp_cr(namespace: str, app_id: str, app_name: str, spec_dict: d
         "metadata": {
             "name": cr_name,
             "namespace": namespace,
-            "labels": {
-                "porpulsion.io/app-id":     app_id,
-                "porpulsion.io/target-peer": target_peer,
-                "porpulsion.io/source-peer": source_peer,
-            },
         },
         "spec": cr_spec,
     }
@@ -291,12 +295,9 @@ def create_remoteapp_cr(namespace: str, app_id: str, app_name: str, spec_dict: d
         log.info("Created RemoteApp CR %s/%s", namespace, cr_name)
         # Set initial status with timestamps (status subresource requires a separate patch)
         _patch_status(namespace, PLURAL, cr_name, {
-            "phase":        "Pending",
-            "appId":        app_id,
-            "sourcePeer":   source_peer,
-            "resourceName": safe_resource_name(app_id, app_name),
-            "createdAt":    now,
-            "updatedAt":    now,
+            "phase":    "Pending",
+            "appId":    app_id,
+            "updatedAt": now,
         })
         return cr_name
     except ApiException as e:
@@ -397,7 +398,6 @@ def create_executingapp_cr(namespace: str, app_id: str, app_name: str, spec_dict
             "appId":        app_id,
             "sourcePeer":   source_peer,
             "resourceName": safe_resource_name(app_id, app_name),
-            "createdAt":    now,
             "updatedAt":    now,
         })
         return cr_name
@@ -521,8 +521,7 @@ def patch_cr_volume_data(namespace: str, app_id: str, kind: str, vol_name: str,
         plural, cr = PLURAL_EA, ea
     else:
         for item in list_remoteapp_crs(namespace):
-            labels = item.get("metadata", {}).get("labels", {})
-            if labels.get("porpulsion.io/app-id") == app_id:
+            if item.get("status", {}).get("appId") == app_id:
                 plural, cr = PLURAL, item
                 break
     if cr is None or plural is None:
@@ -599,7 +598,7 @@ def compare_spec_schemas(local_props: dict, remote_props: dict) -> dict:
 
 
 def bootstrap_cr_status(namespace: str, plural: str, cr_name: str, meta: dict,
-                        spec: dict, existing_status: dict) -> str | None:
+                        existing_status: dict) -> str | None:
     """
     For CRs that have no status.appId (e.g. manually kubectl-applied), generate
     a fresh app-id and write it to status. Returns the app_id if bootstrapped,
@@ -619,23 +618,11 @@ def bootstrap_cr_status(namespace: str, plural: str, cr_name: str, meta: dict,
         return None  # already bootstrapped
 
     app_id = _uuid.uuid4().hex[:8]
-    target_peer = spec.get("targetPeer", "")
     log.info("Bootstrapping status for CR %s with generated app-id=%s", cr_name, app_id)
     _patch_status(namespace, plural, cr_name, {
         "phase":        "Pending",
         "appId":        app_id,
         "resourceName": safe_resource_name(app_id, cr_name),
-        "createdAt":    meta.get("creationTimestamp", _now_iso()),
         "updatedAt":    _now_iso(),
     })
-    stamp_labels: dict = {"porpulsion.io/app-id": app_id}
-    if target_peer:
-        stamp_labels["porpulsion.io/target-peer"] = target_peer
-    try:
-        _crd_api.patch_namespaced_custom_object(
-            GROUP, VERSION, namespace, plural, cr_name,
-            {"metadata": {"labels": stamp_labels}},
-        )
-    except Exception as e:
-        log.warning("Failed to stamp labels on CR %s: %s", cr_name, e)
     return app_id

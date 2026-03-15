@@ -104,6 +104,7 @@ def get_invite():
         "agent": state.AGENT_NAME,
         "namespace": state.NAMESPACE,
         "self_url": state.SELF_URL,
+        "version_hash": state.VERSION_HASH,
         "bundle": bundle,
         "cert_fingerprint": fp,   # human-readable only - not required for connect
     })

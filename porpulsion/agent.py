@@ -204,7 +204,7 @@ def _exec_ws_handler(ws, app_id):
     from porpulsion.k8s.store import get_cr_by_app_id, cr_to_dict
     from porpulsion.models import RemoteApp, RemoteAppSpec
     from porpulsion.channel import get_channel
-    from porpulsion.k8s.executor import exec_open_session, exec_send_stdin, exec_close_session
+    from porpulsion.k8s.executor import exec_open_session, exec_send_stdin, exec_resize_session, exec_close_session
 
     pod_name = (_req.args.get("pod") or "").strip()
     shell = (_req.args.get("shell") or "/bin/sh").strip()
@@ -279,7 +279,17 @@ def _exec_ws_handler(ws, app_id):
                 if data is None:
                     break
                 try:
-                    exec_send_stdin(session_id, data if isinstance(data, str) else data.decode())
+                    s = data if isinstance(data, str) else data.decode()
+                    if s.startswith("{"):
+                        import json as _json
+                        try:
+                            msg = _json.loads(s)
+                            if msg.get("type") == "resize":
+                                exec_resize_session(session_id, int(msg.get("cols", 80)), int(msg.get("rows", 24)))
+                                continue
+                        except Exception:
+                            pass
+                    exec_send_stdin(session_id, s)
                 except Exception:
                     break
         finally:
@@ -348,9 +358,22 @@ def _exec_ws_handler(ws, app_id):
                 if data is None:
                     break
                 try:
+                    s = data if isinstance(data, str) else data.decode()
+                    if s.startswith("{"):
+                        import json as _json
+                        try:
+                            msg = _json.loads(s)
+                            if msg.get("type") == "resize":
+                                get_channel(peer.name).push(
+                                    "remoteapp/exec-resize",
+                                    {"session_id": session_id, "cols": msg.get("cols", 80), "rows": msg.get("rows", 24)},
+                                )
+                                continue
+                        except Exception:
+                            pass
                     get_channel(peer.name).push(
                         "remoteapp/exec-stdin",
-                        {"session_id": session_id, "data": data if isinstance(data, str) else data.decode()},
+                        {"session_id": session_id, "data": s},
                     )
                 except Exception:
                     break

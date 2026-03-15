@@ -58,4 +58,35 @@ spec:
               - 192.168.0.0/16
               - 169.254.0.0/16
               - 100.64.0.0/10
+---
+# Workload pods egress: public internet only
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "porpulsion.fullname" . }}-executing-apps
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ include "porpulsion.fullname" . }}-executing-apps
+spec:
+  podSelector:
+    matchExpressions:
+      - key: porpulsion.io/remote-app-id
+        operator: Exists
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+              - 100.64.0.0/10
 {{- end }}

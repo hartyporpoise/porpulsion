@@ -296,7 +296,6 @@ def create_remoteapp():
         spec_dict = {**spec_dict, "targetPeer": peer.name}
         cr_name = create_remoteapp_cr(
             state.NAMESPACE, ra.id, ra.name, spec_dict, peer.name,
-            source_peer=state.AGENT_NAME,
         )
         if cr_name:
             ra.cr_name = cr_name
@@ -452,7 +451,6 @@ def scale_remoteapp(app_id):
         try:
             create_remoteapp_cr(
                 state.NAMESPACE, app_id, d["name"], spec, d["target_peer"],
-                source_peer=d["source_peer"],
             )
             return jsonify({"ok": True, "replicas": replicas})
         except Exception as e:
@@ -503,17 +501,25 @@ def remoteapp_detail(app_id):
                 return dumper.represent_scalar('tag:yaml.org,2002:str', data, style='|')
             return dumper.represent_scalar('tag:yaml.org,2002:str', data)
         _yaml.add_representer(str, _literal_representer, Dumper=_yaml.Dumper)
-        resp = {"app": d, "k8s": detail, "cr": cr, "spec_yaml": _yaml.dump(spec, default_flow_style=False, allow_unicode=True, Dumper=_yaml.Dumper)}
+        cr_yaml = _yaml.dump(dict(cr), default_flow_style=False, allow_unicode=True, Dumper=_yaml.Dumper)
+        resp = {"app": d, "k8s": detail, "cr": cr, "spec_yaml": _yaml.dump(spec, default_flow_style=False, allow_unicode=True, Dumper=_yaml.Dumper), "cr_yaml": cr_yaml}
         return jsonify(resp)
 
     if side == "executing":
+        import yaml as _yaml
+        def _literal_representer(dumper, data):
+            if '\n' in data:
+                return dumper.represent_scalar('tag:yaml.org,2002:str', data, style='|')
+            return dumper.represent_scalar('tag:yaml.org,2002:str', data)
+        _yaml.add_representer(str, _literal_representer, Dumper=_yaml.Dumper)
         ra = RemoteApp(
             id=app_id, name=d["name"],
             spec=RemoteAppSpec.from_dict(d.get("spec", {})),
             source_peer=d["source_peer"],
         )
         detail = get_deployment_status(ra)
-        return jsonify({"app": d, "k8s": detail})
+        cr_yaml = _yaml.dump(dict(cr), default_flow_style=False, allow_unicode=True, Dumper=_yaml.Dumper)
+        return jsonify({"app": d, "k8s": detail, "cr": cr, "cr_yaml": cr_yaml})
 
     return jsonify({"error": "app not found"}), 404
 
@@ -737,7 +743,7 @@ def update_remoteapp_spec(app_id):
     create_remoteapp_cr(
         state.NAMESPACE, app_id, d["name"],
         {**new_spec, "targetPeer": d["target_peer"]},
-        d["target_peer"], source_peer=d["source_peer"],
+        d["target_peer"],
     )
     return jsonify(d)
 
