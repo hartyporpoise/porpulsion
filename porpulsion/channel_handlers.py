@@ -390,7 +390,7 @@ def handle_remoteapp_spec_update(payload: dict) -> dict:
     from porpulsion import state
     from porpulsion.models import RemoteAppSpec
     from porpulsion.routes.workloads import _check_resource_quota
-    from porpulsion.k8s.store import get_ea_cr_by_app_id, cr_to_dict, create_executingapp_cr
+    from porpulsion.k8s.store import get_ea_cr_by_app_id, cr_to_dict, patch_executingapp_spec
 
     app_id   = payload.get("id", "")
     new_spec = payload.get("spec")
@@ -406,7 +406,7 @@ def handle_remoteapp_spec_update(payload: dict) -> dict:
         raise RuntimeError(quota_err)
     try:
         from porpulsion.k8s.store import validate_remoteapp_spec
-        val_err = validate_remoteapp_spec(state.NAMESPACE, app_id, d["name"], parsed.to_dict(), d["source_peer"])
+        val_err = validate_remoteapp_spec(state.NAMESPACE, app_id, d["cr_name"], parsed.to_dict(), d["source_peer"])
         if val_err:
             raise RuntimeError(f"spec invalid: {val_err}")
     except RuntimeError:
@@ -414,10 +414,10 @@ def handle_remoteapp_spec_update(payload: dict) -> dict:
     except Exception as _ve:
         log.debug("CRD spec validation skipped: %s", _ve)
 
-    spec_dict = parsed.to_dict()
-
-    # Update the ExecutingApp CR - the CR watcher drives the re-deploy
-    create_executingapp_cr(state.NAMESPACE, app_id, d["name"], spec_dict, d["source_peer"])
+    # Patch the spec on the existing EA CR directly — the CR watcher drives the re-deploy.
+    # Do NOT call create_executingapp_cr here: it recomputes the name from app_name which
+    # would be d["cr_name"] (already ea-{id}-{name}), producing a doubly-prefixed new CR.
+    patch_executingapp_spec(state.NAMESPACE, d["cr_name"], parsed.to_dict())
     return {"ok": True}
 
 

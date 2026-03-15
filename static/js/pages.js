@@ -210,7 +210,7 @@
         '<td><a href="#" class="app-open-link">' + _esc(a.name) + '</a></td>' +
         '<td>' + typeLabel + '</td><td>' + statusBadge(a.status) + '</td>' +
         '<td class="time-ago">' + timeAgo(a.updated_at) + '</td>' +
-        '<td><span class="btn-row"><button type="button" class="btn-icon app-detail-btn" title="Detail" aria-label="Detail"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="8.5"/><line x1="12" y1="12" x2="12" y2="16"/></svg></button><button type="button" class="btn-icon app-restart-btn" title="Rollout restart" aria-label="Rollout restart"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button><button type="button" class="btn-icon btn-icon-danger app-delete-btn" title="Delete" aria-label="Delete"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></button></span></td></tr>';
+        '<td><span class="btn-row"><button type="button" class="btn-icon app-detail-btn" title="Detail" aria-label="Detail"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="8.5"/><line x1="12" y1="12" x2="12" y2="16"/></svg></button><button type="button" class="btn-icon app-restart-btn" title="Rollout restart" aria-label="Rollout restart"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button></span></td></tr>';
     }).join('');
   }
 
@@ -224,25 +224,16 @@
     if (empty) empty.style.display = 'none';
     var peerKey = showSource ? 'source_peer' : 'target_peer';
     var typeAttr = appType ? ' data-app-type="' + appType + '"' : '';
-    var ICON_PROXY_OPEN = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>';
     body.innerHTML = list.map(function (a) {
       var isDead = a.status === 'Deleted' || a.status === 'Failed' || a.status === 'Timeout';
       var peerVal = a[peerKey] || '—';
-      // Inline proxy open button for submitted apps with ports
-      var proxyBtn = '';
-      if (!showSource && !isDead) {
-        var ports = (a.spec && Array.isArray(a.spec.ports) && a.spec.ports.length) ? a.spec.ports : (a.spec && a.spec.port ? [{ port: a.spec.port }] : [{ port: 80 }]);
-        var firstPort = typeof ports[0] === 'object' ? (ports[0].port || 80) : ports[0];
-        var proxyUrl = window.location.origin + P.API_BASE + '/remoteapp/' + a.id + '/proxy/' + firstPort;
-        proxyBtn = '<a href="' + _esc(proxyUrl) + '" target="_blank" rel="noopener" class="btn-icon" title="Open proxy (:' + firstPort + ')" aria-label="Open proxy">' + ICON_PROXY_OPEN + '</a>';
-      }
       var restartBtn = isDead ? '' : '<button type="button" class="btn-icon app-restart-btn" title="Rollout restart" aria-label="Rollout restart"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>';
       return '<tr' + (isDead ? ' style="opacity:0.55;"' : '') + ' data-app-id="' + _esc(a.id) + '" data-app-name="' + _esc(a.name) + '"' + typeAttr + '>' +
         '<td><a href="#" class="app-open-link">' + _esc(a.name) + '</a></td>' +
         '<td class="mono col-hide-mobile">' + _esc(a.id) + '</td><td>' + statusBadge(a.status) + '</td>' +
         '<td class="text-muted text-sm col-hide-tablet">' + _esc(peerVal) + '</td>' +
         '<td class="time-ago col-hide-tablet">' + timeAgo(a.updated_at) + '</td>' +
-        '<td><span class="btn-row">' + proxyBtn + '<button type="button" class="btn-icon app-detail-btn" title="Detail" aria-label="Detail"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="8.5"/><line x1="12" y1="12" x2="12" y2="16"/></svg></button>' + restartBtn + '<button type="button" class="btn-icon btn-icon-danger app-delete-btn" title="Delete" aria-label="Delete"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></button></span></td></tr>';
+        '<td><span class="btn-row"><button type="button" class="btn-icon app-detail-btn" title="Detail" aria-label="Detail"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="8.5"/><line x1="12" y1="12" x2="12" y2="16"/></svg></button>' + restartBtn + '</span></td></tr>';
     }).join('');
   }
 
@@ -940,7 +931,11 @@
     if (_logsFitAddon) { try { _logsFitAddon.fit(); } catch(e) {} }
     if (window.ResizeObserver) {
       _logsResizeObserver = new ResizeObserver(function () {
-        if (_logsFitAddon) { try { _logsFitAddon.fit(); } catch(e) {} }
+        // Only refit when wrap is on — if wrap is off the terminal is intentionally
+        // wider than the container and fitAddon.fit() would undo that.
+        var wrapBtn = el('logs-wrap-btn');
+        var wrapIsOn = wrapBtn ? wrapBtn.classList.contains('active') : true;
+        if (wrapIsOn && _logsFitAddon) { try { _logsFitAddon.fit(); } catch(e) {} }
       });
       _logsResizeObserver.observe(wrap);
     }
@@ -1637,12 +1632,17 @@
       var logsHtml =
         '<div class="exec-toolbar">' +
           '<div class="exec-toolbar-left">' +
-            '<label class="exec-label" for="logs-pod-select">Pod</label>' +
-            '<select id="logs-pod-select" class="exec-pod-select"><option value="">All pods</option></select>' +
-            '<label class="exec-label" for="logs-tail-select">Tail</label>' +
-            '<select id="logs-tail-select" class="exec-pod-select exec-shell-select">' +
-              '<option value="50">50</option><option value="100" selected>100</option><option value="200">200</option><option value="500">500</option>' +
-            '</select>' +
+            '<div class="exec-ctrl exec-ctrl-pod">' +
+              '<span class="exec-ctrl-label">Pod</span>' +
+              '<select id="logs-pod-select" class="exec-native-sel custom-dd-init"><option value="">All pods</option></select>' +
+            '</div>' +
+            '<div class="exec-ctrl exec-ctrl-tail">' +
+              '<span class="exec-ctrl-label">Tail</span>' +
+              '<select id="logs-tail-select" class="exec-native-sel custom-dd-init">' +
+                '<option value="50">50</option><option value="100" selected>100</option><option value="200">200</option><option value="500">500</option>' +
+              '</select>' +
+            '</div>' +
+            '<button type="button" class="exec-wrap-btn active" id="logs-wrap-btn" title="Toggle line wrap" aria-label="Toggle line wrap" aria-pressed="true"></button>' +
           '</div>' +
           '<div class="exec-toolbar-right">' +
             '<button type="button" class="btn-sm" id="modal-logs-refresh" style="min-height:28px;font-size:0.78rem;">Refresh</button>' +
@@ -1670,13 +1670,17 @@
       var termHtml =
         '<div class="exec-toolbar">' +
           '<div class="exec-toolbar-left">' +
-            '<label class="exec-label" for="exec-pod-select">Pod</label>' +
-            '<select id="exec-pod-select" class="exec-pod-select"><option value="">Loading…</option></select>' +
-            '<label class="exec-label" for="exec-shell-select">Shell</label>' +
-            '<select id="exec-shell-select" class="exec-pod-select exec-shell-select">' +
-              '<option value="/bin/sh">/bin/sh</option>' +
-              '<option value="/bin/bash">/bin/bash</option>' +
-            '</select>' +
+            '<div class="exec-ctrl exec-ctrl-pod">' +
+              '<span class="exec-ctrl-label">Pod</span>' +
+              '<select id="exec-pod-select" class="exec-native-sel custom-dd-init"><option value="">Loading…</option></select>' +
+            '</div>' +
+            '<div class="exec-ctrl exec-ctrl-shell">' +
+              '<span class="exec-ctrl-label">Shell</span>' +
+              '<select id="exec-shell-select" class="exec-native-sel custom-dd-init">' +
+                '<option value="/bin/sh">/bin/sh</option>' +
+                '<option value="/bin/bash">/bin/bash</option>' +
+              '</select>' +
+            '</div>' +
           '</div>' +
           '<div class="exec-toolbar-right">' +
             '<div class="exec-status" id="exec-status"><span class="exec-status-dot"></span><span class="exec-status-text">Disconnected</span></div>' +
@@ -1713,6 +1717,7 @@
         (isSubmitted ? '<div class="modal-tab-panel" data-panel="edit">' + editHtml + '</div>' : '');
       if (initialTab) _showModalTab(initialTab);
       initCustomDropdowns();
+      initExecDropdowns();
       initNumSpinners();
 
       // Wire up config KV editors after DOM is built
@@ -1867,6 +1872,45 @@
       if (logsPodSel) logsPodSel.addEventListener('change', _fetchModalLogs);
       var logsTailSel = el('logs-tail-select');
       if (logsTailSel) logsTailSel.addEventListener('change', _fetchModalLogs);
+
+      // Logs wrap toggle — build SVG via DOM to guarantee correct namespace parsing
+      var logsWrapBtn = el('logs-wrap-btn');
+      if (logsWrapBtn) {
+        logsWrapBtn.innerHTML = '';
+        var wrapSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        wrapSvg.setAttribute('width', '15'); wrapSvg.setAttribute('height', '15');
+        wrapSvg.setAttribute('viewBox', '0 0 15 15'); wrapSvg.setAttribute('fill', 'none');
+        wrapSvg.setAttribute('aria-hidden', 'true');
+        [
+          'M1 2.5H14', 'M1 6H14', 'M1 9.5H9',
+          'M11 7.5L13.5 9.5L11 11.5', 'M13.5 9.5H8'
+        ].forEach(function (d) {
+          var p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          p.setAttribute('d', d);
+          p.setAttribute('stroke', 'currentColor');
+          p.setAttribute('stroke-width', '1.5');
+          p.setAttribute('stroke-linecap', 'round');
+          p.setAttribute('stroke-linejoin', 'round');
+          wrapSvg.appendChild(p);
+        });
+        logsWrapBtn.appendChild(wrapSvg);
+        logsWrapBtn.addEventListener('click', function () {
+          var wrapOn = logsWrapBtn.classList.toggle('active');
+          logsWrapBtn.setAttribute('aria-pressed', wrapOn ? 'true' : 'false');
+          var logsWrap = el('logs-terminal-wrap');
+          if (_logsTerm) {
+            if (wrapOn) {
+              // Wrap on: refit to container width, remove horizontal scroll
+              if (logsWrap) logsWrap.classList.remove('nowrap');
+              if (_logsFitAddon) { try { _logsFitAddon.fit(); } catch(e) {} }
+            } else {
+              // Wrap off: widen terminal beyond container, enable horizontal scroll
+              if (logsWrap) logsWrap.classList.add('nowrap');
+              try { _logsTerm.resize(500, _logsTerm.rows); } catch(e) {}
+            }
+          }
+        });
+      }
 
       // Terminal exec — xterm.js handles all input, just wire up pod/shell selects
       var execPodSel = el('exec-pod-select');
@@ -2122,7 +2166,8 @@
 
   // ── Custom dropdown (replaces <select> with JS-driven panel) ──
   function initCustomDropdowns() {
-    document.querySelectorAll('select:not(.custom-dd-init):not(.logs-tail-select)').forEach(function (sel) {
+    document.querySelectorAll('select:not(.custom-dd-init):not(.logs-tail-select):not(.exec-native-sel)').forEach(function (sel) {
+      if (sel.closest('.exec-ctrl')) return;
       sel.classList.add('custom-dd-init');
       var wrap = document.createElement('div');
       wrap.className = 'custom-dd';
@@ -2239,6 +2284,114 @@
       syncLabel();
       if (sel.id) { trigger.setAttribute('aria-controls', 'dd-panel-' + sel.id); panel.id = 'dd-panel-' + sel.id; }
       if (sel.hasAttribute('aria-label')) trigger.setAttribute('aria-label', sel.getAttribute('aria-label'));
+    });
+  }
+
+  // ── Exec-toolbar chip dropdowns ───────────────────────────────────────────
+  // Compact custom dropdown for label+select chips in logs/terminal toolbars.
+  // Builds a slim trigger that sits inside .exec-ctrl, drops a panel via fixed
+  // positioning so it escapes any overflow:hidden container.
+  function initExecDropdowns() {
+    document.querySelectorAll('.exec-ctrl select').forEach(function (sel) {
+      if (sel._execDdInit) return;
+      sel._execDdInit = true;
+      sel.style.display = 'none';
+
+      // Trigger: fills the right half of the chip
+      var trigger = document.createElement('button');
+      trigger.type = 'button';
+      trigger.className = 'exec-dd-trigger';
+      trigger.setAttribute('aria-haspopup', 'listbox');
+      trigger.setAttribute('aria-expanded', 'false');
+      if (sel.getAttribute('aria-label')) trigger.setAttribute('aria-label', sel.getAttribute('aria-label'));
+
+      var lbl = document.createElement('span');
+      lbl.className = 'exec-dd-label';
+      var chevEl = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      chevEl.setAttribute('width', '10'); chevEl.setAttribute('height', '10');
+      chevEl.setAttribute('viewBox', '0 0 10 10');
+      chevEl.setAttribute('fill', 'none'); chevEl.setAttribute('stroke', 'currentColor');
+      chevEl.setAttribute('stroke-width', '1.8');
+      chevEl.setAttribute('stroke-linecap', 'round'); chevEl.setAttribute('stroke-linejoin', 'round');
+      chevEl.setAttribute('class', 'exec-dd-arrow'); chevEl.setAttribute('aria-hidden', 'true');
+      var cp = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      cp.setAttribute('d', 'M1 3l4 4 4-4'); chevEl.appendChild(cp);
+      trigger.appendChild(lbl); trigger.appendChild(chevEl);
+      sel.parentNode.insertBefore(trigger, sel);
+
+      // Panel: appended to body, positioned fixed
+      var panel = document.createElement('div');
+      panel.className = 'exec-dd-panel';
+      panel.setAttribute('role', 'listbox');
+      panel.style.display = 'none';
+      document.body.appendChild(panel);
+
+      function syncLabel() {
+        var opt = sel.options[sel.selectedIndex];
+        lbl.textContent = opt ? opt.text : '';
+      }
+      function buildOptions() {
+        panel.innerHTML = '';
+        Array.from(sel.options).forEach(function (opt, idx) {
+          var item = document.createElement('div');
+          item.className = 'exec-dd-option' + (idx === sel.selectedIndex ? ' selected' : '');
+          item.setAttribute('role', 'option');
+          item.setAttribute('aria-selected', idx === sel.selectedIndex ? 'true' : 'false');
+          item.textContent = opt.text;
+          item.addEventListener('mousedown', function (e) { e.preventDefault(); });
+          item.addEventListener('click', function () {
+            sel.selectedIndex = idx;
+            sel.dispatchEvent(new Event('change', { bubbles: true }));
+            syncLabel(); closePanel();
+          });
+          panel.appendChild(item);
+        });
+      }
+      function positionPanel() {
+        var r = trigger.getBoundingClientRect();
+        var ph = panel.scrollHeight || 120;
+        var spaceBelow = window.innerHeight - r.bottom;
+        panel.style.position = 'fixed';
+        panel.style.minWidth = Math.max(r.width, 120) + 'px';
+        panel.style.left = r.left + 'px';
+        panel.style.zIndex = '9999';
+        if (spaceBelow < ph + 8 && r.top > ph + 8) {
+          panel.style.top = ''; panel.style.bottom = (window.innerHeight - r.top + 4) + 'px';
+        } else {
+          panel.style.bottom = ''; panel.style.top = (r.bottom + 4) + 'px';
+        }
+      }
+      function openPanel() {
+        buildOptions(); panel.style.display = '';
+        trigger.setAttribute('aria-expanded', 'true');
+        trigger.classList.add('open');
+        requestAnimationFrame(positionPanel);
+      }
+      function closePanel() {
+        panel.style.display = 'none';
+        trigger.setAttribute('aria-expanded', 'false');
+        trigger.classList.remove('open');
+      }
+      trigger.addEventListener('click', function (e) {
+        e.stopPropagation();
+        if (panel.style.display === 'none') openPanel(); else closePanel();
+      });
+      document.addEventListener('click', function (e) {
+        if (!trigger.contains(e.target) && !panel.contains(e.target)) closePanel();
+      }, true);
+      window.addEventListener('scroll', function () {
+        if (panel.style.display !== 'none') positionPanel();
+      }, true);
+      trigger.addEventListener('keydown', function (e) {
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); if (panel.style.display === 'none') openPanel(); }
+        if (e.key === 'Escape') closePanel();
+      });
+      sel.addEventListener('change', syncLabel);
+      if (window.MutationObserver) {
+        new MutationObserver(syncLabel).observe(sel, { childList: true });
+      }
+      sel._execDdRebuild = function () { syncLabel(); };
+      syncLabel();
     });
   }
 

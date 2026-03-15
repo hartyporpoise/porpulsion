@@ -340,7 +340,7 @@ body {
 }
 
 /* Minimum touch targets */
-button:not(.btn-sm):not(.btn-icon):not(.modal-close):not(.notif-bell):not(.eye-btn):not(.user-menu-btn):not(.notif-show-more):not(.notif-dismiss):not(.sidebar-collapse-btn):not(.sidebar-close):not(.menu-btn):not(.modal-tab):not(.settings-nav-item):not(.stg-tab):not(.seg-ctrl > button),
+button:not(.btn-sm):not(.btn-icon):not(.modal-close):not(.notif-bell):not(.eye-btn):not(.user-menu-btn):not(.notif-show-more):not(.notif-dismiss):not(.sidebar-collapse-btn):not(.sidebar-close):not(.menu-btn):not(.modal-tab):not(.settings-nav-item):not(.stg-tab):not(.seg-ctrl > button):not(.exec-dd-trigger):not(.exec-wrap-btn),
 input[type="submit"],
 input[type="button"] { min-height: 44px; }
 .btn-sm { min-height: 34px; }
@@ -1844,7 +1844,7 @@ select { display: none; }
 /* ── Terminal / exec tab ─────────────────────────────────────── */
 .exec-toolbar {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 0.5rem 0.75rem;
+  padding: 0.4rem 0.75rem;
   border-bottom: var(--sep) solid var(--border);
   flex-shrink: 0;
   background: var(--surface2);
@@ -1852,40 +1852,130 @@ select { display: none; }
 }
 .exec-toolbar-left {
   display: flex; align-items: center; gap: 0.5rem;
-  flex: 1; min-width: 0;
+  flex: 1; min-width: 0; flex-wrap: wrap; row-gap: 0.375rem;
 }
 .exec-toolbar-right {
   display: flex; align-items: center; gap: 0.5rem;
   flex-shrink: 0;
 }
-.exec-label {
-  font-size: 0.75rem;
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-.exec-pod-select {
-  background: var(--surface3);
+/* Fused label+select control chip */
+.exec-ctrl {
+  display: inline-flex; align-items: stretch;
   border: var(--sep) solid var(--border);
   border-radius: 8px;
-  padding: 0.25rem 0.5rem;
+  overflow: hidden;
+  background: var(--surface3);
+  height: 28px;
+}
+.exec-ctrl-label {
+  display: flex; align-items: center;
+  padding: 0 0.5rem;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  background: var(--surface2);
+  border-right: var(--sep) solid var(--border);
+  white-space: nowrap;
+  user-select: none;
+  pointer-events: none;
+}
+.exec-ctrl select {
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  border: none;
+  outline: none;
+  flex: 1;
+  height: 100%;
+  padding: 0 1.5rem 0 0.5rem;
   font-size: 0.8125rem;
   color: var(--text);
   font-family: inherit;
   cursor: pointer;
-  min-height: 30px;
-  max-width: 220px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23888' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.4rem center;
+  min-width: 2rem;
 }
-.exec-shell-select { max-width: 100px; }
+.exec-ctrl select:focus { outline: none; }
+/* ── Exec toolbar chip dropdown ──────────────────────────────── */
+.exec-dd-trigger {
+  display: flex; align-items: center; gap: 0.3rem;
+  flex: 1; height: 100%;
+  background: transparent;
+  border: none; outline: none;
+  padding: 0 0.5rem;
+  font-family: inherit;
+  font-size: 0.8125rem;
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+  min-width: 2rem;
+}
+.exec-dd-trigger::before, .exec-dd-trigger::after { display: none; }
+.exec-dd-trigger:hover { background: var(--surface2); }
+.exec-dd-trigger.open { background: var(--surface2); }
+.exec-dd-label { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.exec-dd-arrow { flex-shrink: 0; color: var(--muted); transition: transform 0.15s; }
+.exec-dd-trigger.open .exec-dd-arrow { transform: rotate(180deg); }
+.exec-dd-panel {
+  background: var(--surface);
+  border: var(--sep) solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.28);
+  overflow: hidden;
+  min-width: 120px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.exec-dd-option {
+  padding: 0.45rem 0.75rem;
+  font-size: 0.8125rem;
+  color: var(--text);
+  cursor: pointer;
+  border-bottom: var(--sep) solid var(--border);
+  transition: background 0.1s;
+  white-space: nowrap;
+}
+.exec-dd-option:last-child { border-bottom: none; }
+.exec-dd-option:hover { background: var(--surface2); }
+.exec-dd-option.selected { color: var(--accent); font-weight: 600; background: var(--accent-glow); }
+/* Width variants */
+.exec-ctrl-pod  { max-width: 220px; }
+.exec-ctrl-shell { max-width: 120px; }
+.exec-ctrl-tail { width: 96px; flex-shrink: 0; }
+.exec-ctrl-tail .exec-dd-label { overflow: visible; text-overflow: unset; }
+/* Wrap-toggle icon button in toolbar */
+.exec-wrap-btn {
+  display: flex !important; align-items: center; justify-content: center;
+  width: 28px; height: 28px;
+  border-radius: 8px;
+  border: var(--sep) solid var(--border) !important;
+  background: var(--surface3) !important;
+  cursor: pointer;
+  color: var(--muted) !important;
+  padding: 0 !important;
+  font-size: inherit;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  flex-shrink: 0;
+}
+.exec-wrap-btn:hover { background: var(--surface) !important; color: var(--text) !important; }
+.exec-wrap-btn.active {
+  background: var(--accent) !important;
+  border-color: var(--accent) !important;
+  color: #fff !important;
+}
 .exec-status {
   display: flex; align-items: center; gap: 0.35rem;
   font-size: 0.75rem;
-  color: var(--text-muted);
+  color: var(--muted);
   white-space: nowrap;
 }
 .exec-status-dot {
   width: 7px; height: 7px;
   border-radius: 50%;
-  background: var(--text-muted);
+  background: var(--muted);
   flex-shrink: 0;
 }
 @media (max-width: 600px) {
@@ -1894,11 +1984,10 @@ select { display: none; }
     row-gap: 0.375rem;
     padding: 0.4rem 0.625rem;
   }
-  .exec-toolbar-left { flex-wrap: wrap; }
   /* On small screens show only the status dot, hide the text label */
   .exec-status-text { display: none; }
-  /* Pod select can use more width when shell select wraps */
-  .exec-pod-select { max-width: 160px; }
+  /* Constrain pod chip on small screens */
+  .exec-ctrl-pod { max-width: 160px; }
 }
 @keyframes exec-pulse {
   0%, 100% { opacity: 1; } 50% { opacity: 0.3; }
@@ -1908,8 +1997,14 @@ select { display: none; }
   background: #0d1117;
   overflow: hidden;
   position: relative;
-  /* xterm.js needs explicit size to render correctly */
   min-height: 0;
+}
+/* When word wrap is off the terminal is wider than the container — allow horizontal scroll */
+.exec-terminal-wrap.nowrap {
+  overflow-x: auto;
+}
+.exec-terminal-wrap.nowrap .xterm-viewport {
+  overflow-x: auto !important;
 }
 .exec-terminal-wrap .xterm {
   height: 100%;
