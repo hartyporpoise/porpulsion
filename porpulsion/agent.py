@@ -207,7 +207,7 @@ def _exec_ws_handler(ws, app_id):
     from porpulsion.k8s.executor import exec_open_session, exec_send_stdin, exec_resize_session, exec_close_session
 
     pod_name = (_req.args.get("pod") or "").strip()
-    shell = (_req.args.get("shell") or "/bin/sh").strip()
+    shell = (_req.args.get("shell") or "/bin/bash").strip()
 
     log.info("exec-ws: app_id=%s pod=%s shell=%s", app_id, pod_name, shell)
 

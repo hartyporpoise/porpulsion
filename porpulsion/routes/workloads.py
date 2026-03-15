@@ -290,19 +290,12 @@ def create_remoteapp():
         compat_err = _check_crd_compatibility(peer, spec_dict)
         if compat_err:
             raise RuntimeError(compat_err)
-        ra = RemoteApp(name=app_name, spec=RemoteAppSpec.from_dict(spec_dict),
-                       source_peer=state.AGENT_NAME, target_peer=peer.name)
-        # Embed targetPeer in spec so the CR carries it
-        spec_dict = {**spec_dict, "targetPeer": peer.name}
         cr_name = create_remoteapp_cr(
-            state.NAMESPACE, ra.id, ra.name, spec_dict, peer.name,
+            state.NAMESPACE, app_name, {**spec_dict, "targetPeer": peer.name}, peer.name,
         )
-        if cr_name:
-            ra.cr_name = cr_name
-        # The CR watcher (agent.py) will forward to the peer once the CR is ready
-        log.info("Created RemoteApp CR %s for app %s (%s) -> peer %s",
-                 cr_name or "?", ra.name, ra.id, peer.name)
-        return ra
+        # The CR watcher (kopf) will bootstrap appId and forward to the peer
+        log.info("Created RemoteApp CR %s -> peer %s", cr_name or "?", peer.name)
+        return cr_name
 
     if target_peer_name:
         peer = state.peers.get(target_peer_name)
@@ -316,11 +309,11 @@ def create_remoteapp():
             return jsonify({"error": "no outgoing peers to deploy to"}), 503
 
     try:
-        ra = _create_cr(peer, data.get("spec", {}), data["name"])
+        _create_cr(peer, data.get("spec", {}), data["name"])
     except Exception as e:
         return jsonify({"error": f"failed to create RemoteApp CR: {e}"}), 502
 
-    return jsonify(ra.to_dict()), 201
+    return jsonify({"ok": True}), 201
 
 
 @bp.route("/remoteapp/pending-approval")
@@ -450,7 +443,7 @@ def scale_remoteapp(app_id):
         spec["targetPeer"] = d["target_peer"]
         try:
             create_remoteapp_cr(
-                state.NAMESPACE, app_id, d["name"], spec, d["target_peer"],
+                state.NAMESPACE, d["name"], spec, d["target_peer"],
             )
             return jsonify({"ok": True, "replicas": replicas})
         except Exception as e:
@@ -741,7 +734,7 @@ def update_remoteapp_spec(app_id):
 
     # Update the RemoteApp CR - the CR watcher (MODIFIED) forwards to the peer
     create_remoteapp_cr(
-        state.NAMESPACE, app_id, d["name"],
+        state.NAMESPACE, d["name"],
         {**new_spec, "targetPeer": d["target_peer"]},
         d["target_peer"],
     )

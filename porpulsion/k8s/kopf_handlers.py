@@ -45,10 +45,9 @@ def _run_executingapp(body, meta, status, namespace):
 
     cr_name = meta["name"]
 
-    # Bootstrap appId for manually kubectl-applied CRs (no porpulsion.io/app-id label)
     app_id = status.get("appId", "")
     if not app_id:
-        app_id = bootstrap_cr_status(namespace, PLURAL_EA, cr_name, dict(meta), dict(status))
+        app_id = bootstrap_cr_status(namespace, PLURAL_EA, cr_name, dict(status))
     if not app_id:
         raise kopf.TemporaryError("appId not set in status yet", delay=1)
 
@@ -108,7 +107,7 @@ def on_remoteapp_created(body, meta, status, namespace, **kwargs):
     cr_name = meta["name"]
     app_id = status.get("appId", "")
     if not app_id:
-        app_id = bootstrap_cr_status(namespace, PLURAL, cr_name, dict(meta), dict(status))
+        app_id = bootstrap_cr_status(namespace, PLURAL, cr_name, dict(status))
     if not app_id:
         raise kopf.TemporaryError("appId not set in status yet", delay=1)
     spec_dict = dict(body.get("spec", {}))

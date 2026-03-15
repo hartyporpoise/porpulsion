@@ -1124,7 +1124,7 @@
     _execSetStatus('connecting');
 
     var shellSel = el('exec-shell-select');
-    var shell = shellSel ? shellSel.value : '/bin/sh';
+    var shell = shellSel ? shellSel.value : '/bin/bash';
     var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     var url = proto + '//' + location.host + '/api/remoteapp/' + encodeURIComponent(_currentAppId) + '/exec-ws?pod=' + encodeURIComponent(pod) + '&shell=' + encodeURIComponent(shell);
     var ws = new WebSocket(url);
@@ -1701,7 +1701,7 @@
               '<span class="exec-ctrl-label">Shell</span>' +
               '<select id="exec-shell-select" class="exec-native-sel custom-dd-init">' +
                 '<option value="/bin/sh">/bin/sh</option>' +
-                '<option value="/bin/bash">/bin/bash</option>' +
+                '<option value="/bin/bash" selected>/bin/bash</option>' +
               '</select>' +
             '</div>' +
           '</div>' +

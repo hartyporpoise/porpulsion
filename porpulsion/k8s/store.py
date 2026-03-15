@@ -267,11 +267,12 @@ def validate_remoteapp_spec(namespace: str, app_id: str, app_name: str, spec_dic
         return None
 
 
-def create_remoteapp_cr(namespace: str, app_id: str, app_name: str, spec_dict: dict,
+def create_remoteapp_cr(namespace: str, app_name: str, spec_dict: dict,
                         target_peer: str) -> str | None:
     """
-    Create a RemoteApp CR on the local cluster. Returns the CR name, or None if unavailable.
+    Create (or replace) a RemoteApp CR on the local cluster. Returns the CR name, or None if unavailable.
     spec_dict should already have secret data base64-encoded.
+    No status is written here — kopf's on_remoteapp_created handler owns status bootstrapping.
     """
     if not _check_crd_available(namespace):
         return None
@@ -279,7 +280,6 @@ def create_remoteapp_cr(namespace: str, app_id: str, app_name: str, spec_dict: d
     cr_name = _cr_name(app_name)
     cr_spec = dict(spec_dict)
     cr_spec["targetPeer"] = target_peer
-    now = _now_iso()
 
     body = {
         "apiVersion": f"{GROUP}/{VERSION}",
@@ -293,12 +293,6 @@ def create_remoteapp_cr(namespace: str, app_id: str, app_name: str, spec_dict: d
     try:
         _crd_api.create_namespaced_custom_object(GROUP, VERSION, namespace, PLURAL, body)
         log.info("Created RemoteApp CR %s/%s", namespace, cr_name)
-        # Set initial status with timestamps (status subresource requires a separate patch)
-        _patch_status(namespace, PLURAL, cr_name, {
-            "phase":    "Pending",
-            "appId":    app_id,
-            "updatedAt": now,
-        })
         return cr_name
     except ApiException as e:
         if e.status == 409:
@@ -597,32 +591,27 @@ def compare_spec_schemas(local_props: dict, remote_props: dict) -> dict:
     }
 
 
-def bootstrap_cr_status(namespace: str, plural: str, cr_name: str, meta: dict,
+def bootstrap_cr_status(namespace: str, plural: str, cr_name: str,
                         existing_status: dict) -> str | None:
     """
     For CRs that have no status.appId (e.g. manually kubectl-applied), generate
     a fresh app-id and write it to status. Returns the app_id if bootstrapped,
-    or None if already bootstrapped or skipped.
-
-    CRs created by porpulsion code carry the porpulsion.io/app-id label and
-    patch their own status - this function skips those to avoid races.
+    or None if already set.
     Called from kopf on.create handlers.
     """
     import uuid as _uuid
 
-    labels = meta.get("labels") or {}
-    if labels.get("porpulsion.io/app-id"):
-        return None  # created by our code - skip
-
     if existing_status.get("appId"):
-        return None  # already bootstrapped
+        return None  # already set
 
     app_id = _uuid.uuid4().hex[:8]
     log.info("Bootstrapping status for CR %s with generated app-id=%s", cr_name, app_id)
-    _patch_status(namespace, plural, cr_name, {
-        "phase":        "Pending",
-        "appId":        app_id,
-        "resourceName": safe_resource_name(app_id, cr_name),
-        "updatedAt":    _now_iso(),
-    })
+    status_patch = {
+        "phase":    "Pending",
+        "appId":    app_id,
+        "updatedAt": _now_iso(),
+    }
+    if plural == PLURAL_EA:
+        status_patch["resourceName"] = safe_resource_name(app_id, cr_name)
+    _patch_status(namespace, plural, cr_name, status_patch)
     return app_id
