@@ -40,11 +40,17 @@ make teardown-single # destroy cluster
 
 | Target | Description |
 |--------|-------------|
-| `make deploy` | Full deploy from scratch (start clusters, build, helm install) |
+| `make deploy` | Full two-cluster deploy from scratch (start clusters, build, helm install) |
 | `make teardown` | Destroy everything (`docker-compose down -v`) |
 | `make status` | Show pods and peer status for both clusters |
 | `make logs` | Tail live agent logs from both clusters |
 | `make clean-ns` | Remove porpulsion namespace from both clusters |
+| `make deploy-single` | Start a single cluster, build, and helm install |
+| `make teardown-single` | Destroy the single cluster |
+| `make status-single` | Show pods for the single cluster |
+| `make logs-single` | Tail agent logs for the single cluster |
+| `make test` | Run the full Cypress E2E test suite against the two-cluster local env |
+| `make test-teardown` | Destroy everything including Cypress test state |
 
 ---
 
@@ -65,7 +71,7 @@ All traffic is served on a single port. Only **port 8000** needs to be reachable
 | Path | Purpose | Exposure |
 |------|---------|----------|
 | `/` | Dashboard UI + management API (session auth) | Internal (`kubectl port-forward` or split ingress - behind auth) |
-| `/ws` | Peer WebSocket channel | Expose via Ingress |
+| `/agent/ws` | Peer WebSocket channel | Expose via Ingress |
 | `/status` | Health/readiness probes (no auth) | Internal (kubelet only) |
 
 ```sh
@@ -86,7 +92,7 @@ kubectl port-forward svc/porpulsion 8000:8000 -n porpulsion
 | `service.port` | `8000` | Service port |
 | `service.nodePort` | `""` | NodePort value (only when `type=NodePort`) |
 
-Runtime settings (access control, quotas, tunnel permissions) are configured via the dashboard UI or the `/settings` API and persisted to the `porpulsion-state` ConfigMap. See `charts/porpulsion/values.yaml` for the full reference.
+Runtime settings (access control, quotas, tunnel permissions) are configured via the dashboard UI or the `/api/settings` endpoint and persisted to the `porpulsion-state` ConfigMap. See `charts/porpulsion/values.yaml` for the full reference.
 
 ---
 
@@ -100,28 +106,34 @@ Peers survive restarts - they are persisted to the `porpulsion-peers` Secret and
 
 ### 2. Deploy a RemoteApp
 
-On the **Overview** page, enter an app name and fill in the spec YAML, then click **Deploy to Peer**.
+Go to the **Deploy** page, select a target peer, and fill in the app name and image. Switch to **YAML** mode to submit a full CustomResource:
 
 ```yaml
-image: nginx:latest
-replicas: 2
-ports:
-  - port: 80
-    name: http
-resources:
-  requests:
-    cpu: 250m
-    memory: 128Mi
-  limits:
-    cpu: 500m
-    memory: 256Mi
+apiVersion: porpulsion.io/v1alpha1
+kind: RemoteApp
+metadata:
+  name: my-app
+spec:
+  image: nginx:latest
+  replicas: 2
+  targetPeer: cluster-b
+  ports:
+    - port: 80
+      name: http
+  resources:
+    requests:
+      cpu: 250m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
 ```
 
-The spec is forwarded to the peer over the WebSocket channel, which creates a Kubernetes Deployment in the `porpulsion` namespace. Status (`Pending` -> `Running`) reflects back automatically.
+The CR is applied on the submitting cluster. A kopf watcher forwards it to the target peer over the WebSocket channel, which creates a Kubernetes Deployment in the `porpulsion` namespace. Status (`Pending` -> `Running`) reflects back automatically.
 
 ### 3. Access via HTTP proxy
 
-Navigate to the **Proxy** tab on any running app. Click a port URL to reach the app through the WebSocket tunnel - no extra ports need to be opened on the executing cluster.
+Navigate to the **Overview** tab on any running app. Click a port URL to reach the app through the WebSocket tunnel - no extra ports need to be opened on the executing cluster.
 
 ---
 
@@ -130,7 +142,7 @@ Navigate to the **Proxy** tab on any running app. Click a port URL to reach the 
 | Data | Store |
 |------|-------|
 | CA cert + key | `porpulsion-credentials` Secret |
-| Peers (name, URL, CA cert) | `porpulsion-peers` Secret |
+| Peers (name, URL, CA cert) | `porpulsion-credentials` Secret |
 | Submitted apps | `RemoteApp` CRs (`remoteapps.porpulsion.io`) |
 | Executing apps | `ExecutingApp` CRs (`executingapps.porpulsion.io`) |
 | Approval queue + runtime settings | `porpulsion-state` ConfigMap |
@@ -142,13 +154,47 @@ All Secrets and the ConfigMap are created by the Helm chart with `helm.sh/resour
 
 ## CI / Versioning
 
-PRs are versioned automatically based on commit message prefixes. The version bump commit is added to the PR branch and does not re-trigger CI.
+Versioning is label-driven. Add labels to a PR to trigger version bumps; CI writes the bump commit back to the branch automatically.
 
-| Prefix | App version | Chart version |
-|--------|-------------|---------------|
-| `[major]` | major bump | major bump |
-| `[minor]` | minor bump | minor bump |
-| `[bugfix]` / `[schema]` | patch bump | patch bump |
-| `[chart]` | no change | patch bump |
+### PR labels
 
-On merge to `main`, if `appVersion` changed the Docker image is built and published to GHCR and a GitHub release is created. If `version` changed the Helm chart is packaged and pushed to `oci://ghcr.io/hartyporpoise/charts`.
+| Label | Effect |
+|-------|--------|
+| `bump:app:patch` | Bumps `appVersion` patch in `Chart.yaml` + image tag in `values.yaml` |
+| `bump:app:minor` | Bumps `appVersion` minor |
+| `bump:app:major` | Bumps `appVersion` major |
+| `bump:chart:patch` | Bumps chart `version` patch in `Chart.yaml` |
+| `bump:chart:minor` | Bumps chart `version` minor |
+| `bump:chart:major` | Bumps chart `version` major |
+| `release-candidate` | Builds and pushes an `rc-X.X.X` Docker image to GHCR |
+
+### Validation rules
+
+- If `charts/porpulsion/files/schema.yaml` changed, a `bump:app:*` label is required or the PR check fails.
+- If a `bump:app:*` label is present, a `bump:chart:*` label is also required.
+
+### On merge to `main`
+
+- If `appVersion` changed: a git tag and GitHub release are created, and the Docker image is built and published to GHCR.
+- If chart `version` changed: the Helm chart is packaged and pushed to `oci://ghcr.io/hartyporpoise/charts`.
+
+---
+
+## E2E Testing
+
+The full Cypress test suite runs against the two-cluster local environment.
+
+```sh
+make deploy      # start clusters (if not already running)
+make test        # run all Cypress specs
+make test-teardown  # destroy everything when done
+```
+
+Tests require the following environment variables (set automatically by `make test`):
+
+| Variable | Description |
+|----------|-------------|
+| `CYPRESS_AGENT_A_URL` | Base URL for Cluster A (e.g. `http://localhost:8001`) |
+| `CYPRESS_AGENT_B_URL` | Base URL for Cluster B (e.g. `http://localhost:8002`) |
+| `CYPRESS_USERNAME` | Dashboard login username |
+| `CYPRESS_PASSWORD` | Dashboard login password |

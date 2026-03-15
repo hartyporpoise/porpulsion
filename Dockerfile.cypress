@@ -1,14 +1,25 @@
 # Cypress test runner image — used by make test
-# Based on the official Cypress included image so browsers are pre-installed.
 FROM cypress/included:13.13.0
+
+# noVNC: watch the browser at http://localhost:6080 (auto-connects, no clicks needed)
+RUN apt-get update -qq && \
+    apt-get install -y --no-install-recommends xvfb x11vnc novnc websockify && \
+    rm -rf /var/lib/apt/lists/* && \
+    printf '<!DOCTYPE html><html><head><meta http-equiv="refresh" content="0;url=vnc_lite.html?resize=remote&autoconnect=1&reconnect=1"></head></html>\n' \
+        > /usr/share/novnc/index.html
 
 WORKDIR /e2e
 
-# Copy only the test files and config (not the whole repo)
 COPY cypress/ ./cypress/
 COPY cypress/cypress.config.js ./cypress.config.js
 
-# No npm install needed — cypress/included ships with Cypress pre-installed.
-# We bind-mount nothing — all env vars are passed at runtime via -e flags.
+RUN printf '#!/bin/sh\n\
+set -e\n\
+Xvfb :99 -screen 0 1920x1080x24 -ac &\n\
+export DISPLAY=:99\n\
+x11vnc -display :99 -nopw -forever -quiet &\n\
+websockify --web /usr/share/novnc 6080 localhost:5900 &\n\
+echo "[cypress] Watch at http://localhost:6080"\n\
+exec cypress run --headed --browser electron\n' > /entrypoint.sh && chmod +x /entrypoint.sh
 
-ENTRYPOINT ["cypress", "run", "--headless", "--browser", "electron"]
+ENTRYPOINT ["/entrypoint.sh"]

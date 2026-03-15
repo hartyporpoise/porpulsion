@@ -1,18 +1,13 @@
 /**
- * Auth tests — signup (first run), login, logout, user management.
- *
- * The make test bootstrap POSTs to /signup before Cypress starts, creating
- * the admin user. These tests validate the UI flows from that point.
+ * Auth tests — login, logout, user management.
+ * All interactions go through the browser UI.
  */
 describe('Authentication', () => {
   const USERNAME = Cypress.env('USERNAME');
   const PASSWORD = Cypress.env('PASSWORD');
 
-  // ----------------------------------------------------------------
-  // Login page
-  // ----------------------------------------------------------------
   context('Login page', () => {
-    it('shows the login form with username and password fields', () => {
+    it('shows the login form', () => {
       cy.visit('/login');
       cy.get('#username').should('be.visible');
       cy.get('#password').should('be.visible');
@@ -25,7 +20,7 @@ describe('Authentication', () => {
       cy.get('#password').type('wrongpassword!');
       cy.get('button[type="submit"]').click();
       cy.url().should('include', '/login');
-      cy.get('.auth-alert-error').should('be.visible').and('contain.text', 'Invalid');
+      cy.get('body').should('contain.text', 'Invalid');
     });
 
     it('logs in with correct credentials and lands on dashboard', () => {
@@ -34,14 +29,9 @@ describe('Authentication', () => {
       cy.get('#password').type(PASSWORD);
       cy.get('button[type="submit"]').click();
       cy.url().should('not.include', '/login');
-      // Overview or workloads page
-      cy.get('body').should('be.visible');
     });
   });
 
-  // ----------------------------------------------------------------
-  // Authenticated navigation
-  // ----------------------------------------------------------------
   context('Authenticated session', () => {
     beforeEach(() => cy.loginUI());
 
@@ -58,18 +48,16 @@ describe('Authentication', () => {
 
     it('logout button ends the session', () => {
       cy.visit('/');
-      // Find the logout form/button — it's a POST form in the sidebar/topbar
-      cy.get('form[action="/logout"] button, button[data-logout]').first().click();
+      // Open the user menu in the topbar, then click Sign out
+      cy.get('#user-menu-btn').click();
+      cy.get('form[action="/logout"] button[type="submit"]').click();
       cy.url().should('include', '/login');
-      // Navigating back to / should redirect to login
+      // Navigating back should still redirect to login
       cy.visit('/', { failOnStatusCode: false });
       cy.url().should('include', '/login');
     });
   });
 
-  // ----------------------------------------------------------------
-  // User management page
-  // ----------------------------------------------------------------
   context('User management', () => {
     beforeEach(() => cy.loginUI());
 
@@ -80,27 +68,22 @@ describe('Authentication', () => {
 
     it('can create a new user and see them in the list', () => {
       const tmpUser = 'cypress-tmp';
-      const tmpPass = 'tmp-pass-1234';
+      const tmpPass = 'Tmp-pass-1234!';
       cy.visit('/users');
-      // Fill in the add-user form
-      cy.get('input[name="username"]').first().clear().type(tmpUser);
-      cy.get('input[name="password"]').first().clear().type(tmpPass);
-      cy.get('input[name="confirm"]').first().clear().type(tmpPass);
-      cy.get('button[type="submit"]').first().click();
+      cy.get('#new-username').clear().type(tmpUser);
+      cy.get('#new-password').clear().type(tmpPass);
+      cy.get('#new-confirm').clear().type(tmpPass);
+      cy.get('form[action="/users/add"] button[type="submit"]').click();
       cy.contains(tmpUser).should('be.visible');
     });
 
     it('can delete a non-self user', () => {
-      // cypress-tmp should exist from previous test run; delete if present
       cy.visit('/users');
       cy.get('body').then(($body) => {
-        if ($body.text().includes('cypress-tmp')) {
-          cy.contains('tr', 'cypress-tmp').within(() => {
-            cy.get('button[type="submit"]').last().click();
-          });
-          cy.on('window:confirm', () => true);
-          cy.contains('cypress-tmp').should('not.exist');
-        }
+        if (!$body.text().includes('cypress-tmp')) return;
+        cy.contains('.user-list-row', 'cypress-tmp').find('button.btn-icon-danger').click();
+        cy.confirmDialog();
+        cy.contains('cypress-tmp').should('not.exist');
       });
     });
   });

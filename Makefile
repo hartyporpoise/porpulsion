@@ -261,40 +261,36 @@ CYPRESS_IMAGE := porpulsion-cypress:local
 TEST_USERNAME := admin
 TEST_PASSWORD := adminpass1
 
-test: ## Deploy 2 clusters, create users, run Cypress E2E suite, tear down
+test: ## Deploy 2 clusters, run Cypress E2E suite, tear down (watch at http://localhost:6080/vnc.html)
+	@trap '$(MAKE) teardown' INT TERM EXIT; $(MAKE) _cypress-run; EXIT=$$?; trap - EXIT; $(MAKE) teardown; exit $$EXIT
+
+_cypress-run: ## Internal: build image, wait for agents, run Cypress
 	@$(MAKE) deploy; \
 	echo ""; \
 	echo "==> [test] Building Cypress image..."; \
 	docker build -f Dockerfile.cypress -t $(CYPRESS_IMAGE) .; \
 	echo ""; \
-	IP_A=$$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' $(CLUSTER_A)); \
-	IP_B=$$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' $(CLUSTER_B)); \
-	echo "  agent-a internal IP: $$IP_A"; \
-	echo "  agent-b internal IP: $$IP_B"; \
-	echo ""; \
-	echo "==> [test] Waiting for agent-a HTTP (localhost:8001)..."; \
+	echo "==> [test] Waiting for agent-a (localhost:8001)..."; \
 	until curl -sf http://localhost:8001/ -o /dev/null; do sleep 2; done; \
 	echo "  agent-a ready"; \
-	echo "==> [test] Waiting for agent-b HTTP (localhost:8002)..."; \
+	echo "==> [test] Waiting for agent-b (localhost:8002)..."; \
 	until curl -sf http://localhost:8002/ -o /dev/null; do sleep 2; done; \
 	echo "  agent-b ready"; \
 	echo ""; \
-	echo "==> [test] Running Cypress E2E suite..."; \
+	echo "==> [test] Running Cypress — open http://localhost:6080/vnc.html to watch..."; \
 	DOCKER_NET=$$(docker inspect $(CLUSTER_A) \
 		--format '{{range $$k, $$v := .NetworkSettings.Networks}}{{$$k}}{{end}}' | head -1); \
 	docker run --rm \
 		--network "$$DOCKER_NET" \
-		-e CYPRESS_BASE_URL=http://$$IP_A:30080 \
-		-e CYPRESS_AGENT_A_URL=http://$$IP_A:30080 \
-		-e CYPRESS_AGENT_B_URL=http://$$IP_B:30080 \
+		-p 6080:6080 \
+		-e CYPRESS_BASE_URL=http://cluster-a:30080 \
+		-e CYPRESS_AGENT_A_URL=http://cluster-a:30080 \
+		-e CYPRESS_AGENT_B_URL=http://cluster-b:30080 \
 		-e CYPRESS_USERNAME=$(TEST_USERNAME) \
 		-e CYPRESS_PASSWORD=$(TEST_PASSWORD) \
 		-v "$$(pwd)/cypress/screenshots:/e2e/cypress/screenshots" \
 		$(CYPRESS_IMAGE); \
 	EXIT_CODE=$$?; \
-	echo ""; \
-	echo "==> [test] Tearing down..."; \
-	$(MAKE) teardown; \
 	if [ $$EXIT_CODE -eq 0 ]; then \
 		echo "  ✓ All tests passed"; \
 	else \

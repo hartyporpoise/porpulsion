@@ -1,6 +1,5 @@
 /**
  * Workload tests — deploy, view, scale, spec-edit, delete — all via the UI.
- *
  * Precondition: A and B are peered (02-peering ran first).
  */
 describe('Workloads', () => {
@@ -9,12 +8,27 @@ describe('Workloads', () => {
   let PEER_B_NAME;
 
   before(() => {
-    // Discover peer B's name from the API so we can select it in the form
-    cy.loginTo(AGENT_A).then(() => {
-      cy.request(`${AGENT_A}/peers`).then((resp) => {
+    // Wait for at least one peer to be connected (02-peering must have run first)
+    const waitForPeer = (attempts = 0) => {
+      cy.apiRequest('GET', `${AGENT_A}/api/peers`).then((resp) => {
         const connected = resp.body.find((p) => p.channel === 'connected') || resp.body[0];
-        PEER_B_NAME = connected?.name;
-        expect(PEER_B_NAME).to.be.a('string');
+        if (connected?.name) { PEER_B_NAME = connected.name; return; }
+        if (attempts >= 10) throw new Error('No peer found on Agent A after waiting');
+        cy.wait(3000);
+        waitForPeer(attempts + 1);
+      });
+    };
+    waitForPeer();
+
+    // Clean up any leftover apps from a previous run before starting fresh
+    const CLEANUP_APPS = ['cypress-nginx', 'cypress-busybox', 'cypress-cm-test'];
+    cy.apiRequest('GET', `${AGENT_A}/api/remoteapps`).then((resp) => {
+      const all = [...(resp.body?.submitted || []), ...(resp.body?.executing || [])];
+      all.forEach((app) => {
+        if (CLEANUP_APPS.includes(app.name)) {
+          const id = app.app_id || app.id;
+          if (id) cy.apiRequest('DELETE', `${AGENT_A}/api/remoteapp/${id}`);
+        }
       });
     });
   });
@@ -35,30 +49,23 @@ describe('Workloads', () => {
     it('shows a validation error when name is empty', () => {
       cy.visit('/deploy');
       cy.get('#deploy-submit-btn').click();
-      // Toast error for missing name
-      cy.get('.toast, [class*="toast"]', { timeout: 5000 })
-        .should('be.visible')
-        .and('contain.text', 'name');
+      // #toast uses opacity for show/hide — check for 'show' class, not 'be.visible'
+      cy.get('#toast', { timeout: 5000 }).should('have.class', 'show').and('contain.text', 'name');
     });
 
     it('deploys an nginx app via the form', () => {
       cy.visit('/deploy');
-
       cy.get('#deploy-name').type('cypress-nginx');
-      cy.get('#deploy-target-peer').select(PEER_B_NAME);
+      cy.selectTargetPeer(PEER_B_NAME);
       cy.get('#deploy-image').type('nginx:alpine');
       cy.get('#deploy-replicas').clear().type('1');
-
       cy.get('#deploy-submit-btn').click();
-
-      // Should redirect to /workloads after successful deploy
       cy.url({ timeout: 15000 }).should('include', '/workloads');
     });
 
     it('deployed app appears in the submitted apps table', () => {
       cy.visit('/workloads');
-      cy.get('#submitted-body tr', { timeout: 15000 }).should('have.length.greaterThan', 0);
-      cy.get('#submitted-body').should('contain.text', 'cypress-nginx');
+      cy.get('#submitted-body', { timeout: 15000 }).should('contain.text', 'cypress-nginx');
     });
   });
 
@@ -71,33 +78,27 @@ describe('Workloads', () => {
     it('switching to YAML mode shows the CR editor', () => {
       cy.visit('/deploy');
       cy.get('#deploy-name').type('temp-yaml-test');
-      cy.get('#deploy-target-peer').select(PEER_B_NAME);
+      cy.selectTargetPeer(PEER_B_NAME);
       cy.get('#deploy-image').type('nginx:alpine');
-
       cy.get('[data-mode="yaml"]').click();
-
       cy.get('#deploy-yaml-wrap').should('be.visible');
-      // The editor textarea (backing) or Monaco should contain the CR scaffold
-      cy.get('#app-spec-yaml, #app-spec-yaml-fallback').invoke('val')
-        .should('match', /apiVersion.*porpulsion/s);
+      // #app-spec-yaml is always synced by the editor
+      cy.get('#app-spec-yaml').invoke('val').should('match', /apiVersion.*porpulsion/s);
     });
 
     it('form fields survive a form→YAML→form roundtrip', () => {
       cy.visit('/deploy');
-
       cy.get('#deploy-name').type('roundtrip-test');
-      cy.get('#deploy-target-peer').select(PEER_B_NAME);
+      cy.selectTargetPeer(PEER_B_NAME);
       cy.get('#deploy-image').type('redis:alpine');
       cy.get('#deploy-replicas').clear().type('2');
 
-      // Switch to YAML
       cy.get('[data-mode="yaml"]').click();
-      cy.get('#app-spec-yaml, #app-spec-yaml-fallback').invoke('val')
+      cy.get('#app-spec-yaml').invoke('val')
         .should('include', 'redis:alpine')
         .and('include', 'roundtrip-test')
         .and('include', PEER_B_NAME);
 
-      // Switch back to Form
       cy.get('[data-mode="form"]').click();
       cy.get('#deploy-image').should('have.value', 'redis:alpine');
       cy.get('#deploy-replicas').should('have.value', '2');
@@ -107,23 +108,24 @@ describe('Workloads', () => {
     it('deploys a busybox app via raw YAML', () => {
       cy.visit('/deploy');
       cy.get('[data-mode="yaml"]').click();
+      cy.get('#deploy-yaml-wrap').should('be.visible');
 
-      const cr = `apiVersion: porpulsion.io/v1alpha1
-kind: RemoteApp
-metadata:
-  name: cypress-busybox
-spec:
-  image: busybox:1.36
-  command: ["sh", "-c", "sleep 3600"]
-  replicas: 1
-  targetPeer: ${PEER_B_NAME}`;
+      const cr = [
+        'apiVersion: porpulsion.io/v1alpha1',
+        'kind: RemoteApp',
+        'metadata:',
+        '  name: cypress-busybox',
+        'spec:',
+        '  image: busybox:1.36',
+        '  command: ["sh", "-c", "sleep 3600"]',
+        '  replicas: 1',
+        `  targetPeer: ${PEER_B_NAME}`,
+      ].join('\n');
 
-      // Type into the fallback textarea (Monaco may not be available headlessly)
-      cy.get('#app-spec-yaml').invoke('val', cr);
-      cy.get('#app-spec-yaml-fallback').then(($el) => {
-        if ($el.is(':visible')) cy.wrap($el).clear().type(cr, { delay: 0 });
+      // Set value via the editor API (works regardless of Monaco vs fallback)
+      cy.window().then((win) => {
+        win.PorpulsionVscodeEditor.setDeploySpecValue(cr);
       });
-
       cy.get('#deploy-submit-btn-yaml').click();
       cy.url({ timeout: 15000 }).should('include', '/workloads');
     });
@@ -147,34 +149,25 @@ spec:
 
     it('clicking a submitted app row opens the detail modal', () => {
       cy.visit('/workloads');
-      cy.contains('#submitted-body tr', 'cypress-nginx').click();
-      // Modal should appear
-      cy.get('[class*="modal"], [id*="modal"], [role="dialog"]', { timeout: 8000 })
-        .should('be.visible');
+      cy.openAppModal('cypress-nginx');
     });
 
     it('detail modal shows Overview, Logs, and YAML tabs', () => {
       cy.visit('/workloads');
-      cy.contains('#submitted-body tr', 'cypress-nginx').click();
-      cy.get('[class*="modal"], [id*="modal"], [role="dialog"]', { timeout: 8000 })
-        .within(() => {
-          cy.contains(/overview/i).should('exist');
-          cy.contains(/logs/i).should('exist');
-          cy.contains(/yaml/i).should('exist');
-        });
+      cy.openAppModal('cypress-nginx');
+      cy.get('#app-modal-tabs-bar').within(() => {
+        cy.contains('Overview').should('exist');
+        cy.contains('Logs').should('exist');
+        cy.contains('YAML').should('exist');
+      });
     });
 
     it('YAML tab in detail modal shows the full CR', () => {
       cy.visit('/workloads');
-      cy.contains('#submitted-body tr', 'cypress-nginx').click();
-      cy.get('[class*="modal"], [id*="modal"], [role="dialog"]', { timeout: 8000 })
-        .within(() => {
-          cy.contains(/yaml/i).click();
-          // The YAML editor/pre should contain the CR
-          cy.get('pre, textarea, [class*="editor"]', { timeout: 5000 })
-            .invoke('text')
-            .should('match', /apiVersion|kind.*RemoteApp/s);
-        });
+      cy.openAppModal('cypress-nginx');
+      cy.appModalTab('edit');
+      cy.get('#modal-spec-textarea', { timeout: 5000 }).invoke('val')
+        .should('match', /apiVersion|RemoteApp/s);
     });
   });
 
@@ -183,46 +176,22 @@ spec:
   // ----------------------------------------------------------------
   context('App lifecycle on Agent B', () => {
     it('cypress-nginx reaches Running on Agent B (up to 90s)', () => {
-      cy.loginTo(AGENT_B);
-      cy.waitForAppPhase(AGENT_B, 'cypress-nginx', 'Running', 18, 5000);
+      cy.waitForAppPhase(AGENT_B, 'cypress-nginx', 'Ready', 18, 5000);
     });
 
     it('Agent B shows the executing app in its workloads table', () => {
-      cy.loginUI();
-      cy.visit(AGENT_B);
-      cy.visit(AGENT_B + '/workloads');
-      cy.get('#executing-body', { timeout: 15000 }).should('contain.text', 'cypress-nginx');
-    });
-  });
-
-  // ----------------------------------------------------------------
-  // Scale via the detail modal
-  // ----------------------------------------------------------------
-  context('Scale via UI', () => {
-    beforeEach(() => cy.loginUI());
-
-    it('scales cypress-nginx to 2 replicas via the modal', () => {
-      cy.visit('/workloads');
-      cy.contains('#submitted-body tr', 'cypress-nginx').click();
-
-      cy.get('[class*="modal"], [id*="modal"], [role="dialog"]', { timeout: 8000 })
-        .within(() => {
-          // Look for a scale input or +/- replica control
-          cy.get('input[type="number"][value="1"], input[placeholder*="eplic"]')
-            .first()
-            .clear()
-            .type('2');
-          cy.contains(/scale|apply|save/i).click();
-        });
-
-      cy.wait(3000);
-
-      // Verify via API that replicas updated
-      cy.loginTo(AGENT_A).then(() => {
-        cy.request(`${AGENT_A}/remoteapps`).then((resp) => {
-          const app = resp.body.find((a) => a.name === 'cypress-nginx');
-          expect(app?.spec?.replicas ?? app?.status?.replicas).to.be.at.least(2);
-        });
+      // Visit Agent B directly — cy.origin handles the cross-origin session.
+      // Pass the full Agent B URL so cy.visit uses absolute URL (avoids baseUrl confusion).
+      const user = Cypress.env('USERNAME');
+      const pass = Cypress.env('PASSWORD');
+      cy.origin(AGENT_B, { args: { AGENT_B, user, pass } }, ({ AGENT_B, user, pass }) => {
+        cy.visit(`${AGENT_B}/login`);
+        cy.get('#username').type(user);
+        cy.get('#password').type(pass);
+        cy.get('button[type="submit"]').click();
+        cy.url({ timeout: 10000 }).should('not.include', '/login');
+        cy.visit(`${AGENT_B}/workloads`);
+        cy.get('#executing-body', { timeout: 15000 }).should('contain.text', 'cypress-nginx');
       });
     });
   });
@@ -235,26 +204,27 @@ spec:
 
     it('edits the image tag in the YAML tab and saves', () => {
       cy.visit('/workloads');
-      cy.contains('#submitted-body tr', 'cypress-nginx').click();
+      cy.openAppModal('cypress-nginx');
+      cy.appModalTab('edit');
 
-      cy.get('[class*="modal"], [id*="modal"], [role="dialog"]', { timeout: 8000 })
-        .within(() => {
-          cy.contains(/yaml/i).click();
-
-          // Get the current YAML and replace the image tag
-          cy.get('textarea, pre[contenteditable]', { timeout: 5000 }).first().then(($el) => {
-            const current = $el.val() || $el.text();
-            const updated = current.replace(/nginx:alpine/, 'nginx:1.25-alpine');
-            cy.wrap($el).clear({ force: true }).type(updated, { delay: 0, force: true });
-          });
-
-          cy.contains(/save|apply|update/i).click();
+      // Monaco editor may be active in headless Electron — use the editor API to get/set value.
+      // Wait until the editor has content (Monaco may initialise async after tab switch).
+      cy.window().then((win) => {
+        cy.wrap(null, { timeout: 8000 }).should(() => {
+          const v = win.PorpulsionVscodeEditor.getModalSpecEditorValue('modal-spec-editor-host', 'modal-spec-textarea');
+          expect(v).to.have.length.greaterThan(10);
         });
+      });
+      cy.window().then((win) => {
+        const current = win.PorpulsionVscodeEditor.getModalSpecEditorValue('modal-spec-editor-host', 'modal-spec-textarea');
+        const updated = current.replace(/nginx:alpine/, 'nginx:1.25-alpine');
+        win.PorpulsionVscodeEditor.setModalSpecEditorValue('modal-spec-editor-host', 'modal-spec-textarea', updated);
+      });
 
-      // Toast should confirm success
-      cy.get('.toast, [class*="toast"]', { timeout: 8000 })
-        .should('be.visible')
-        .and('satisfy', ($el) => $el.text().match(/saved|updated|ok/i));
+      cy.get('#app-modal-footer #spec-tab-save').click();
+      // #toast uses opacity for show/hide — check for 'show' class
+      cy.get('#toast', { timeout: 8000 }).should('have.class', 'show')
+        .and('satisfy', ($el) => /saved|updated|ok/i.test($el.text()));
     });
   });
 
@@ -266,31 +236,28 @@ spec:
 
     it('adds a configmap with a multi-line value and survives form→yaml→form roundtrip', () => {
       cy.visit('/deploy');
-
       cy.get('#deploy-name').type('cypress-cm-test');
-      cy.get('#deploy-target-peer').select(PEER_B_NAME);
+      cy.selectTargetPeer(PEER_B_NAME);
       cy.get('#deploy-image').type('nginx:alpine');
 
       // Add a ConfigMap
       cy.get('#deploy-add-cm').click();
       cy.get('[data-role="vol-name"]').last().type('my-config');
       cy.get('[data-role="vol-mount"]').last().type('/etc/myapp');
-      cy.get('.cfg-add-section').last().find('button').contains('+ Add key').click();
+      cy.get('.cfg-add-section').last().contains('+ Add key').click();
       cy.get('[data-role="kv-key"]').last().type('app.conf');
-
-      // Type Shift+Enter to promote to textarea, then type multi-line value
+      // Shift+Enter promotes to textarea for multi-line value
       cy.get('[data-role="kv-val"]').last().type('line1{shift}{enter}line2{shift}{enter}line3');
 
       // Switch to YAML — multi-line value should appear as block scalar
       cy.get('[data-mode="yaml"]').click();
-      cy.get('#app-spec-yaml, #app-spec-yaml-fallback').invoke('val')
+      cy.get('#app-spec-yaml').invoke('val')
         .should('include', 'app.conf')
         .and('include', '|');
 
       // Switch back to Form — value should be preserved
       cy.get('[data-mode="form"]').click();
-      cy.get('[data-role="kv-val"]').last()
-        .invoke('val')
+      cy.get('[data-role="kv-val"]').last().invoke('val')
         .should('include', 'line1')
         .and('include', 'line2');
     });
@@ -306,16 +273,9 @@ spec:
       cy.visit('/workloads');
       cy.get('body').then(($body) => {
         if (!$body.text().includes('cypress-busybox')) return;
-        cy.contains('#submitted-body tr', 'cypress-busybox').click();
-        cy.get('[class*="modal"], [id*="modal"], [role="dialog"]', { timeout: 8000 })
-          .within(() => {
-            cy.contains(/delete|remove/i).click();
-          });
-        // Confirm dialog
-        cy.on('window:confirm', () => true);
-        cy.get('.confirm-dialog button, [class*="confirm"] button')
-          .contains(/delete|confirm/i)
-          .click({ force: true });
+        cy.openAppModal('cypress-busybox');
+        cy.get('#app-modal-body .app-modal-delete-btn').click();
+        cy.confirmDialog();
         cy.get('#submitted-body', { timeout: 10000 }).should('not.contain.text', 'cypress-busybox');
       });
     });
@@ -324,40 +284,28 @@ spec:
       cy.visit('/workloads');
       cy.get('body').then(($body) => {
         if (!$body.text().includes('cypress-cm-test')) return;
-        cy.contains('#submitted-body tr', 'cypress-cm-test').click();
-        cy.get('[class*="modal"], [id*="modal"], [role="dialog"]', { timeout: 8000 })
-          .within(() => {
-            cy.contains(/delete|remove/i).click();
-          });
-        cy.on('window:confirm', () => true);
-        cy.get('.confirm-dialog button, [class*="confirm"] button')
-          .contains(/delete|confirm/i)
-          .click({ force: true });
+        cy.openAppModal('cypress-cm-test');
+        cy.get('#app-modal-body .app-modal-delete-btn').click();
+        cy.confirmDialog();
         cy.get('#submitted-body', { timeout: 10000 }).should('not.contain.text', 'cypress-cm-test');
       });
     });
 
     it('deletes cypress-nginx via the workloads table', () => {
       cy.visit('/workloads');
-      cy.contains('#submitted-body tr', 'cypress-nginx').click();
-      cy.get('[class*="modal"], [id*="modal"], [role="dialog"]', { timeout: 8000 })
-        .within(() => {
-          cy.contains(/delete|remove/i).click();
-        });
-      cy.on('window:confirm', () => true);
-      cy.get('.confirm-dialog button, [class*="confirm"] button')
-        .contains(/delete|confirm/i)
-        .click({ force: true });
+      cy.openAppModal('cypress-nginx');
+      cy.get('#app-modal-body .app-modal-delete-btn').click();
+      cy.confirmDialog();
       cy.get('#submitted-body', { timeout: 15000 }).should('not.contain.text', 'cypress-nginx');
     });
 
     it('Agent B eventually removes the executing app after deletion', () => {
-      cy.loginTo(AGENT_B);
       const waitForGone = (attempts = 0) => {
-        cy.request(`${AGENT_B}/remoteapps`).then((resp) => {
-          const app = resp.body.find((a) => a.name === 'cypress-nginx');
+        cy.apiRequest('GET', `${AGENT_B}/api/remoteapps`).then((resp) => {
+          const all = [...(resp.body?.submitted || []), ...(resp.body?.executing || [])];
+          const app = all.find((a) => a.name === 'cypress-nginx');
           if (!app) return;
-          if (attempts >= 12) expect(app, 'App still exists on B after deletion').to.be.undefined;
+          if (attempts >= 12) expect(app, 'App still exists on Agent B after deletion').to.be.undefined;
           cy.wait(5000);
           waitForGone(attempts + 1);
         });

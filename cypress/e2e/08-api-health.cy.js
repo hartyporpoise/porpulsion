@@ -1,62 +1,78 @@
 /**
- * API health / smoke tests — quick sanity checks on both agents.
- * These run fast and don't require peering.
+ * API health / smoke tests — authenticated sanity checks on both agents.
+ * Uses Basic Auth via cy.apiRequest so these run fast without browser navigation.
  */
 describe('API Health', () => {
   const AGENT_A = Cypress.env('AGENT_A_URL');
   const AGENT_B = Cypress.env('AGENT_B_URL');
 
-  function loginTo(url) {
-    return cy.loginTo(url);
-  }
-
   context('Agent A', () => {
-    beforeEach(() => loginTo(AGENT_A));
+    it('GET / returns 200', () => {
+      cy.loginUI();
+      cy.request(AGENT_A).its('status').should('eq', 200);
+    });
 
-    it('GET / returns 200', () => cy.request(AGENT_A).its('status').should('eq', 200));
-    it('GET /settings returns 200 with agentName', () => {
-      cy.request(`${AGENT_A}/settings`).then((r) => {
+    it('GET /api/settings returns 200 with known fields', () => {
+      cy.apiRequest('GET', `${AGENT_A}/api/settings`).then((r) => {
         expect(r.status).to.eq(200);
-        expect(r.body).to.have.property('agentName').and.be.a('string');
-        expect(r.body).to.have.property('selfUrl').and.match(/^http/);
+        // Settings returns operational fields, not agentName/selfUrl
+        expect(r.body).to.have.property('allow_inbound_remoteapps');
+        expect(r.body).to.have.property('allow_inbound_tunnels');
       });
     });
-    it('GET /peers returns array', () => {
-      cy.request(`${AGENT_A}/peers`).its('body').should('be.an', 'array');
+
+    it('GET /api/peers returns array', () => {
+      cy.apiRequest('GET', `${AGENT_A}/api/peers`).its('body').should('be.an', 'array');
     });
-    it('GET /remoteapps returns array', () => {
-      cy.request(`${AGENT_A}/remoteapps`).its('body').should('be.an', 'array');
+
+    it('GET /api/remoteapps returns submitted and executing lists', () => {
+      cy.apiRequest('GET', `${AGENT_A}/api/remoteapps`).then((r) => {
+        expect(r.status).to.eq(200);
+        expect(r.body).to.have.property('submitted').and.be.an('array');
+        expect(r.body).to.have.property('executing').and.be.an('array');
+      });
     });
-    it('GET /invite returns a signed bundle', () => {
-      cy.request(`${AGENT_A}/invite`).then((r) => {
+
+    it('GET /api/invite returns a signed bundle', () => {
+      cy.apiRequest('GET', `${AGENT_A}/api/invite`).then((r) => {
+        expect(r.status).to.eq(200);
         expect(r.body.bundle).to.be.a('string').and.have.length.greaterThan(10);
       });
     });
-    it('unauthenticated GET /settings redirects to /login', () => {
+
+    it('unauthenticated GET /settings page redirects to /login', () => {
       cy.clearCookies();
-      cy.request({ url: `${AGENT_A}/settings`, failOnStatusCode: false })
+      // followRedirect: false so we see the actual 302, not the login page 200
+      cy.request({ url: `${AGENT_A}/settings`, failOnStatusCode: false, followRedirect: false })
         .its('status').should('be.oneOf', [302, 401, 403]);
     });
   });
 
   context('Agent B', () => {
-    beforeEach(() => loginTo(AGENT_B));
-
     it('GET / returns 200', () => cy.request(AGENT_B).its('status').should('eq', 200));
-    it('GET /settings returns 200 with agentName', () => {
-      cy.request(`${AGENT_B}/settings`).then((r) => {
+
+    it('GET /api/settings returns 200 with known fields', () => {
+      cy.apiRequest('GET', `${AGENT_B}/api/settings`).then((r) => {
         expect(r.status).to.eq(200);
-        expect(r.body.agentName).to.be.a('string');
+        expect(r.body).to.have.property('allow_inbound_remoteapps');
       });
     });
-    it('GET /peers returns array', () => {
-      cy.request(`${AGENT_B}/peers`).its('body').should('be.an', 'array');
+
+    it('GET /api/peers returns array', () => {
+      cy.apiRequest('GET', `${AGENT_B}/api/peers`).its('body').should('be.an', 'array');
     });
-    it('GET /remoteapps returns array', () => {
-      cy.request(`${AGENT_B}/remoteapps`).its('body').should('be.an', 'array');
+
+    it('GET /api/remoteapps returns submitted and executing lists', () => {
+      cy.apiRequest('GET', `${AGENT_B}/api/remoteapps`).then((r) => {
+        expect(r.status).to.eq(200);
+        expect(r.body).to.have.property('submitted').and.be.an('array');
+        expect(r.body).to.have.property('executing').and.be.an('array');
+      });
     });
-    it('GET /invite returns a signed bundle', () => {
-      cy.request(`${AGENT_B}/invite`).then((r) => {
+
+    it('GET /api/invite returns a signed bundle', () => {
+      cy.apiRequest('GET', `${AGENT_B}/api/invite`).then((r) => {
+        expect(r.status).to.eq(200);
         expect(r.body.bundle).to.be.a('string').and.have.length.greaterThan(10);
       });
     });

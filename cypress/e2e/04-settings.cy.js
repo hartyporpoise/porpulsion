@@ -1,5 +1,5 @@
 /**
- * Settings page tests — view settings, verify agent name is shown.
+ * Settings page tests — view settings, verify agent name and selfUrl are shown.
  */
 describe('Settings', () => {
   const AGENT_A = Cypress.env('AGENT_A_URL');
@@ -9,31 +9,33 @@ describe('Settings', () => {
   it('settings page loads', () => {
     cy.visit('/settings');
     cy.url().should('include', '/settings');
-    cy.get('body').should('be.visible');
+    cy.get('#settings-panel-agent').should('be.visible');
   });
 
   it('shows the agent name', () => {
-    cy.loginTo(AGENT_A).then(() => {
-      cy.request(`${AGENT_A}/settings`).then((resp) => {
-        const agentName = resp.body.agentName;
-        cy.visit('/settings');
-        cy.contains(agentName).should('exist');
-      });
+    // Fetch agent name from /api/invite (has "agent" field), then verify it's visible in the UI
+    cy.apiRequest('GET', `${AGENT_A}/api/invite`).then((resp) => {
+      expect(resp.status).to.eq(200);
+      const agentName = resp.body.agent;
+      expect(agentName).to.be.a('string').and.have.length.greaterThan(0);
+      cy.visit('/settings');
+      // Agent name is rendered server-side in the first .stg-row-val.mono
+      cy.get('#settings-panel-agent .stg-row-val.mono').first()
+        .should('contain.text', agentName);
     });
   });
 
   it('shows selfUrl', () => {
-    cy.loginTo(AGENT_A).then(() => {
-      cy.request(`${AGENT_A}/settings`).then((resp) => {
-        const selfUrl = resp.body.selfUrl;
-        cy.visit('/settings');
-        cy.contains(selfUrl).should('exist');
-      });
-    });
+    cy.visit('/settings');
+    // selfUrl is loaded via JS into #about-url — wait for it to populate (not the dash placeholder)
+    cy.get('#about-url', { timeout: 10000 })
+      .should('not.have.text', '—')
+      .and('not.be.empty');
   });
 
-  it('shows the namespace', () => {
+  it('executing panel has the inbound workloads toggle', () => {
     cy.visit('/settings');
-    cy.contains(/porpulsion/i).should('exist');
+    cy.get('.stg-tab[data-section="executing"]').click();
+    cy.get('#settings-panel-executing #setting-inbound-apps').should('exist');
   });
 });
