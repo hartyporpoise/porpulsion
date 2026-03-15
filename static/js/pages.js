@@ -508,7 +508,7 @@
     return allowed.length ? allowed.join(', ') : '__none__';
   }
 
-  function _populateHealthGrid(s, selfUrl) {
+  function _populateHealthGrid(s, selfUrl, versionHash) {
     function setBadge(id, ok, trueLabel, falseLabel) {
       var e = el(id);
       if (!e) return;
@@ -522,6 +522,8 @@
     if (ll) ll.textContent = s.log_level || 'INFO';
     var au = el('health-agent-url');
     if (au) au.textContent = selfUrl || '—';
+    var vh = el('health-version');
+    if (vh) vh.textContent = versionHash || '—';
   }
 
   function loadSettings() {
@@ -565,8 +567,8 @@
       // Health grid (overview page)
       if (el('health-grid')) {
         P.getInvite().then(function (tok) {
-          _populateHealthGrid(s, tok.self_url || '');
-        }).catch(function () { _populateHealthGrid(s, ''); });
+          _populateHealthGrid(s, tok.self_url || '', tok.version_hash || '');
+        }).catch(function () { _populateHealthGrid(s, '', ''); });
       }
     }).catch(function () {});
   }
