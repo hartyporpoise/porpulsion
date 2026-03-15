@@ -412,7 +412,7 @@ jobs:
         with:
           context: .
           platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'publish-image') }}
+          push: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'release-candidate') }}
           load: false
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
