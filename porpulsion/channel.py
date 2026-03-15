@@ -386,8 +386,12 @@ class PeerChannel:
         # ── Register in peer_channels now (before blocking recv loop) ─────
         # Must happen here so is_connected() returns True while the connection
         # is live. accept_channel() runs after attach_inbound returns (too late).
+        # Capture the existing outbound channel before replacing it, so we can
+        # send peer/bidirectional on it below (after replacement, peer_channels
+        # would point to self and the is-not-self guard would block the send).
         with _state.peer_channels_lock:
             old = _state.peer_channels.get(peer_name)
+            outbound_channel = old if (old and old is not self) else None
             if old and old is not self:
                 old.close()
             _state.peer_channels[peer_name] = self
@@ -404,16 +408,14 @@ class PeerChannel:
 
         # If this inbound connection upgrades a previously outgoing-only peer to
         # bidirectional, notify them over their outbound channel so they can update
-        # their direction too. We send on the outbound channel (not self, which is
-        # the inbound socket they just connected on — they already know about that).
-        if is_bidirectional_upgrade:
+        # their direction too. We send on the outbound channel captured before it
+        # was replaced in peer_channels.
+        if is_bidirectional_upgrade and outbound_channel:
             try:
-                outbound = _state.peer_channels.get(peer_name)
-                if outbound and outbound is not self:
-                    outbound.push("peer/bidirectional", {
-                        "name":        _state.AGENT_NAME,
-                        "remote_addr": self.peer_remote_addr,
-                    })
+                outbound_channel.push("peer/bidirectional", {
+                    "name":        _state.AGENT_NAME,
+                    "remote_addr": self.peer_remote_addr,
+                })
             except Exception:
                 pass
 
