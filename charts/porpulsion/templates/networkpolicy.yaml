@@ -15,33 +15,24 @@ spec:
     - Ingress
     - Egress
 
-  # ── Ingress ────────────────────────────────────────────────────────────────
-  # Allow inbound from:
-  #   1. Any pod in the same namespace (peers, ingress controllers, etc.)
-  #   2. Any source on the agent port (internet traffic via LoadBalancer/NodePort)
+  # Ingress
   ingress:
     # Same-namespace pods - no port restriction
     - from:
         - podSelector: {}
-    # Internet / ingress controller - agent HTTP port only
-    - ports:
+    # Any in-cluster source on the agent port
+    - from:
+        - namespaceSelector: {}
+      ports:
         - port: {{ .Values.service.port }}
           protocol: TCP
 
-  # ── Egress ─────────────────────────────────────────────────────────────────
-  # Allow outbound to:
-  #   1. Any pod in the same namespace (peer-to-peer WS, k8s exec to pods, etc.)
-  #   2. kube-dns (UDP+TCP 53) - required for all DNS resolution
-  #   3. Public internet - all ports EXCEPT RFC1918 private ranges
-  #      (blocks home-lab / cloud VPC / cluster-internal CIDRs that aren't
-  #       the agent's own namespace)
+  # Egress 
   egress:
     # Same-namespace pods - unrestricted
     - to:
         - podSelector: {}
 
-    # kube-dns - must be explicit because the DNS service IP is a ClusterIP
-    # (typically 10.x.x.x) which would otherwise be blocked by the RFC1918 rule
     - ports:
         - port: 53
           protocol: UDP
@@ -55,9 +46,16 @@ spec:
             matchLabels:
               k8s-app: kube-dns
 
-    # Public internet - all ports, explicitly excluding RFC1918 private ranges.
-    # The `except` list carves private CIDRs out of 0.0.0.0/0 so traffic to
-    # home-lab networks, cloud VPCs, and cluster-internal subnets is dropped.
+    - ports:
+        - port: 443
+          protocol: TCP
+        - port: 6443
+          protocol: TCP
+      to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
