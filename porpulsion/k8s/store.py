@@ -309,6 +309,19 @@ def create_remoteapp_cr(namespace: str, app_name: str, spec_dict: dict,
     return None
 
 
+def patch_remoteapp_cr_spec(namespace: str, cr_name: str, spec: dict) -> None:
+    """Patch the spec of a RemoteApp CR. Kopf's on_remoteapp_spec_updated fires and forwards to the peer."""
+    if not _check_crd_available(namespace):
+        return
+    try:
+        _crd_api.patch_namespaced_custom_object(
+            GROUP, VERSION, namespace, PLURAL, cr_name, {"spec": spec}
+        )
+        log.info("Patched RemoteApp CR spec %s/%s", namespace, cr_name)
+    except ApiException as e:
+        log.warning("Failed to patch RemoteApp CR spec %s: %s", cr_name, e)
+
+
 def update_remoteapp_cr_status(namespace: str, cr_name: str, phase: str, app_id: str, message: str = "") -> None:
     """Patch the status subresource of a RemoteApp CR."""
     if not _check_crd_available(namespace):

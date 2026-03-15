@@ -1668,26 +1668,21 @@
       // ── Config tab ────────────────────────────────────────────
       var configHtml = _buildConfigTab(spec, isSubmitted);
 
-      // ── CR tab ────────────────────────────────────────────────
+      // ── YAML tab ──────────────────────────────────────────────
       var crYaml = d.cr_yaml || '';
-      var specYaml = d.spec_yaml || _specToYaml(spec);
-      var specLineCount = specYaml ? specYaml.split('\n').length : 1;
-      var specEditorPx = Math.max(180, Math.min(480, specLineCount * 19 + 16));
-      var editHtml =
-        '<div class="cr-yaml-section">' +
-          '<div class="cr-yaml-label">Full CR</div>' +
-          '<pre class="cr-yaml-block">' + _esc(crYaml) + '</pre>' +
-        '</div>' +
-        (isSubmitted
-          ? '<div class="cr-yaml-section" style="margin-top:1.25rem;">' +
-              '<div class="cr-yaml-label">Edit spec</div>' +
-              '<p class="text-sm text-muted" style="margin-bottom:0.75rem;">Edit the YAML spec and save to update the running deployment.</p>' +
-              '<div class="monaco-editor-wrap" id="modal-spec-editor-wrap">' +
-                '<div id="modal-spec-editor-host" class="monaco-editor-host" style="height:' + specEditorPx + 'px;" aria-label="YAML spec editor"></div>' +
-                '<textarea id="modal-spec-textarea" class="monaco-fallback-textarea modal-spec-editor" rows="' + specLineCount + '" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" data-spec-yaml="' + _esc(specYaml) + '">' + _esc(specYaml) + '</textarea>' +
-              '</div>' +
-            '</div>'
-          : '');
+      var crLineCount = crYaml ? crYaml.split('\n').length : 1;
+      var crEditorPx = Math.max(240, Math.min(600, crLineCount * 19 + 16));
+      var editHtml = isSubmitted
+        ? '<div class="cr-yaml-section">' +
+            '<p class="text-sm text-muted" style="margin-bottom:0.75rem;">Edit the full CR YAML and save to apply changes.</p>' +
+            '<div class="monaco-editor-wrap" id="modal-spec-editor-wrap">' +
+              '<div id="modal-spec-editor-host" class="monaco-editor-host" style="height:' + crEditorPx + 'px;" aria-label="CR YAML editor"></div>' +
+              '<textarea id="modal-spec-textarea" class="monaco-fallback-textarea modal-spec-editor" rows="' + crLineCount + '" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" data-spec-yaml="' + _esc(crYaml) + '">' + _esc(crYaml) + '</textarea>' +
+            '</div>' +
+          '</div>'
+        : '<div class="cr-yaml-section">' +
+            '<pre class="cr-yaml-block">' + _esc(crYaml) + '</pre>' +
+          '</div>';
 
       // ── Terminal tab ──────────────────────────────────────────
       var termHtml =
@@ -1728,7 +1723,7 @@
             '<button type="button" class="modal-tab" data-tab="logs">Logs</button>' +
             (isSubmitted ? '<button type="button" class="modal-tab' + (termTabDisabled ? ' modal-tab-disabled' : '') + '" data-tab="terminal"' + (termTabDisabled ? ' disabled title="Available when pod is Running"' : '') + '>Terminal</button>' : '') +
             (isSubmitted ? '<button type="button" class="modal-tab' + (configTabDisabled ? ' modal-tab-disabled' : '') + '" data-tab="config"' + (configTabDisabled ? ' disabled title="Available when pod is Running"' : '') + '>Config</button>' : '') +
-            '<button type="button" class="modal-tab" data-tab="edit">CR</button>' +
+            '<button type="button" class="modal-tab" data-tab="edit">YAML</button>' +
           '</div>';
       }
 
@@ -1800,15 +1795,14 @@
         });
       }
 
-      // Spec save — delegated via footer
+      // YAML save — extract spec from full CR, patch it
       function _doSpecSave(btn) {
-        var yamlStr = window.PorpulsionVscodeEditor
+        var crStr = window.PorpulsionVscodeEditor
           ? window.PorpulsionVscodeEditor.getModalSpecEditorValue('modal-spec-editor-host', 'modal-spec-textarea')
           : (el('modal-spec-textarea') || {}).value || '';
-        if (!yamlStr.trim()) { toast('Spec cannot be empty', 'error'); return; }
-        if (yamlStr.indexOf('image:') === -1) { toast('Spec must include an image field', 'error'); return; }
+        if (!crStr.trim()) { toast('YAML cannot be empty', 'error'); return; }
         btn.disabled = true; btn.textContent = 'Saving…';
-        P.updateAppSpec(app.id, yamlStr).then(function () {
+        P.updateAppSpec(app.id, crStr).then(function () {
           toast('Saved', 'ok');
           closeAppModal();
           refresh();

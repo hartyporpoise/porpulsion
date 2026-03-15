@@ -14,7 +14,7 @@ from porpulsion.k8s.executor import (
     rollout_restart, list_pods, exec_in_pod,
 )
 from porpulsion.k8s.store import (
-    create_remoteapp_cr, delete_remoteapp_cr,
+    create_remoteapp_cr, delete_remoteapp_cr, patch_remoteapp_cr_spec,
     list_remoteapp_crs, list_executingapp_crs,
     delete_executingapp_cr, cr_to_dict, get_cr_by_app_id, get_ea_cr_by_app_id,
     patch_cr_volume_data, remoteapp_name_exists,
@@ -270,14 +270,26 @@ def remoteapp_spec_schema():
                     "503": {"description": "No peers connected"}})
 def create_remoteapp():
     data = request.json
-    if not data or "name" not in data:
+    if not data:
         return jsonify({"error": "name is required"}), 400
-    if "spec_yaml" in data:
-        import yaml as _yaml
+    import yaml as _yaml
+    if "cr_yaml" in data:
+        # Full CR YAML submitted — extract name, targetPeer, and spec from it
+        try:
+            cr = _yaml.safe_load(data["cr_yaml"]) or {}
+        except Exception as e:
+            return jsonify({"error": f"invalid YAML: {e}"}), 400
+        data["name"] = (cr.get("metadata") or {}).get("name", "")
+        spec = dict(cr.get("spec") or {})
+        data["target_peer"] = spec.pop("targetPeer", data.get("target_peer", ""))
+        data["spec"] = spec
+    elif "spec_yaml" in data:
         try:
             data["spec"] = _yaml.safe_load(data["spec_yaml"]) or {}
         except Exception as e:
             return jsonify({"error": f"invalid YAML: {e}"}), 400
+    if not data.get("name"):
+        return jsonify({"error": "name is required"}), 400
     data["spec"] = _encode_spec_secrets(data.get("spec") or {})
     if not state.peers:
         return jsonify({"error": "no peers connected"}), 503
@@ -437,17 +449,9 @@ def scale_remoteapp(app_id):
     d = cr_to_dict(cr, side)
 
     if side == "submitted":
-        # Update replicas in the RemoteApp CR - the CR watcher (MODIFIED) forwards to the peer
-        spec = dict(d.get("spec") or {})
-        spec["replicas"] = replicas
-        spec["targetPeer"] = d["target_peer"]
-        try:
-            create_remoteapp_cr(
-                state.NAMESPACE, d["name"], spec, d["target_peer"],
-            )
-            return jsonify({"ok": True, "replicas": replicas})
-        except Exception as e:
-            return jsonify({"error": str(e)}), 502
+        # Patch replicas in the RemoteApp CR - kopf forwards to peer
+        patch_remoteapp_cr_spec(state.NAMESPACE, d["cr_name"], {"replicas": replicas})
+        return jsonify({"ok": True, "replicas": replicas})
 
     if side == "executing":
         ra = RemoteApp(
@@ -694,51 +698,36 @@ def remoteapp_restart(app_id):
 
 @bp.route("/remoteapp/<app_id>/spec", methods=["PUT"])
 @api_doc("Update RemoteApp spec", tags=["RemoteApps"],
-         description="Update the spec of a submitted RemoteApp. Forwarded to the executing peer.",
+         description="Patch the spec of a submitted RemoteApp CR. Kopf forwards the change to the executing peer.",
          parameters=[{"name": "app_id", "in": "path", "required": True, "schema": {"type": "string"}}],
          request_body={"required": True, "content": {"application/json": {"schema": {
-             "type": "object", "required": ["spec"],
-             "properties": {"spec": REF_REMOTE_APP_SPEC},
+             "type": "object",
+             "properties": {"spec": REF_REMOTE_APP_SPEC, "spec_yaml": {"type": "string"}},
          }}}},
-         responses={"200": {"description": "OK"},
-                    "400": {"description": "spec required"},
-                    "404": {"description": "App not found"},
-                    "503": {"description": "Peer not connected"}})
+         responses={"200": {"description": "OK"}, "400": {"description": "invalid input"},
+                    "404": {"description": "App not found"}})
 def update_remoteapp_spec(app_id):
     data = request.json or {}
+    import yaml as _yaml
     if "spec_yaml" in data:
-        import yaml as _yaml
         try:
-            data["spec"] = _encode_spec_secrets(_yaml.safe_load(data["spec_yaml"]) or {})
+            parsed = _yaml.safe_load(data["spec_yaml"]) or {}
         except Exception as e:
             return jsonify({"error": f"invalid YAML: {e}"}), 400
-    new_spec = data.get("spec")
-    if new_spec is None:
+        # Accept either a full CR (apiVersion/kind/spec) or a bare spec dict
+        new_spec = parsed.get("spec") if "kind" in parsed else parsed
+    else:
+        new_spec = data.get("spec")
+    if not new_spec:
         return jsonify({"error": "spec is required"}), 400
-    # Encode secrets if the spec was provided as a dict (not via spec_yaml, which encodes above)
-    if "spec_yaml" not in data:
-        new_spec = _encode_spec_secrets(new_spec)
 
     cr, side = get_cr_by_app_id(state.NAMESPACE, app_id)
     if cr is None or side != "submitted":
         return jsonify({"error": "app not found"}), 404
 
     d = cr_to_dict(cr, side)
-    peer = state.peers.get(d["target_peer"])
-    if not peer:
-        return jsonify({"error": "peer not connected"}), 503
-
-    compat_err = _check_crd_compatibility(peer, new_spec)
-    if compat_err:
-        return jsonify({"error": compat_err}), 422
-
-    # Update the RemoteApp CR - the CR watcher (MODIFIED) forwards to the peer
-    create_remoteapp_cr(
-        state.NAMESPACE, d["name"],
-        {**new_spec, "targetPeer": d["target_peer"]},
-        d["target_peer"],
-    )
-    return jsonify(d)
+    patch_remoteapp_cr_spec(state.NAMESPACE, d["cr_name"], new_spec)
+    return jsonify({"ok": True})
 
 
 # -- Config management routes
