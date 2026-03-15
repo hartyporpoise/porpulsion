@@ -1082,6 +1082,10 @@
         _execWs.send(data);
       }
     });
+    // Re-focus terminal on click so arrow keys and special keys work
+    wrap.addEventListener('click', function () {
+      if (_execTerm) _execTerm.focus();
+    });
     // Resize observer — refit terminal when container size changes
     if (window.ResizeObserver) {
       _execResizeObserver = new ResizeObserver(function () {
