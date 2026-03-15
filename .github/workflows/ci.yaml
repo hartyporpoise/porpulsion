@@ -386,6 +386,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Debug event context
+        if: github.event_name == 'pull_request'
+        run: |
+          echo "event_name: ${{ github.event_name }}"
+          echo "event.action: ${{ github.event.action }}"
+          echo "event.label.name: ${{ github.event.label.name }}"
+          echo "pr labels: ${{ toJson(github.event.pull_request.labels.*.name) }}"
+
       - name: Read appVersion from Chart.yaml
         id: chart
         run: |
