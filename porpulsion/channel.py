@@ -321,7 +321,6 @@ class PeerChannel:
 
         # Check against known peers or auto-register from hello CA
         existing = _state.peers.get(peer_name)
-        is_bidirectional_upgrade = False
         if existing:
             stored_fp    = tls.cert_fingerprint(existing.ca_pem) if existing.ca_pem else ""
             presented_fp = tls.cert_fingerprint(peer_ca_pem)
@@ -333,7 +332,6 @@ class PeerChannel:
             changed = False
             if existing.direction == "outgoing":
                 existing.direction = "bidirectional"
-                is_bidirectional_upgrade = True
                 changed = True
             if peer_self_url and not existing.url:
                 existing.url = peer_self_url
@@ -406,11 +404,11 @@ class PeerChannel:
         except Exception:
             pass
 
-        # If this inbound connection upgrades a previously outgoing-only peer to
-        # bidirectional, notify them over their outbound channel so they can update
-        # their direction too. We send on the outbound channel captured before it
-        # was replaced in peer_channels.
-        if is_bidirectional_upgrade and outbound_channel:
+        # Notify the peer over their outbound channel of our agent name and the
+        # IP we saw their inbound connection from. This covers both the initial
+        # bidirectional upgrade and subsequent reconnects where the peer already
+        # has direction=bidirectional but needs the fresh remote_addr.
+        if outbound_channel and self.peer_remote_addr:
             try:
                 outbound_channel.push("peer/bidirectional", {
                     "name":        _state.AGENT_NAME,
