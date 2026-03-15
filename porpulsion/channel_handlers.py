@@ -258,6 +258,10 @@ def handle_remoteapp_exec_open(payload: dict, ch) -> dict:
     app_id = payload.get("id", "")
     pod_name = (payload.get("pod") or "").strip()
     shell = (payload.get("shell") or "/bin/sh").strip()
+    # Submitted side pre-generates the session_id and registers its queue
+    # before sending this RPC — use that ID so stdout pushes are routed
+    # correctly even if they arrive before the .call() returns.
+    session_id = (payload.get("session_id") or "").strip()
 
     ea_cr = get_ea_cr_by_app_id(state.NAMESPACE, app_id)
     if ea_cr is None:
@@ -271,10 +275,9 @@ def handle_remoteapp_exec_open(payload: dict, ch) -> dict:
     )
 
     def _on_stdout(data):
-        # data is None on EOF
-        ch.push("remoteapp/exec-stdout", {"id": app_id, "data": data})
+        ch.push("remoteapp/exec-stdout", {"id": app_id, "session_id": session_id, "data": data})
 
-    session_id = exec_open_session(ra, pod_name, _on_stdout, shell=shell)
+    exec_open_session(ra, pod_name, _on_stdout, shell=shell, session_id=session_id)
     return {"session_id": session_id}
 
 
@@ -298,27 +301,28 @@ def handle_remoteapp_exec_close(payload: dict) -> dict:
 
 
 # Registry of browser-side queues waiting for exec stdout pushes.
-# Keyed by app_id (one active terminal per app at a time is fine).
-_exec_stdout_queues: dict[str, object] = {}
+# Keyed by (app_id, session_id) so old-session EOF cannot poison a new session.
+_exec_stdout_queues: dict[tuple, object] = {}
 _exec_stdout_lock = __import__("threading").Lock()
 
 
-def register_exec_stdout_queue(app_id: str, q):
+def register_exec_stdout_queue(app_id: str, session_id: str, q):
     with _exec_stdout_lock:
-        _exec_stdout_queues[app_id] = q
+        _exec_stdout_queues[(app_id, session_id)] = q
 
 
-def unregister_exec_stdout_queue(app_id: str):
+def unregister_exec_stdout_queue(app_id: str, session_id: str):
     with _exec_stdout_lock:
-        _exec_stdout_queues.pop(app_id, None)
+        _exec_stdout_queues.pop((app_id, session_id), None)
 
 
 def handle_remoteapp_exec_stdout(payload: dict):
     """Receive stdout push from executing peer and route to waiting browser WS."""
     app_id = payload.get("id", "")
+    session_id = payload.get("session_id", "")
     data = payload.get("data")
     with _exec_stdout_lock:
-        q = _exec_stdout_queues.get(app_id)
+        q = _exec_stdout_queues.get((app_id, session_id))
     if q is not None:
         q.put(data)  # None signals EOF
 
@@ -386,7 +390,7 @@ def handle_remoteapp_spec_update(payload: dict) -> dict:
     from porpulsion import state
     from porpulsion.models import RemoteAppSpec
     from porpulsion.routes.workloads import _check_resource_quota
-    from porpulsion.k8s.store import get_ea_cr_by_app_id, cr_to_dict, create_executingapp_cr
+    from porpulsion.k8s.store import get_ea_cr_by_app_id, cr_to_dict, patch_executingapp_spec
 
     app_id   = payload.get("id", "")
     new_spec = payload.get("spec")
@@ -402,7 +406,7 @@ def handle_remoteapp_spec_update(payload: dict) -> dict:
         raise RuntimeError(quota_err)
     try:
         from porpulsion.k8s.store import validate_remoteapp_spec
-        val_err = validate_remoteapp_spec(state.NAMESPACE, app_id, d["name"], parsed.to_dict(), d["source_peer"])
+        val_err = validate_remoteapp_spec(state.NAMESPACE, app_id, d["cr_name"], parsed.to_dict(), d["source_peer"])
         if val_err:
             raise RuntimeError(f"spec invalid: {val_err}")
     except RuntimeError:
@@ -410,10 +414,10 @@ def handle_remoteapp_spec_update(payload: dict) -> dict:
     except Exception as _ve:
         log.debug("CRD spec validation skipped: %s", _ve)
 
-    spec_dict = parsed.to_dict()
-
-    # Update the ExecutingApp CR - the CR watcher drives the re-deploy
-    create_executingapp_cr(state.NAMESPACE, app_id, d["name"], spec_dict, d["source_peer"])
+    # Patch the spec on the existing EA CR directly — the CR watcher drives the re-deploy.
+    # Do NOT call create_executingapp_cr here: it recomputes the name from app_name which
+    # would be d["cr_name"] (already ea-{id}-{name}), producing a doubly-prefixed new CR.
+    patch_executingapp_spec(state.NAMESPACE, d["cr_name"], parsed.to_dict())
     return {"ok": True}
 
 

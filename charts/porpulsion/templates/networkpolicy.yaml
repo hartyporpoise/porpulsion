@@ -1,0 +1,75 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "porpulsion.fullname" . }}-agent
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ include "porpulsion.fullname" . }}-agent
+spec:
+  podSelector:
+    matchLabels:
+      app: {{ include "porpulsion.fullname" . }}-agent
+
+  policyTypes:
+    - Ingress
+    - Egress
+
+  # ── Ingress ────────────────────────────────────────────────────────────────
+  # Allow inbound from:
+  #   1. Any pod in the same namespace (peers, ingress controllers, etc.)
+  #   2. Any source on the agent port (internet traffic via LoadBalancer/NodePort)
+  ingress:
+    # Same-namespace pods - no port restriction
+    - from:
+        - podSelector: {}
+    # Internet / ingress controller - agent HTTP port only
+    - ports:
+        - port: {{ .Values.service.port }}
+          protocol: TCP
+
+  # ── Egress ─────────────────────────────────────────────────────────────────
+  # Allow outbound to:
+  #   1. Any pod in the same namespace (peer-to-peer WS, k8s exec to pods, etc.)
+  #   2. kube-dns (UDP+TCP 53) - required for all DNS resolution
+  #   3. Public internet - all ports EXCEPT RFC1918 private ranges
+  #      (blocks home-lab / cloud VPC / cluster-internal CIDRs that aren't
+  #       the agent's own namespace)
+  egress:
+    # Same-namespace pods - unrestricted
+    - to:
+        - podSelector: {}
+
+    # kube-dns - must be explicit because the DNS service IP is a ClusterIP
+    # (typically 10.x.x.x) which would otherwise be blocked by the RFC1918 rule
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+      to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+
+    # Public internet - all ports, explicitly excluding RFC1918 private ranges.
+    # The `except` list carves private CIDRs out of 0.0.0.0/0 so traffic to
+    # home-lab networks, cloud VPCs, and cluster-internal subnets is dropped.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              # RFC1918 class A - home/office/cloud internal networks
+              - 10.0.0.0/8
+              # RFC1918 class B - common cloud VPC and Docker ranges
+              - 172.16.0.0/12
+              # RFC1918 class C - most home routers / home-lab networks
+              - 192.168.0.0/16
+              # Link-local (APIPA, AWS metadata service 169.254.169.254)
+              - 169.254.0.0/16
+              # IPv4-mapped / loopback-adjacent range
+              - 100.64.0.0/10
+{{- end }}

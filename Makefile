@@ -87,6 +87,7 @@ deploy: ## Full deploy: start clusters, build image, helm install all agents
 			--set agent.pullPolicy=Never \
 			--set service.type=NodePort \
 			--set service.nodePort=30080 \
+			--set networkPolicy.enabled=false \
 			--wait --timeout 90s \
 	"; \
 	echo ""; \
@@ -106,6 +107,7 @@ deploy: ## Full deploy: start clusters, build image, helm install all agents
 			--set agent.pullPolicy=Never \
 			--set service.type=NodePort \
 			--set service.nodePort=30080 \
+			--set networkPolicy.enabled=false \
 			--wait --timeout 90s \
 	"; \
 	echo ""; \
@@ -125,6 +127,7 @@ deploy: ## Full deploy: start clusters, build image, helm install all agents
 			--set agent.pullPolicy=Never \
 			--set service.type=NodePort \
 			--set service.nodePort=30080 \
+			--set networkPolicy.enabled=false \
 			--wait --timeout 90s \
 	"; \
 	echo ""; \
@@ -261,6 +264,7 @@ deploy-single: ## Start a single k3s cluster, build image, helm install
 			--set agent.pullPolicy=Never \
 			--set service.type=NodePort \
 			--set service.nodePort=30080 \
+			--set networkPolicy.enabled=false \
 			--wait --timeout 90s \
 	"; \
 	echo ""; \

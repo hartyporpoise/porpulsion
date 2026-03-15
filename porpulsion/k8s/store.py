@@ -416,6 +416,21 @@ def create_executingapp_cr(namespace: str, app_id: str, app_name: str, spec_dict
     return None
 
 
+def patch_executingapp_spec(namespace: str, cr_name: str, spec_dict: dict) -> bool:
+    """Patch the spec of an existing ExecutingApp CR. Returns True on success."""
+    if not _check_ea_crd_available(namespace):
+        return False
+    try:
+        patch = {"spec": dict(spec_dict)}
+        _crd_api.patch_namespaced_custom_object(GROUP, VERSION, namespace, PLURAL_EA, cr_name, patch)
+        _patch_status(namespace, PLURAL_EA, cr_name, {"updatedAt": _now_iso()})
+        log.info("Patched ExecutingApp CR spec %s/%s", namespace, cr_name)
+        return True
+    except ApiException as e:
+        log.warning("Failed to patch ExecutingApp CR spec %s: %s", cr_name, e)
+        return False
+
+
 def update_executingapp_cr_status(namespace: str, cr_name: str, phase: str, app_id: str, message: str = "") -> None:
     """Patch the status subresource of an ExecutingApp CR."""
     if not _check_ea_crd_available(namespace):

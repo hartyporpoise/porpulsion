@@ -8,6 +8,7 @@ from flask import Blueprint, request, jsonify, Response
 
 from porpulsion import state
 from porpulsion.channel import get_channel
+from porpulsion.openapi_spec import api_doc
 
 log = logging.getLogger("porpulsion.routes.tunnels")
 
@@ -82,6 +83,16 @@ def _rewrite_body(body: bytes, content_type: str, proxy_prefix: str) -> bytes:
           methods=_PROXY_METHODS)
 @bp.route("/remoteapp/<app_id>/proxy/<int:port>/<path:subpath>",
           methods=_PROXY_METHODS)
+@api_doc("Proxy to RemoteApp", tags=["Tunnels"],
+         description="Proxy an HTTP request through the encrypted peer channel to a pod on the executing cluster.",
+         parameters=[
+             {"name": "app_id", "in": "path", "required": True, "schema": {"type": "string"}},
+             {"name": "port", "in": "path", "required": True, "schema": {"type": "integer"}},
+             {"name": "subpath", "in": "path", "required": False, "schema": {"type": "string"}},
+         ],
+         responses={"200": {"description": "Proxied response"},
+                    "404": {"description": "App not found"},
+                    "503": {"description": "Peer not connected"}})
 def proxy_remoteapp(app_id, port, subpath):
     """User-facing: proxy HTTP through to a pod on the peer cluster."""
     from porpulsion.k8s.store import get_cr_by_app_id, cr_to_dict

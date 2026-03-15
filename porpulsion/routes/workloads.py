@@ -6,6 +6,7 @@ from flask import Blueprint, request, jsonify
 
 from porpulsion import state, tls
 from porpulsion.models import RemoteApp, RemoteAppSpec
+from porpulsion.openapi_spec import api_doc, REF_REMOTE_APP, REF_REMOTE_APP_SPEC
 from porpulsion.channel import get_channel
 from porpulsion.k8s.executor import (
     scale_workload, get_deployment_status, get_pod_logs,
@@ -208,6 +209,15 @@ def _check_resource_quota(spec: RemoteAppSpec, source_peer: str = "") -> str | N
 
 
 @bp.route("/remoteapp-spec")
+@api_doc("RemoteApp spec reference", tags=["General"],
+         description="Field reference for the RemoteApp spec, derived from the installed CRD. Used by the dashboard Docs page.",
+         responses={"200": {"description": "OK", "content": {"application/json": {"schema": {
+             "type": "object",
+             "properties": {"fields": {"type": "array", "items": {"type": "object", "properties": {
+                 "field": {"type": "string"}, "type": {"type": "string"},
+                 "default": {"type": "string"}, "description": {"type": "string"},
+             }}}},
+         }}}}})
 def remoteapp_spec_schema():
     """Return the RemoteApp spec schema for the docs page, derived from schema.yaml."""
     from porpulsion.k8s.store import load_spec_schema
@@ -248,6 +258,16 @@ def remoteapp_spec_schema():
 
 
 @bp.route("/remoteapp", methods=["POST"])
+@api_doc("Deploy RemoteApp to peer", tags=["RemoteApps"],
+         description="Submit a RemoteApp to a peer. Requires at least one connected peer. **Spec** follows the RemoteApp Spec reference.",
+         request_body={"required": True, "content": {"application/json": {"schema": {
+             "type": "object", "required": ["name"],
+             "properties": {"name": {"type": "string"}, "spec": REF_REMOTE_APP_SPEC},
+         }}}},
+         responses={"201": {"description": "Created", "content": {"application/json": {"schema": REF_REMOTE_APP}}},
+                    "400": {"description": "name required"},
+                    "502": {"description": "Failed to create CR"},
+                    "503": {"description": "No peers connected"}})
 def create_remoteapp():
     data = request.json
     if not data or "name" not in data:
@@ -305,11 +325,18 @@ def create_remoteapp():
 
 
 @bp.route("/remoteapp/pending-approval")
+@api_doc("List pending approval", tags=["RemoteApps"],
+         description="RemoteApps awaiting approval on this cluster (when require_remoteapp_approval is on).",
+         responses={"200": {"description": "OK", "content": {"application/json": {"schema": {"type": "array", "items": {}}}}}})
 def list_pending_approval():
     return jsonify(list(state.pending_approval.values()))
 
 
 @bp.route("/remoteapp/<app_id>/approve", methods=["POST"])
+@api_doc("Approve RemoteApp", tags=["RemoteApps"],
+         description="Approve a pending RemoteApp and start the workload.",
+         parameters=[{"name": "app_id", "in": "path", "required": True, "schema": {"type": "string"}}],
+         responses={"200": {"description": "OK"}, "404": {"description": "Not found"}})
 def approve_remoteapp(app_id):
     if app_id not in state.pending_approval:
         return jsonify({"error": "not found"}), 404
@@ -327,6 +354,10 @@ def approve_remoteapp(app_id):
 
 
 @bp.route("/remoteapp/<app_id>/reject", methods=["POST"])
+@api_doc("Reject RemoteApp", tags=["RemoteApps"],
+         description="Reject a pending RemoteApp. Source peer is notified.",
+         parameters=[{"name": "app_id", "in": "path", "required": True, "schema": {"type": "string"}}],
+         responses={"200": {"description": "OK"}, "404": {"description": "Not found"}})
 def reject_remoteapp(app_id):
     if app_id not in state.pending_approval:
         return jsonify({"error": "not found"}), 404
@@ -345,6 +376,13 @@ def reject_remoteapp(app_id):
 
 
 @bp.route("/remoteapps")
+@api_doc("List RemoteApps", tags=["RemoteApps"],
+         description="All submitted (local) and executing (remote) apps.",
+         responses={"200": {"description": "OK", "content": {"application/json": {"schema": {
+             "type": "object",
+             "properties": {"submitted": {"type": "array", "items": REF_REMOTE_APP},
+                            "executing": {"type": "array", "items": REF_REMOTE_APP}},
+         }}}}})
 def list_remoteapps():
     submitted  = [cr_to_dict(cr, "submitted")  for cr in list_remoteapp_crs(state.NAMESPACE)]
     executing  = [cr_to_dict(cr, "executing")  for cr in list_executingapp_crs(state.NAMESPACE)]
@@ -352,6 +390,10 @@ def list_remoteapps():
 
 
 @bp.route("/remoteapp/<app_id>", methods=["DELETE"])
+@api_doc("Delete RemoteApp", tags=["RemoteApps"],
+         description="Delete a RemoteApp (submitted or executing). Notifies peer if applicable.",
+         parameters=[{"name": "app_id", "in": "path", "required": True, "schema": {"type": "string"}}],
+         responses={"200": {"description": "OK"}, "404": {"description": "App not found"}})
 def delete_remoteapp(app_id):
     cr, side = get_cr_by_app_id(state.NAMESPACE, app_id)
     if cr is None:
@@ -375,6 +417,17 @@ def delete_remoteapp(app_id):
 
 
 @bp.route("/remoteapp/<app_id>/scale", methods=["POST"])
+@api_doc("Scale RemoteApp", tags=["RemoteApps"],
+         description="Set replica count for a RemoteApp.",
+         parameters=[{"name": "app_id", "in": "path", "required": True, "schema": {"type": "string"}}],
+         request_body={"required": True, "content": {"application/json": {"schema": {
+             "type": "object", "required": ["replicas"],
+             "properties": {"replicas": {"type": "integer", "minimum": 0}},
+         }}}},
+         responses={"200": {"description": "OK"},
+                    "400": {"description": "replicas required or invalid"},
+                    "404": {"description": "App not found"},
+                    "502": {"description": "Peer not connected"}})
 def scale_remoteapp(app_id):
     data = request.json or {}
     replicas = data.get("replicas")
@@ -421,6 +474,12 @@ def scale_remoteapp(app_id):
 
 
 @bp.route("/remoteapp/<app_id>/detail")
+@api_doc("RemoteApp detail", tags=["RemoteApps"],
+         description="App metadata plus K8s deployment status (or peer detail).",
+         parameters=[{"name": "app_id", "in": "path", "required": True, "schema": {"type": "string"}}],
+         responses={"200": {"description": "OK", "content": {"application/json": {"schema": {
+             "type": "object", "properties": {"app": REF_REMOTE_APP, "k8s": {}}}}}},
+                    "404": {"description": "App not found"}})
 def remoteapp_detail(app_id):
     cr, side = get_cr_by_app_id(state.NAMESPACE, app_id)
     if cr is None:
@@ -460,6 +519,14 @@ def remoteapp_detail(app_id):
 
 
 @bp.route("/remoteapp/<app_id>/logs")
+@api_doc("RemoteApp pod logs", tags=["RemoteApps"],
+         description="Recent pod log lines. `tail` default 200. `order=time` sorts by timestamp, `order=pod` groups by pod.",
+         parameters=[
+             {"name": "app_id", "in": "path", "required": True, "schema": {"type": "string"}},
+             {"name": "tail", "in": "query", "schema": {"type": "integer", "default": 200}},
+             {"name": "order", "in": "query", "schema": {"type": "string", "enum": ["pod", "time"], "default": "pod"}},
+         ],
+         responses={"200": {"description": "OK"}, "404": {"description": "App not found"}})
 def remoteapp_logs(app_id):
     tail = request.args.get("tail", default=200, type=int)
     tail = max(1, min(500, tail))
@@ -497,6 +564,16 @@ def remoteapp_logs(app_id):
 
 
 @bp.route("/remoteapp/<app_id>/pods")
+@api_doc("List pods", tags=["RemoteApps"],
+         description="List running pods for a RemoteApp. Proxied to the executing peer from the submitted side.",
+         parameters=[{"name": "app_id", "in": "path", "required": True, "schema": {"type": "string"}}],
+         responses={"200": {"description": "OK", "content": {"application/json": {"schema": {
+             "type": "object", "properties": {"pods": {"type": "array", "items": {
+                 "type": "object", "properties": {
+                     "name": {"type": "string"}, "phase": {"type": "string"},
+                     "ready": {"type": "boolean"}, "containers": {"type": "array", "items": {"type": "string"}},
+                 }}}}}}}},
+                    "404": {"description": "App not found"}})
 def remoteapp_pods(app_id):
     """List running pods for a RemoteApp (proxied to executing peer if submitted side)."""
     cr, side = get_cr_by_app_id(state.NAMESPACE, app_id)
@@ -527,6 +604,16 @@ def remoteapp_pods(app_id):
 
 
 @bp.route("/remoteapp/<app_id>/exec", methods=["POST"])
+@api_doc("Exec into pod", tags=["RemoteApps"],
+         description="Run a command in a pod. Proxied to the executing peer from the submitted side.",
+         parameters=[{"name": "app_id", "in": "path", "required": True, "schema": {"type": "string"}}],
+         request_body={"required": True, "content": {"application/json": {"schema": {
+             "type": "object", "required": ["pod", "command"],
+             "properties": {"pod": {"type": "string"}, "command": {"type": "string"}},
+         }}}},
+         responses={"200": {"description": "OK — returns ws_url for terminal WebSocket"},
+                    "400": {"description": "pod and command required"},
+                    "404": {"description": "App not found"}})
 def remoteapp_exec(app_id):
     """Run a command in a specific pod (proxied to executing peer if submitted side)."""
     data = request.json or {}
@@ -566,6 +653,12 @@ def remoteapp_exec(app_id):
 
 
 @bp.route("/remoteapp/<app_id>/restart", methods=["POST"])
+@api_doc("Restart RemoteApp", tags=["RemoteApps"],
+         description="Trigger a rollout restart for the RemoteApp deployment. Forwarded to the executing peer from the submitted side.",
+         parameters=[{"name": "app_id", "in": "path", "required": True, "schema": {"type": "string"}}],
+         responses={"200": {"description": "OK"},
+                    "404": {"description": "App not found"},
+                    "502": {"description": "Peer not reachable"}})
 def remoteapp_restart(app_id):
     """Trigger a rollout restart for a RemoteApp deployment."""
     cr, side = get_cr_by_app_id(state.NAMESPACE, app_id)
@@ -601,6 +694,17 @@ def remoteapp_restart(app_id):
 
 
 @bp.route("/remoteapp/<app_id>/spec", methods=["PUT"])
+@api_doc("Update RemoteApp spec", tags=["RemoteApps"],
+         description="Update the spec of a submitted RemoteApp. Forwarded to the executing peer.",
+         parameters=[{"name": "app_id", "in": "path", "required": True, "schema": {"type": "string"}}],
+         request_body={"required": True, "content": {"application/json": {"schema": {
+             "type": "object", "required": ["spec"],
+             "properties": {"spec": REF_REMOTE_APP_SPEC},
+         }}}},
+         responses={"200": {"description": "OK"},
+                    "400": {"description": "spec required"},
+                    "404": {"description": "App not found"},
+                    "503": {"description": "Peer not connected"}})
 def update_remoteapp_spec(app_id):
     data = request.json or {}
     if "spec_yaml" in data:
@@ -655,6 +759,15 @@ def _forward_config_patch(app_id, kind, name, data):
 
 
 @bp.route("/remoteapp/<app_id>/config/configmap/<name>")
+@api_doc("Get ConfigMap data", tags=["RemoteApps"],
+         description="Read key-value data for a managed ConfigMap.",
+         parameters=[
+             {"name": "app_id", "in": "path", "required": True, "schema": {"type": "string"}},
+             {"name": "name", "in": "path", "required": True, "schema": {"type": "string"}, "description": "ConfigMap volume name"},
+         ],
+         responses={"200": {"description": "OK", "content": {"application/json": {"schema": {
+             "type": "object", "properties": {"data": {"type": "object", "additionalProperties": {"type": "string"}}}}}}},
+                    "404": {"description": "App not found"}})
 def get_app_configmap(app_id, name):
     cr, side = get_cr_by_app_id(state.NAMESPACE, app_id)
     if cr is None:
@@ -677,6 +790,20 @@ def get_app_configmap(app_id, name):
 
 
 @bp.route("/remoteapp/<app_id>/config/configmap/<name>", methods=["PATCH"])
+@api_doc("Update ConfigMap data", tags=["RemoteApps"],
+         description="Replace key-value data for a managed ConfigMap and trigger a rollout restart.",
+         parameters=[
+             {"name": "app_id", "in": "path", "required": True, "schema": {"type": "string"}},
+             {"name": "name", "in": "path", "required": True, "schema": {"type": "string"}},
+         ],
+         request_body={"required": True, "content": {"application/json": {"schema": {
+             "type": "object", "required": ["data"],
+             "properties": {"data": {"type": "object", "additionalProperties": {"type": "string"}}},
+         }}}},
+         responses={"200": {"description": "OK"},
+                    "400": {"description": "data must be a key-value object"},
+                    "404": {"description": "App not found"},
+                    "502": {"description": "Peer not reachable"}})
 def patch_app_configmap(app_id, name):
     data = (request.json or {}).get("data")
     if not isinstance(data, dict):
@@ -710,6 +837,15 @@ def patch_app_configmap(app_id, name):
 
 
 @bp.route("/remoteapp/<app_id>/config/secret/<name>")
+@api_doc("Get Secret data", tags=["RemoteApps"],
+         description="Read plaintext key-value data for a managed Secret (decoded from base64 in the CR).",
+         parameters=[
+             {"name": "app_id", "in": "path", "required": True, "schema": {"type": "string"}},
+             {"name": "name", "in": "path", "required": True, "schema": {"type": "string"}, "description": "Secret volume name"},
+         ],
+         responses={"200": {"description": "OK", "content": {"application/json": {"schema": {
+             "type": "object", "properties": {"data": {"type": "object", "additionalProperties": {"type": "string"}}}}}}},
+                    "404": {"description": "App not found"}})
 def get_app_secret(app_id, name):
     import base64 as _b64
     cr, side = get_cr_by_app_id(state.NAMESPACE, app_id)
@@ -734,6 +870,20 @@ def get_app_secret(app_id, name):
 
 
 @bp.route("/remoteapp/<app_id>/config/secret/<name>", methods=["PATCH"])
+@api_doc("Update Secret data", tags=["RemoteApps"],
+         description="Replace plaintext key-value data for a managed Secret. Values are base64-encoded and forwarded to the executing peer.",
+         parameters=[
+             {"name": "app_id", "in": "path", "required": True, "schema": {"type": "string"}},
+             {"name": "name", "in": "path", "required": True, "schema": {"type": "string"}},
+         ],
+         request_body={"required": True, "content": {"application/json": {"schema": {
+             "type": "object", "required": ["data"],
+             "properties": {"data": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Plaintext key-value pairs"}},
+         }}}},
+         responses={"200": {"description": "OK"},
+                    "400": {"description": "data must be a key-value object"},
+                    "404": {"description": "App not found"},
+                    "502": {"description": "Peer not reachable"}})
 def patch_app_secret(app_id, name):
     data = (request.json or {}).get("data")
     if not isinstance(data, dict):

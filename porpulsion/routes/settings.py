@@ -3,6 +3,7 @@ import logging
 from flask import Blueprint, request, jsonify
 
 from porpulsion import state, tls
+from porpulsion.openapi_spec import api_doc, REF_SETTINGS
 
 log = logging.getLogger("porpulsion.routes.settings")
 
@@ -15,11 +16,19 @@ def _apply_log_level(level_name: str):
 
 
 @bp.route("/settings")
+@api_doc("Get settings", tags=["Settings"],
+         description="Current agent settings (approval mode, limits, image policy, etc.).",
+         responses={"200": {"description": "OK", "content": {"application/json": {"schema": REF_SETTINGS}}}})
 def get_settings():
     return jsonify(state.settings.to_dict())
 
 
 @bp.route("/settings", methods=["POST"])
+@api_doc("Update settings", tags=["Settings"],
+         description="Update one or more settings. Persisted to ConfigMap.",
+         request_body={"content": {"application/json": {"schema": REF_SETTINGS}}},
+         responses={"200": {"description": "OK", "content": {"application/json": {"schema": REF_SETTINGS}}},
+                    "400": {"description": "Validation error"}})
 def update_settings():
     data = request.json or {}
     valid_modes = ("manual", "auto", "per_peer")
