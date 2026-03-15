@@ -521,8 +521,7 @@ def patch_cr_volume_data(namespace: str, app_id: str, kind: str, vol_name: str,
         plural, cr = PLURAL_EA, ea
     else:
         for item in list_remoteapp_crs(namespace):
-            labels = item.get("metadata", {}).get("labels", {})
-            if labels.get("porpulsion.io/app-id") == app_id:
+            if item.get("status", {}).get("appId") == app_id:
                 plural, cr = PLURAL, item
                 break
     if cr is None or plural is None:
