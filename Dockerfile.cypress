@@ -1,0 +1,14 @@
+# Cypress test runner image — used by make test
+# Based on the official Cypress included image so browsers are pre-installed.
+FROM cypress/included:13.13.0
+
+WORKDIR /e2e
+
+# Copy only the test files and config (not the whole repo)
+COPY cypress/ ./cypress/
+COPY cypress/cypress.config.js ./cypress.config.js
+
+# No npm install needed — cypress/included ships with Cypress pre-installed.
+# We bind-mount nothing — all env vars are passed at runtime via -e flags.
+
+ENTRYPOINT ["cypress", "run", "--headless", "--browser", "electron"]

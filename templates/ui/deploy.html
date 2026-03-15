@@ -678,11 +678,23 @@
     return lines.join('\n');
   }
 
-  // ── Very lightweight YAML→object parser (top-level keys only) ──
-  // Best-effort for round-tripping simple specs back to the form.
+  // ── Very lightweight YAML→object parser ──────────────────────
+  // Handles bare spec YAML or a full CR YAML (extracts spec: block first).
   function yamlToSpec(text) {
+    // If this looks like a full CR, extract and dedent the spec: block.
+    text = (text || '');
+    if (/^\s*apiVersion\s*:/m.test(text)) {
+      var specMatch = text.match(/^spec\s*:\s*\n([\s\S]*)$/m);
+      if (specMatch) {
+        // Dedent by 2 spaces (the standard CR spec indentation)
+        text = specMatch[1].replace(/^  /gm, '');
+      } else {
+        text = '';
+      }
+    }
+
     var spec = {};
-    var lines = (text || '').split('\n');
+    var lines = text.split('\n');
     var i = 0;
     function peek() { return i < lines.length ? lines[i] : null; }
     function consume() { return lines[i++]; }
@@ -701,6 +713,56 @@
       var n = Number(s);
       if (s !== '' && !isNaN(n)) return n;
       return s;
+    }
+    // Collect a block-scalar (|) value: gather continuation lines until indent drops
+    function collectBlockScalar(baseIndent) {
+      var parts = [];
+      while (i < lines.length) {
+        var bl = peek();
+        if (bl === null) break;
+        if (!bl.trim()) { consume(); parts.push(''); continue; }
+        if (indentOf(bl) <= baseIndent) break;
+        consume();
+        // Strip exactly baseIndent+2 leading spaces (the block scalar body indent)
+        parts.push(bl.replace(new RegExp('^\\s{' + (baseIndent + 2) + '}'), ''));
+      }
+      // Trim trailing empty lines
+      while (parts.length && parts[parts.length-1] === '') parts.pop();
+      return parts.join('\n');
+    }
+    // Parse a flat map of key: value lines at a given minimum indent
+    function parseMap(minIndent) {
+      var obj = {};
+      while (i < lines.length) {
+        var ml = peek();
+        if (!ml || !ml.trim()) { consume(); continue; }
+        if (indentOf(ml) < minIndent) break;
+        consume();
+        if (ml.trim().charAt(0) === '#') continue;
+        var mci = ml.indexOf(':');
+        if (mci < 0) continue;
+        var mk = ml.slice(0, mci).trim();
+        var mv = ml.slice(mci + 1).trim();
+        if (mv === '|') {
+          obj[mk] = collectBlockScalar(indentOf(ml));
+        } else if (!mv) {
+          // nested map (e.g. data: \n  key: val)
+          var subIndent = -1;
+          for (var sp = i; sp < lines.length; sp++) {
+            if (!lines[sp].trim()) continue;
+            subIndent = indentOf(lines[sp]);
+            break;
+          }
+          if (subIndent > minIndent) {
+            obj[mk] = parseMap(subIndent);
+          } else {
+            obj[mk] = {};
+          }
+        } else {
+          obj[mk] = coerce(unquote(mv));
+        }
+      }
+      return obj;
     }
 
     while (i < lines.length) {
@@ -722,7 +784,6 @@
       if (!rest) {
         var blockIndent = -1;
         var isList = false;
-        // Peek ahead to determine list vs object
         for (var p = i; p < lines.length; p++) {
           var pl = lines[p];
           if (!pl.trim()) continue;
@@ -733,7 +794,7 @@
         if (blockIndent <= 0) continue; // empty block
 
         if (isList) {
-          // Parse block list (ports, env, configMaps, secrets, pvcs)
+          // Parse block list (ports, env, configMaps, secrets, pvcs, imagePullSecrets)
           var items = [];
           while (i < lines.length) {
             var nextLine = peek();
@@ -749,7 +810,7 @@
               } else if (itemRest) {
                 obj = unquote(itemRest);
               }
-              // sub-keys of this list item
+              // sub-keys of this list item (may include nested maps like data:)
               while (i < lines.length) {
                 var sub = peek();
                 if (!sub || indentOf(sub) <= blockIndent) break;
@@ -758,8 +819,26 @@
                 var sci = sub.indexOf(':');
                 if (sci < 0) continue;
                 var sk = sub.slice(0, sci).trim();
-                var sv = sub.slice(sci+1).trim();
-                if (typeof obj === 'object') obj[sk] = coerce(unquote(sv));
+                var sv = sub.slice(sci + 1).trim();
+                if (typeof obj !== 'object') continue;
+                if (sv === '|') {
+                  obj[sk] = collectBlockScalar(indentOf(sub));
+                } else if (!sv) {
+                  // nested map (e.g. data: <newline> key: val)
+                  var subMapIndent = -1;
+                  for (var smp = i; smp < lines.length; smp++) {
+                    if (!lines[smp].trim()) continue;
+                    subMapIndent = indentOf(lines[smp]);
+                    break;
+                  }
+                  if (subMapIndent > indentOf(sub)) {
+                    obj[sk] = parseMap(subMapIndent);
+                  } else {
+                    obj[sk] = {};
+                  }
+                } else {
+                  obj[sk] = coerce(unquote(sv));
+                }
               }
               items.push(obj);
             }
@@ -781,16 +860,16 @@
             if (!ov) {
               // one more nesting level (e.g. requests: / limits:)
               var subNested = {};
-              var subIndent = -1;
-              for (var sp = i; sp < lines.length; sp++) {
-                if (!lines[sp].trim()) continue;
-                subIndent = indentOf(lines[sp]);
+              var subIndent2 = -1;
+              for (var sp2 = i; sp2 < lines.length; sp2++) {
+                if (!lines[sp2].trim()) continue;
+                subIndent2 = indentOf(lines[sp2]);
                 break;
               }
-              while (subIndent > 0 && i < lines.length) {
+              while (subIndent2 > 0 && i < lines.length) {
                 var sl = peek();
                 if (!sl || !sl.trim()) { consume(); continue; }
-                if (indentOf(sl) < subIndent) break;
+                if (indentOf(sl) < subIndent2) break;
                 consume();
                 var sci2 = sl.indexOf(':');
                 if (sci2 < 0) continue;
@@ -918,6 +997,13 @@
       spec.pvcs.forEach(function (p) { addVolItem('pvc', p.name, p.mountPath, null, p.storage, p.accessMode); });
     }
 
+    // Registry proxy toggle
+    var proxyChk = el('deploy-registry-proxy');
+    if (proxyChk) {
+      var hasProxy = Array.isArray(spec.imagePullSecrets) &&
+                     spec.imagePullSecrets.indexOf('porpulsion-image-proxy') >= 0;
+      proxyChk.checked = hasProxy;
+    }
   }
 
   // ── Mode toggle buttons ──────────────────────────────────────
