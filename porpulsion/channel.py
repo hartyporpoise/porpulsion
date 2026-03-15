@@ -751,9 +751,11 @@ def open_channel_to(peer_name: str, peer_url: str, ca_pem: str = "") -> "PeerCha
     from porpulsion import state
     with state.peer_channels_lock:
         old = state.peer_channels.get(peer_name)
+        prior_remote_addr = old.peer_remote_addr if old else ""
         if old:
             old.close()
         ch = PeerChannel(peer_name, peer_url, ca_pem)
+        ch.peer_remote_addr = prior_remote_addr
         _register_handlers(ch)
         state.peer_channels[peer_name] = ch
 

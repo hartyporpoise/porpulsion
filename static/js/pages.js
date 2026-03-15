@@ -170,10 +170,10 @@
     }
 
     var remoteAddrRow = p.remote_addr
-      ? '<div class="detail-row"><span class="label">Inbound IP</span><span class="mono" style="font-size:0.85rem;">' + _esc(p.remote_addr) + '</span></div>'
+      ? '<div class="detail-row"><span class="label">Public IP</span><span class="mono" style="font-size:0.85rem;">' + _esc(p.remote_addr) + '</span></div>'
       : '';
     var proxyRow = p.registry_proxy_url
-      ? '<div class="detail-row"><span class="label">Image proxy</span><span class="mono" style="font-size:0.82rem;word-break:break-all;">' + _esc(p.registry_proxy_url) + '</span></div>'
+      ? '<div class="detail-row"><span class="label">API Domain</span><span class="mono" style="font-size:0.82rem;word-break:break-all;">' + _esc(p.registry_proxy_url.replace(/^https?:\/\//, '')) + '</span></div>'
       : '';
 
     body.innerHTML =
