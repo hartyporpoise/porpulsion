@@ -686,8 +686,12 @@
     if (/^\s*apiVersion\s*:/m.test(text)) {
       var specMatch = text.match(/^spec\s*:\s*\n([\s\S]*)$/m);
       if (specMatch) {
+        // Keep only indented lines (drop sibling top-level CR keys like status:)
+        var specRaw = specMatch[1].split('\n').filter(function (l) {
+          return !l.length || l.charAt(0) === ' ';
+        }).join('\n');
         // Dedent by 2 spaces (the standard CR spec indentation)
-        text = specMatch[1].replace(/^  /gm, '');
+        text = specRaw.replace(/^  /gm, '');
       } else {
         text = '';
       }
@@ -717,14 +721,16 @@
     // Collect a block-scalar (|) value: gather continuation lines until indent drops
     function collectBlockScalar(baseIndent) {
       var parts = [];
+      var bodyIndent = -1;
       while (i < lines.length) {
         var bl = peek();
         if (bl === null) break;
         if (!bl.trim()) { consume(); parts.push(''); continue; }
         if (indentOf(bl) <= baseIndent) break;
         consume();
-        // Strip exactly baseIndent+2 leading spaces (the block scalar body indent)
-        parts.push(bl.replace(new RegExp('^\\s{' + (baseIndent + 2) + '}'), ''));
+        // Detect the body indent from the first non-blank content line
+        if (bodyIndent < 0) bodyIndent = indentOf(bl);
+        parts.push(bl.replace(new RegExp('^\\s{' + bodyIndent + '}'), ''));
       }
       // Trim trailing empty lines
       while (parts.length && parts[parts.length-1] === '') parts.pop();
