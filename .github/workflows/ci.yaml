@@ -3,18 +3,19 @@ name: CI
 # Label-driven CI/CD:
 #
 #   PR labels -> bump jobs
-#     bump:app:patch/minor/major  - bumps appVersion in Chart.yaml + image tag in values.yaml
+#     bump:app:patch/minor/major   - bumps appVersion in Chart.yaml + image tag in values.yaml
 #     bump:chart:patch/minor/major - bumps chart version in Chart.yaml
-#     release-candidate           - builds + pushes rc-X.X.X image to GHCR
+#     release-candidate            - builds + pushes rc-X.X.X image to GHCR
 #
 #   PR checks (always run on push/label):
-#     schema-check  - fails if schema.yaml changed but no bump:app:* label present
-#     app-bump-check - fails if bump:app:* label present but no bump:chart:* label present
+#     validate-schema-bump - fails if schema.yaml changed but no bump:app:* label present
+#     validate-chart-bump  - fails if bump:app:* label present but no bump:chart:* label present
+#     build-and-publish    - builds RC image if release-candidate label present, otherwise no-op
 #
-#   push to main (charts/** changed) -> release-chart
+#   push to main (chart version changed) -> publish-helm-chart
 #     Packages and pushes the Helm chart to GHCR.
 #
-#   push to main (appVersion changed) -> tag-app + build-image
+#   push to main (appVersion changed) -> create-release + build-and-publish
 #     Creates a git tag + GitHub release, builds and publishes the Docker image.
 
 on:
@@ -39,11 +40,11 @@ env:
 jobs:
 
   # ---------------------------------------------------------------------------
-  # PR checks — run on every push and label event
+  # PR checks -- run on every push and label event
   # ---------------------------------------------------------------------------
 
   # Fail if schema.yaml was changed but no bump:app:* label is present.
-  schema-check:
+  validate-schema-bump:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
@@ -52,7 +53,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Check schema.yaml bump requirement
+      - name: Assert schema bump label
         run: |
           BASE="${{ github.event.pull_request.base.sha }}"
           HEAD="${{ github.event.pull_request.head.sha }}"
@@ -63,15 +64,15 @@ jobs:
           fi
 
           if [ "$SCHEMA_CHANGED" = "false" ]; then
-            echo "schema.yaml not changed — OK"
+            echo "schema.yaml not changed - OK"
             exit 0
           fi
 
-          echo "schema.yaml was changed — checking for bump:app:* label..."
+          echo "schema.yaml was changed - checking for bump:app:* label..."
 
           LABELS='${{ toJson(github.event.pull_request.labels.*.name) }}'
           if echo "$LABELS" | grep -qE '"bump:app:(patch|minor|major)"'; then
-            echo "bump:app:* label present — OK"
+            echo "bump:app:* label present - OK"
           else
             echo "ERROR: schema.yaml changed but no bump:app:patch/minor/major label found."
             echo "Schema changes affect the running agent and require an app version bump."
@@ -79,11 +80,11 @@ jobs:
           fi
 
   # Fail if bump:app:* label is present but no bump:chart:* label is present.
-  app-bump-check:
+  validate-chart-bump:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - name: Check chart bump requirement
+      - name: Assert chart bump label
         run: |
           LABELS='${{ toJson(github.event.pull_request.labels.*.name) }}'
 
@@ -94,12 +95,12 @@ jobs:
           echo "$LABELS" | grep -qE '"bump:chart:(patch|minor|major)"' && HAS_CHART_BUMP=true
 
           if [ "$HAS_APP_BUMP" = "false" ]; then
-            echo "No bump:app:* label — skipping chart bump check"
+            echo "No bump:app:* label - skipping chart bump check"
             exit 0
           fi
 
           if [ "$HAS_CHART_BUMP" = "true" ]; then
-            echo "bump:app:* and bump:chart:* both present — OK"
+            echo "bump:app:* and bump:chart:* both present - OK"
           else
             echo "ERROR: bump:app:* label found but no bump:chart:patch/minor/major label."
             echo "An app version bump should be accompanied by a chart version bump."
@@ -107,10 +108,10 @@ jobs:
           fi
 
   # ---------------------------------------------------------------------------
-  # PR bump jobs — triggered by label events only
+  # PR bump jobs -- triggered by label events only
   # ---------------------------------------------------------------------------
 
-  bump-app:
+  apply-app-bump:
     if: >
       github.event_name == 'pull_request' &&
       (
@@ -125,19 +126,19 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Checkout PR branch
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           ref: ${{ github.head_ref }}
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Configure Git
+      - name: Configure git identity
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Determine app bump level
+      - name: Resolve bump level
         id: level
         run: |
           LABELS='${{ toJson(github.event.pull_request.labels.*.name) }}'
@@ -151,7 +152,7 @@ jobs:
             echo "level=patch" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Bump appVersion and image tag
+      - name: Write app version
         id: versions
         run: |
           CHART=charts/porpulsion/Chart.yaml
@@ -180,7 +181,7 @@ jobs:
           echo "new_app=$new_app" >> "$GITHUB_OUTPUT"
           echo "Bumped appVersion: $curr_app -> $new_app"
 
-      - name: Push bump commit
+      - name: Commit and push
         run: |
           git add charts/porpulsion/Chart.yaml charts/porpulsion/values.yaml
           if git diff --cached --exit-code; then
@@ -196,8 +197,8 @@ jobs:
             fi
           fi
 
-  bump-chart:
-    needs: [bump-app]
+  apply-chart-bump:
+    needs: [apply-app-bump]
     if: >
       always() &&
       github.event_name == 'pull_request' &&
@@ -213,19 +214,19 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Checkout PR branch
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           ref: ${{ github.head_ref }}
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Configure Git
+      - name: Configure git identity
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Determine chart bump level
+      - name: Resolve bump level
         id: level
         run: |
           LABELS='${{ toJson(github.event.pull_request.labels.*.name) }}'
@@ -239,7 +240,7 @@ jobs:
             echo "level=patch" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Bump chart version
+      - name: Write chart version
         id: versions
         run: |
           CHART=charts/porpulsion/Chart.yaml
@@ -264,7 +265,7 @@ jobs:
           echo "new_chart=$new_chart" >> "$GITHUB_OUTPUT"
           echo "Bumped chart version: $curr_chart -> $new_chart"
 
-      - name: Push bump commit
+      - name: Commit and push
         run: |
           git add charts/porpulsion/Chart.yaml
           if git diff --cached --exit-code; then
@@ -281,11 +282,11 @@ jobs:
           fi
 
   # ---------------------------------------------------------------------------
-  # PR: build and push RC image when release-candidate label is added
+  # PR + main: build and publish Docker image
   # ---------------------------------------------------------------------------
 
-  build-image:
-    needs: [check]
+  build-and-publish:
+    needs: [detect-changes]
     if: always() && (github.event_name == 'push' || github.event_name == 'pull_request')
     runs-on: ubuntu-latest
     permissions:
@@ -304,33 +305,25 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to GHCR
+      - name: Authenticate to GHCR
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Read appVersion and check labels
+      - name: Read app version
         id: chart
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           app_version=$(grep '^appVersion:' charts/porpulsion/Chart.yaml | sed 's/appVersion: *"\(.*\)"/\1/')
           echo "app_version=$app_version" >> "$GITHUB_OUTPUT"
 
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            PR_NUMBER="${{ github.event.pull_request.number }}"
-            HAS_RC=$(gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/labels" \
-              --jq '[.[].name] | contains(["release-candidate"])')
-            echo "has_rc=$HAS_RC" >> "$GITHUB_OUTPUT"
-            echo "release-candidate label present: $HAS_RC"
-          else
-            echo "has_rc=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Fail if version not bumped before release-candidate
-        if: github.event_name == 'pull_request' && steps.chart.outputs.has_rc == 'true'
+      - name: Assert version bumped
+        if: >
+          github.event_name == 'pull_request' && (
+            contains(github.event.pull_request.labels.*.name, 'release-candidate') ||
+            github.event.label.name == 'release-candidate'
+          )
         run: |
           BASE_APP=$(git show "origin/${{ github.event.pull_request.base.ref }}:charts/porpulsion/Chart.yaml" | grep '^appVersion:' | sed 's/appVersion: *"\(.*\)"/\1/')
           PR_APP="${{ steps.chart.outputs.app_version }}"
@@ -342,7 +335,7 @@ jobs:
           fi
           echo "Version bumped - OK"
 
-      - name: Extract Docker metadata
+      - name: Resolve image tags
         id: meta
         uses: docker/metadata-action@v5
         with:
@@ -353,11 +346,14 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=sha
             type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=${{ needs.check.outputs.app_version }},enable=${{ needs.check.outputs.app_version_changed == 'true' }}
+            type=raw,value=${{ needs.detect-changes.outputs.app_version }},enable=${{ needs.detect-changes.outputs.app_version_changed == 'true' }}
             type=raw,value=rc-${{ steps.chart.outputs.app_version }},enable=${{ github.event_name == 'pull_request' }}
 
-      - name: Build and push Docker image
-        if: github.event_name == 'push' || steps.chart.outputs.has_rc == 'true'
+      - name: Build and push image
+        if: >
+          github.event_name == 'push' ||
+          contains(github.event.pull_request.labels.*.name, 'release-candidate') ||
+          github.event.label.name == 'release-candidate'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -369,15 +365,11 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: No release-candidate label - skipping image build
-        if: github.event_name == 'pull_request' && steps.chart.outputs.has_rc != 'true'
-        run: echo "No release-candidate label present. Add it to build and push an RC image."
-
   # ---------------------------------------------------------------------------
   # PR: security scan (always, non-blocking)
   # ---------------------------------------------------------------------------
 
-  security-scan:
+  scan-dependencies:
     if: github.event_name == 'pull_request' && github.event.action != 'labeled'
     runs-on: ubuntu-latest
     continue-on-error: true
@@ -393,7 +385,7 @@ jobs:
       - name: Install pip-audit
         run: pip install pip-audit
 
-      - name: Run pip-audit
+      - name: Audit dependencies
         run: pip-audit -r requirements.txt 2>&1 | tee pip-audit-report.txt || true
 
       - name: Upload audit report
@@ -408,20 +400,20 @@ jobs:
   # PR: auto-upgrade pinned dependencies
   # ---------------------------------------------------------------------------
 
-  deps-upgrade:
+  upgrade-dependencies:
     if: github.event_name == 'pull_request' && github.event.action != 'labeled'
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Checkout PR branch
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           ref: ${{ github.head_ref }}
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Configure Git
+      - name: Configure git identity
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -431,18 +423,18 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install and upgrade all dependencies
+      - name: Upgrade dependencies
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
           pip install --upgrade $(grep -v '^\s*#' requirements.txt | sed 's/[>=<!=].*//' | tr '\n' ' ')
 
-      - name: Regenerate pinned requirements
+      - name: Pin upgraded requirements
         run: |
           pip freeze | grep -F -i -f <(grep -v '^\s*#' requirements.txt | sed 's/[>=<!=].*//') > requirements.txt.new
           mv requirements.txt.new requirements.txt
 
-      - name: Commit upgraded requirements if changed
+      - name: Commit and push
         run: |
           git diff --exit-code requirements.txt && echo "No dependency updates." || (
             git add requirements.txt
@@ -454,13 +446,13 @@ jobs:
   # Main push: detect chart/appVersion changes
   # ---------------------------------------------------------------------------
 
-  check:
+  detect-changes:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     outputs:
-      app_version_changed: ${{ steps.check.outputs.app_version_changed }}
-      app_version: ${{ steps.check.outputs.app_version }}
-      chart_version_changed: ${{ steps.check.outputs.chart_version_changed }}
+      app_version_changed: ${{ steps.detect.outputs.app_version_changed }}
+      app_version: ${{ steps.detect.outputs.app_version }}
+      chart_version_changed: ${{ steps.detect.outputs.chart_version_changed }}
 
     steps:
       - name: Checkout
@@ -468,8 +460,8 @@ jobs:
         with:
           fetch-depth: 2
 
-      - name: Check what changed
-        id: check
+      - name: Detect version changes
+        id: detect
         run: |
           prev_app=$(git show HEAD~1:charts/porpulsion/Chart.yaml 2>/dev/null | grep '^appVersion:' | sed 's/appVersion: *"\(.*\)"/\1/' || echo "none")
           curr_app=$(grep '^appVersion:' charts/porpulsion/Chart.yaml | sed 's/appVersion: *"\(.*\)"/\1/')
@@ -492,9 +484,9 @@ jobs:
   # Main push: release Helm chart when chart version changed
   # ---------------------------------------------------------------------------
 
-  release-chart:
-    needs: check
-    if: needs.check.outputs.chart_version_changed == 'true'
+  publish-helm-chart:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.chart_version_changed == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -505,7 +497,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Configure Git
+      - name: Configure git identity
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -513,7 +505,7 @@ jobs:
       - name: Install Helm
         uses: azure/setup-helm@v4
 
-      - name: Package chart
+      - name: Package helm chart
         uses: helm/chart-releaser-action@v1.7.0
         with:
           charts_dir: charts
@@ -523,7 +515,7 @@ jobs:
         env:
           CR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Push chart to GHCR
+      - name: Publish chart to GHCR
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io \
             --username "${{ github.repository_owner }}" --password-stdin
@@ -535,9 +527,9 @@ jobs:
   # Main push: tag repo and create GitHub release when appVersion changes
   # ---------------------------------------------------------------------------
 
-  tag-app:
-    needs: check
-    if: needs.check.outputs.app_version_changed == 'true'
+  create-release:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.app_version_changed == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -545,16 +537,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Configure Git
+      - name: Configure git identity
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Push app version tag
+      - name: Tag and create release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VERSION="v${{ needs.check.outputs.app_version }}"
+          VERSION="v${{ needs.detect-changes.outputs.app_version }}"
           git tag "$VERSION"
           git push origin "$VERSION"
           gh release create "$VERSION" \
