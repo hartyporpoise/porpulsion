@@ -881,6 +881,19 @@ def exec_send_stdin(session_id: str, data: str):
     session["exec_ws"].write_channel(0, data)
 
 
+def exec_resize_session(session_id: str, cols: int, rows: int):
+    """Send a PTY resize event to a running exec session."""
+    import json as _json
+    with _exec_sessions_lock:
+        session = _exec_sessions.get(session_id)
+    if not session or session["stop"].is_set():
+        return
+    try:
+        session["exec_ws"].write_channel(4, _json.dumps({"Width": cols, "Height": rows}))
+    except Exception:
+        pass
+
+
 def exec_close_session(session_id: str):
     """Close a running exec session."""
     with _exec_sessions_lock:

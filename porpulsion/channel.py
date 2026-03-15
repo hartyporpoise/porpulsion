@@ -809,6 +809,7 @@ def _register_handlers(ch: "PeerChannel"):
         handle_remoteapp_exec,
         handle_remoteapp_exec_open,
         handle_remoteapp_exec_stdin,
+        handle_remoteapp_exec_resize,
         handle_remoteapp_exec_close,
         handle_remoteapp_exec_stdout,
         handle_remoteapp_restart,
@@ -837,6 +838,7 @@ def _register_handlers(ch: "PeerChannel"):
     ch.register("remoteapp/pods",          handle_remoteapp_pods)
     ch.register("remoteapp/exec",          handle_remoteapp_exec)
     ch.register("remoteapp/exec-stdin",    handle_remoteapp_exec_stdin)
+    ch.register("remoteapp/exec-resize",   handle_remoteapp_exec_resize)
     ch.register("remoteapp/exec-close",    handle_remoteapp_exec_close)
     ch.register("remoteapp/exec-stdout",   handle_remoteapp_exec_stdout)
     ch.register("remoteapp/restart",       handle_remoteapp_restart)

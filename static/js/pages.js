@@ -1086,12 +1086,13 @@
     wrap.addEventListener('click', function () {
       if (_execTerm) _execTerm.focus();
     });
-    // Resize observer — refit terminal when container size changes
+    // Resize observer — refit terminal and notify server when container size changes
     if (window.ResizeObserver) {
       _execResizeObserver = new ResizeObserver(function () {
         if (_execFitAddon) {
           try { _execFitAddon.fit(); } catch(e) {}
         }
+        _execSendResize();
       });
       _execResizeObserver.observe(wrap);
     }
@@ -1102,6 +1103,11 @@
     if (_execResizeObserver) { try { _execResizeObserver.disconnect(); } catch(e) {} _execResizeObserver = null; }
     if (_execTerm) { try { _execTerm.dispose(); } catch(e) {} _execTerm = null; }
     _execFitAddon = null;
+  }
+
+  function _execSendResize() {
+    if (!_execWs || _execWs.readyState !== WebSocket.OPEN || !_execTerm) return;
+    _execWs.send(JSON.stringify({ type: 'resize', cols: _execTerm.cols, rows: _execTerm.rows }));
   }
 
   function _execConnect(pod) {
@@ -1127,6 +1133,7 @@
       if (ws._superseded) return;
       _execSetStatus('connected');
       if (_execFitAddon) { try { _execFitAddon.fit(); } catch(e) {} }
+      _execSendResize();
       if (_execTerm) _execTerm.focus();
     };
     ws.onmessage = function (e) {
