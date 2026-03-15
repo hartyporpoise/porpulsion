@@ -54,12 +54,6 @@ spec:
                 appId:
                   type: string
                   description: Internal RemoteApp ID assigned by the agent
-                sourcePeer:
-                  type: string
-                  description: Name of the peer that submitted this app
-                resourceName:
-                  type: string
-                  description: Sanitized k8s resource name used for Deployment/CM/Secret/PVC
                 message:
                   type: string
                   description: Human-readable status message

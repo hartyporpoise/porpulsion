@@ -296,7 +296,6 @@ def create_remoteapp():
         spec_dict = {**spec_dict, "targetPeer": peer.name}
         cr_name = create_remoteapp_cr(
             state.NAMESPACE, ra.id, ra.name, spec_dict, peer.name,
-            source_peer=state.AGENT_NAME,
         )
         if cr_name:
             ra.cr_name = cr_name
@@ -452,7 +451,6 @@ def scale_remoteapp(app_id):
         try:
             create_remoteapp_cr(
                 state.NAMESPACE, app_id, d["name"], spec, d["target_peer"],
-                source_peer=d["source_peer"],
             )
             return jsonify({"ok": True, "replicas": replicas})
         except Exception as e:
@@ -745,7 +743,7 @@ def update_remoteapp_spec(app_id):
     create_remoteapp_cr(
         state.NAMESPACE, app_id, d["name"],
         {**new_spec, "targetPeer": d["target_peer"]},
-        d["target_peer"], source_peer=d["source_peer"],
+        d["target_peer"],
     )
     return jsonify(d)
 

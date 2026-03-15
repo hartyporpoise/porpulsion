@@ -127,7 +127,7 @@ def on_remoteapp_created(body, meta, status, namespace, **kwargs):
         log.warning("kopf: RemoteApp %s rejected: %s", cr_name, msg)
         _patch_status(namespace, PLURAL, cr_name, {
             "phase": "Failed", "appId": app_id,
-            "message": msg, "sourcePeer": state.AGENT_NAME,
+            "message": msg,
         })
         raise kopf.PermanentError(msg)
 
