@@ -803,11 +803,12 @@ _exec_sessions_lock = threading.Lock()
 _ALLOWED_SHELLS = {"/bin/sh", "/bin/bash"}
 
 
-def exec_open_session(remote_app, pod_name: str, on_stdout, shell: str = "/bin/sh") -> str:
+def exec_open_session(remote_app, pod_name: str, on_stdout, shell: str = "/bin/sh", session_id: str = None) -> str:
     """
     Start an interactive PTY session in a pod using the given shell. Returns a session_id.
     on_stdout(data: str) is called from a background thread whenever the shell
     produces output — the caller should forward it over the peer channel.
+    If session_id is provided it will be used as-is; otherwise a new one is generated.
     Raises RuntimeError on failure.
     """
     from kubernetes.stream import stream as k8s_stream
@@ -837,7 +838,8 @@ def exec_open_session(remote_app, pod_name: str, on_stdout, shell: str = "/bin/s
     )
 
     import uuid as _uuid
-    session_id = _uuid.uuid4().hex
+    if not session_id:
+        session_id = _uuid.uuid4().hex
     stop = threading.Event()
 
     session = {"exec_ws": exec_ws, "stop": stop, "on_stdout": on_stdout}

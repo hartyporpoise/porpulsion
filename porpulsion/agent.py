@@ -296,23 +296,28 @@ def _exec_ws_handler(ws, app_id):
             ws.close()
             return
 
+        import uuid as _uuid
         out_q = _queue.Queue()
-        register_exec_stdout_queue(app_id, out_q)
+        # Generate session_id and register the queue BEFORE sending the RPC so
+        # that exec-stdout pushes which arrive before the call() returns are
+        # not silently dropped.
+        session_id = _uuid.uuid4().hex
+        register_exec_stdout_queue(app_id, session_id, out_q)
 
         try:
             log.info("exec-ws: calling exec-open on peer %s", peer.name)
             result = get_channel(peer.name).call(
-                "remoteapp/exec-open", {"id": app_id, "pod": pod_name, "shell": shell}, timeout=15.0,
+                "remoteapp/exec-open",
+                {"id": app_id, "pod": pod_name, "shell": shell, "session_id": session_id},
+                timeout=15.0,
             )
             log.info("exec-ws: exec-open result: %s", result)
         except Exception as e:
             log.warning("exec-ws: exec-open failed: %s", e)
-            unregister_exec_stdout_queue(app_id)
+            unregister_exec_stdout_queue(app_id, session_id)
             ws.send(f"\r\n\033[31mError: {e}\033[0m\r\n")
             ws.close()
             return
-
-        session_id = result.get("session_id", "")
 
         import threading as _threading
         stop = _threading.Event()
@@ -351,7 +356,7 @@ def _exec_ws_handler(ws, app_id):
                     break
         finally:
             stop.set()
-            unregister_exec_stdout_queue(app_id)
+            unregister_exec_stdout_queue(app_id, session_id)
             try:
                 get_channel(peer.name).push("remoteapp/exec-close", {"session_id": session_id})
             except Exception:

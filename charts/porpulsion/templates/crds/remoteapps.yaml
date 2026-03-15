@@ -42,7 +42,7 @@ spec:
               type: object
               required: [image, targetPeer]
               description: >
-                RemoteApp spec — defines a containerised workload to deploy on a peer cluster.
+                RemoteApp spec - defines a containerised workload to deploy on a peer cluster.
               properties:
 {{ .Files.Get "files/schema.yaml" | indent 16 }}
             status:

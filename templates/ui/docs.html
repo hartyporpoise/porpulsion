@@ -4,35 +4,44 @@
 {% block content %}
 <!-- PAGE: Docs (route: /docs) -->
 <section id="docs-page" data-page="docs">
-  <div class="docs-layout">
+  <div class="docs-main">
 
-    <!-- SECTION: RemoteApp Spec -->
-    <section id="docs-spec" class="page-section" aria-label="RemoteApp spec reference">
-      <div class="card">
-        <div class="card-header">
-          <h2>RemoteApp Spec</h2>
-          <span class="card-header-sub">— all fields except <code style="font-size:0.75rem;background:var(--surface3);padding:1px 5px;border-radius:4px;">image</code> are optional</span>
+      <!-- SECTION: RemoteApp Spec -->
+      <section id="docs-spec" class="docs-section" aria-label="RemoteApp spec reference">
+        <div class="docs-section-header">
+          <div>
+            <h2 class="docs-section-title">RemoteApp Spec</h2>
+            <p class="docs-section-sub">All fields except <code class="docs-inline-code">image</code> are optional.</p>
+          </div>
         </div>
-        <div id="spec-table-wrap">
-          <div class="loading-placeholder">Loading spec reference…</div>
+        <div class="card" style="overflow:hidden;">
+          <div id="spec-table-wrap">
+            <div class="loading-placeholder" style="padding:1.5rem 1rem;">Loading spec reference…</div>
+          </div>
         </div>
-      </div>
-    </section>
+      </section>
 
-    <!-- SECTION: HTTP API -->
-    <section id="docs-api" class="page-section" aria-label="HTTP API reference">
-      <div class="card">
-        <div class="card-header">
-          <h2>HTTP API</h2>
-          <a href="/api/openapi.json" target="_blank" rel="noopener" class="btn-sm btn-outline">openapi.json ↗</a>
+      <!-- SECTION: HTTP API -->
+      <section id="docs-api" class="docs-section" aria-label="HTTP API reference">
+        <div class="docs-section-header">
+          <div>
+            <h2 class="docs-section-title">HTTP API</h2>
+            <p class="docs-section-sub">All endpoints are relative to the agent base URL.</p>
+          </div>
+          <div class="docs-section-actions">
+            <div class="docs-search-wrap">
+              <svg class="docs-search-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input type="search" id="api-search" class="docs-search-input" placeholder="Filter endpoints…" autocomplete="off" spellcheck="false">
+            </div>
+            <a href="/api/openapi.json" target="_blank" rel="noopener" class="btn-sm btn-outline">openapi.json ↗</a>
+          </div>
         </div>
-        <div class="card-body" id="api-ref-body">
+        <div id="api-ref-body">
           <div class="loading-placeholder">Loading API reference…</div>
         </div>
-      </div>
-    </section>
+      </section>
 
-  </div>
+  </div><!-- /docs-main -->
 </section>
 {% endblock %}
 {% block scripts %}
@@ -63,7 +72,7 @@
           '<span class="spec-field-type">' + esc(f.type) + '</span>' +
           defaultHtml +
         '</div>' +
-        '<div class="spec-field-desc">' + esc(f.description) + '</div>' +
+        '<div class="spec-field-desc">' + esc(f.description) + (f.example ? '<span class="spec-field-example">e.g. <code>' + esc(f.example) + '</code></span>' : '') + '</div>' +
       '</div>';
     });
     wrap.innerHTML = '<div class="spec-field-list">' + rows.join('') + '</div>';
@@ -74,7 +83,7 @@
     .then(renderSpecTable)
     .catch(function (e) {
       var wrap = document.getElementById('spec-table-wrap');
-      if (wrap) wrap.innerHTML = '<p class="muted">Could not load spec: ' + esc(String(e)) + '</p>';
+      if (wrap) wrap.innerHTML = '<p class="muted" style="padding:1rem;">Could not load spec: ' + esc(String(e)) + '</p>';
     });
 
   // ── API reference ──────────────────────────────────────────────
@@ -149,6 +158,9 @@
            '<div class="api-body-schema"><code>' + schemaSnippet(schema) + '</code></div>';
   }
 
+  var _copyIconSvg = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+  var _checkIconSvg = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+
   function renderOperation(method, op, path, baseUrl) {
     var id = 'op-' + (op.operationId || (method + path)).replace(/[^a-z0-9]/gi, '-');
     var summary = esc(op.summary || path);
@@ -162,11 +174,12 @@
       '<div class="api-section-label">Responses</div>' +
       renderResponses(op.responses) +
       '</div>';
-    return '<div class="api-op" id="' + id + '">' +
+    return '<div class="api-op" id="' + id + '" data-method="' + esc(method) + '" data-path="' + esc(path.toLowerCase()) + '" data-summary="' + esc((op.summary || '').toLowerCase()) + '">' +
       '<button type="button" class="api-op-summary" aria-expanded="false" aria-controls="' + id + '-body">' +
         methodBadge(method) +
         '<code class="api-op-path">' + esc(fullPath) + '</code>' +
         '<span class="api-op-title">' + summary + '</span>' +
+        '<span role="button" class="api-path-copy" title="Copy path" aria-label="Copy path" tabindex="0" data-path="' + esc(fullPath) + '">' + _copyIconSvg + '</span>' +
         '<svg class="api-op-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>' +
       '</button>' +
       '<div class="api-op-body" id="' + id + '-body" hidden>' + details + '</div>' +
@@ -193,7 +206,7 @@
     var grouped = groupByTag(spec.paths || {});
     var html = '';
     grouped.order.forEach(function (tag) {
-      html += '<div class="api-tag-group">';
+      html += '<div class="api-tag-group" data-tag="' + esc(tag.toLowerCase()) + '">';
       html += '<div class="api-tag-label">' + esc(tag) + '</div>';
       grouped.groups[tag].forEach(function (item) {
         html += renderOperation(item.method, item.op, item.path, baseUrl);
@@ -202,13 +215,30 @@
     });
     var body = document.getElementById('api-ref-body');
     if (body) body.innerHTML = html || '<p class="muted">No endpoints found.</p>';
+
+    // Expand/collapse
     document.querySelectorAll('.api-op-summary').forEach(function (btn) {
-      btn.addEventListener('click', function () {
+      btn.addEventListener('click', function (e) {
+        // don't toggle if the copy button was clicked
+        if (e.target.closest('.api-path-copy')) return;
         var expanded = this.getAttribute('aria-expanded') === 'true';
         var bodyEl = document.getElementById(this.getAttribute('aria-controls'));
         this.setAttribute('aria-expanded', expanded ? 'false' : 'true');
         if (bodyEl) bodyEl.hidden = expanded;
         this.classList.toggle('open', !expanded);
+      });
+    });
+
+    // Copy path buttons
+    document.querySelectorAll('.api-path-copy').forEach(function (btn) {
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var path = btn.dataset.path || '';
+        navigator.clipboard.writeText(path).then(function () {
+          btn.innerHTML = _checkIconSvg;
+          btn.style.color = 'var(--green)';
+          setTimeout(function () { btn.innerHTML = _copyIconSvg; btn.style.color = ''; }, 1500);
+        }).catch(function () {});
       });
     });
   }
@@ -220,6 +250,30 @@
       var body = document.getElementById('api-ref-body');
       if (body) body.innerHTML = '<p class="muted">Could not load API spec: ' + esc(String(e)) + '</p>';
     });
+
+  // ── Search / filter ────────────────────────────────────────────
+  var _searchInput = document.getElementById('api-search');
+  if (_searchInput) {
+    _searchInput.addEventListener('input', function () {
+      var q = this.value.trim().toLowerCase();
+      var groups = document.querySelectorAll('.api-tag-group');
+      groups.forEach(function (group) {
+        var ops = group.querySelectorAll('.api-op');
+        var anyVisible = false;
+        ops.forEach(function (op) {
+          var match = !q
+            || (op.dataset.path || '').includes(q)
+            || (op.dataset.method || '').includes(q)
+            || (op.dataset.summary || '').includes(q)
+            || (group.dataset.tag || '').includes(q);
+          op.style.display = match ? '' : 'none';
+          if (match) anyVisible = true;
+        });
+        group.style.display = anyVisible ? '' : 'none';
+      });
+    });
+  }
+
 })();
 </script>
 {% endblock %}

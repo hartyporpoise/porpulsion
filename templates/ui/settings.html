@@ -5,147 +5,102 @@
 <!-- PAGE: Settings (route: /settings) -->
 <section id="settings-page" data-page="settings">
 
-  <div style="max-width:940px;">
+  <div class="stg-root">
 
-    <!-- ── Connect Credentials (always visible — most commonly needed) ── -->
-    <div class="card" style="margin-bottom:1rem;">
-      <div class="card-header"><h2>Connect Credentials</h2></div>
-      <div class="card-body">
-        <p class="text-sm text-muted" style="margin-bottom:1.25rem;">
-          Share these with the peer who wants to connect to you.
-        </p>
-        <div class="cred-row">
-          <div class="cred-label">Endpoint URL</div>
-          <div class="cred-val-wrap">
-            <span class="cred-val mono" id="settings-token-url">loading…</span>
-            <button type="button" class="btn-icon cred-copy-btn" title="Copy" aria-label="Copy URL"
-              onclick="window.Porpulsion.copyText('settings-token-url', this)">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-            </button>
-          </div>
-        </div>
-        <div class="cred-row" style="border-bottom:none;align-items:flex-start;">
-          <div class="cred-label" style="padding-top:0.1rem;">Invite bundle</div>
-          <div class="cred-val-wrap" style="align-items:flex-start;">
-            <span class="secret-val masked cred-val mono" id="settings-invite-bundle" data-value=""
-              style="font-size:0.68rem;white-space:pre-wrap;word-break:break-all;flex:1;line-height:1.5;">••••••••••••••••••••••••••••••••••••••••</span>
-            <button type="button" class="eye-btn" style="margin-top:0.1rem;"
-              onclick="window.Porpulsion.toggleSecret('settings-invite-bundle', this)"
-              title="Show/hide" aria-label="Toggle visibility">
-              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M1 10s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6z"/><circle cx="10" cy="10" r="2.5"/></svg>
-            </button>
-            <button type="button" class="btn-icon cred-copy-btn" style="margin-top:0.1rem;"
-              title="Copy" aria-label="Copy bundle"
-              onclick="window.Porpulsion.copySecret('settings-invite-bundle', this)">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-            </button>
-          </div>
-        </div>
-      </div>
+    <!-- ── Tab bar ──────────────────────────────────────────────── -->
+    <div class="stg-tabbar" id="settings-nav" role="tablist" aria-label="Settings sections">
+      <button type="button" class="stg-tab active" data-section="agent" role="tab" aria-selected="true">Agent</button>
+      <button type="button" class="stg-tab" data-section="executing" role="tab" aria-selected="false">Executing</button>
+      <button type="button" class="stg-tab" data-section="quotas" role="tab" aria-selected="false">Quotas</button>
+      <button type="button" class="stg-tab" data-section="tunnels" role="tab" aria-selected="false">Tunnels</button>
+      <button type="button" class="stg-tab" data-section="registry" role="tab" aria-selected="false">Registry</button>
     </div>
 
-    <!-- ── Accordion sections ────────────────────────────────────────── -->
-    <div class="settings-accordion">
+    <!-- ── Panels ───────────────────────────────────────────────── -->
+    <div class="stg-panels">
 
       <!-- AGENT -->
-      <div class="acc-section" id="acc-agent">
-        <button type="button" class="acc-header" aria-expanded="false" aria-controls="acc-agent-body">
-          <span class="acc-icon">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
-          </span>
-          <span class="acc-title">Agent</span>
-          <span class="acc-summary">{{ agent_name }}</span>
-          <svg class="acc-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
-        </button>
-        <div class="acc-body" id="acc-agent-body" hidden>
-          <div class="health-grid" style="margin-bottom:1rem;">
-            <div class="health-row">
-              <span class="health-label">Name</span>
-              <span class="mono">{{ agent_name }}</span>
+      <div class="stg-panel active" id="settings-panel-agent" role="tabpanel">
+
+        <div class="stg-section">
+          <div class="stg-section-label">Identity</div>
+          <div class="stg-group">
+            <div class="stg-row">
+              <span class="stg-row-label">Name</span>
+              <span class="stg-row-val mono">{{ agent_name }}</span>
             </div>
-            <div class="health-row" style="border-bottom:none;">
-              <span class="health-label">mTLS endpoint</span>
-              <span class="mono text-sm" id="about-url" style="word-break:break-all;">—</span>
-            </div>
-          </div>
-          <div style="padding:0 1rem 1rem;">
-            <div class="section-label">Log level</div>
-            <div class="seg-ctrl" id="setting-log-level" role="group" aria-label="Log level">
-              <button type="button" data-val="DEBUG">Debug</button>
-              <button type="button" data-val="INFO" class="active">Info</button>
-              <button type="button" data-val="WARNING">Warn</button>
-              <button type="button" data-val="ERROR">Error</button>
+            <div class="stg-row stg-row-last">
+              <span class="stg-row-label">mTLS endpoint</span>
+              <span class="stg-row-val mono" id="about-url" style="word-break:break-all;">—</span>
             </div>
           </div>
         </div>
-      </div>
 
-      <!-- INBOUND WORKLOADS -->
-      <div class="acc-section" id="acc-inbound">
-        <button type="button" class="acc-header" aria-expanded="false" aria-controls="acc-inbound-body">
-          <span class="acc-icon">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-          </span>
-          <span class="acc-title">Inbound Workloads</span>
-          <span class="acc-summary" id="acc-inbound-summary">loading…</span>
-          <svg class="acc-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
-        </button>
-        <div class="acc-body" id="acc-inbound-body" hidden>
-          <div style="padding:0.25rem 1rem 0;">
-            <div class="toggle-row">
-              <div class="toggle-info">
-                <div class="toggle-label">Accept inbound workloads</div>
-                <div class="toggle-desc">Allow peers to deploy RemoteApps on this cluster</div>
+        <div class="stg-section">
+          <div class="stg-section-label">Log level</div>
+          <div class="stg-group">
+            <div class="stg-row stg-row-last stg-row-control">
+              <span class="stg-row-label">Level</span>
+              <div class="seg-ctrl" id="setting-log-level" role="group" aria-label="Log level">
+                <button type="button" data-val="DEBUG">Debug</button>
+                <button type="button" data-val="INFO" class="active">Info</button>
+                <button type="button" data-val="WARNING">Warn</button>
+                <button type="button" data-val="ERROR">Error</button>
               </div>
-              <label class="toggle">
-                <input type="checkbox" id="setting-inbound-apps" aria-label="Accept inbound workloads">
-                <span class="toggle-slider"></span>
-              </label>
-            </div>
-            <div class="toggle-row">
-              <div class="toggle-info">
-                <div class="toggle-label">Require manual approval</div>
-                <div class="toggle-desc">Queue inbound apps for approval before they are executed</div>
-              </div>
-              <label class="toggle">
-                <input type="checkbox" id="setting-require-approval" aria-label="Require manual approval">
-                <span class="toggle-slider"></span>
-              </label>
-            </div>
-            <div class="toggle-row">
-              <div class="toggle-info">
-                <div class="toggle-label">Require resource requests</div>
-                <div class="toggle-desc">Reject apps that don't specify <span class="mono">resources.requests</span></div>
-              </div>
-              <label class="toggle">
-                <input type="checkbox" id="setting-require-res-requests" aria-label="Require resource requests">
-                <span class="toggle-slider"></span>
-              </label>
-            </div>
-            <div class="toggle-row">
-              <div class="toggle-info">
-                <div class="toggle-label">Require resource limits</div>
-                <div class="toggle-desc">Reject apps that don't specify <span class="mono">resources.limits</span></div>
-              </div>
-              <label class="toggle">
-                <input type="checkbox" id="setting-require-res-limits" aria-label="Require resource limits">
-                <span class="toggle-slider"></span>
-              </label>
-            </div>
-            <div class="toggle-row" style="border-bottom:none;">
-              <div class="toggle-info">
-                <div class="toggle-label">Allow persistent volumes (PVCs)</div>
-                <div class="toggle-desc">Allow inbound workloads to request PVCs. Requires <span class="mono">agent.allowPvcs=true</span> in the Helm chart.</div>
-              </div>
-              <label class="toggle">
-                <input type="checkbox" id="setting-allow-pvcs" aria-label="Allow persistent volumes">
-                <span class="toggle-slider"></span>
-              </label>
             </div>
           </div>
-          <hr class="settings-divider">
-          <div style="padding:0.75rem 1rem 1rem;">
-            <div class="section-label" style="margin-bottom:0.75rem;">Peer &amp; image filtering</div>
+          <p class="stg-hint">Changes take effect immediately without restart.</p>
+        </div>
+
+      </div><!-- /agent -->
+
+      <!-- EXECUTING WORKLOADS -->
+      <div class="stg-panel" id="settings-panel-executing" role="tabpanel">
+
+        <div class="stg-section">
+          <div class="stg-section-label">Access</div>
+          <div class="stg-group">
+            <div class="stg-row stg-row-toggle">
+              <div class="stg-row-info">
+                <div class="stg-row-label">Accept executing workloads</div>
+                <div class="stg-row-desc">Allow peers to deploy RemoteApps on this cluster</div>
+              </div>
+              <label class="toggle"><input type="checkbox" id="setting-inbound-apps" aria-label="Accept inbound workloads"><span class="toggle-slider"></span></label>
+            </div>
+            <div class="stg-row stg-row-toggle">
+              <div class="stg-row-info">
+                <div class="stg-row-label">Require manual approval</div>
+                <div class="stg-row-desc">Queue inbound apps for approval before they are executed</div>
+              </div>
+              <label class="toggle"><input type="checkbox" id="setting-require-approval" aria-label="Require manual approval"><span class="toggle-slider"></span></label>
+            </div>
+            <div class="stg-row stg-row-toggle">
+              <div class="stg-row-info">
+                <div class="stg-row-label">Require resource requests</div>
+                <div class="stg-row-desc">Reject apps that don't specify <span class="mono">resources.requests</span></div>
+              </div>
+              <label class="toggle"><input type="checkbox" id="setting-require-res-requests" aria-label="Require resource requests"><span class="toggle-slider"></span></label>
+            </div>
+            <div class="stg-row stg-row-toggle">
+              <div class="stg-row-info">
+                <div class="stg-row-label">Require resource limits</div>
+                <div class="stg-row-desc">Reject apps that don't specify <span class="mono">resources.limits</span></div>
+              </div>
+              <label class="toggle"><input type="checkbox" id="setting-require-res-limits" aria-label="Require resource limits"><span class="toggle-slider"></span></label>
+            </div>
+            <div class="stg-row stg-row-toggle stg-row-last">
+              <div class="stg-row-info">
+                <div class="stg-row-label">Allow persistent volumes (PVCs)</div>
+                <div class="stg-row-desc">Allow inbound workloads to request PVCs. Requires <span class="mono">agent.allowPvcs=true</span> in the Helm chart.</div>
+              </div>
+              <label class="toggle"><input type="checkbox" id="setting-allow-pvcs" aria-label="Allow persistent volumes"><span class="toggle-slider"></span></label>
+            </div>
+          </div>
+        </div>
+
+        <div class="stg-section">
+          <div class="stg-section-label">Peer &amp; image filtering</div>
+          <div class="stg-group stg-group-form">
             <div class="form-group">
               <label class="form-label" for="setting-allowed-peers">Allowed source peers</label>
               <input type="text" id="setting-allowed-peers" placeholder="peer-a, peer-b  (empty = all connected peers)" autocomplete="off">
@@ -156,32 +111,26 @@
               <input type="text" id="setting-allowed-images" placeholder="docker.io/, gcr.io/  (empty = allow all)" autocomplete="off">
               <span class="form-hint">Comma-separated prefixes. Empty = allow all images.</span>
             </div>
-            <div class="form-group" style="margin-bottom:0.75rem;">
+            <div class="form-group" style="margin-bottom:0;">
               <label class="form-label" for="setting-blocked-images">Blocked image prefixes</label>
               <input type="text" id="setting-blocked-images" placeholder="e.g. untrusted.registry.io/" autocomplete="off">
               <span class="form-hint">Always denied even if in the allowed list.</span>
             </div>
-            <div class="flex-end">
-              <button type="button" id="setting-filters-save" class="btn-sm">Save filters</button>
-            </div>
+          </div>
+          <div class="stg-footer">
+            <button type="button" id="setting-filters-save" class="btn-sm">Save filters</button>
           </div>
         </div>
-      </div>
+
+      </div><!-- /executing -->
 
       <!-- RESOURCE QUOTAS -->
-      <div class="acc-section" id="acc-quotas">
-        <button type="button" class="acc-header" aria-expanded="false" aria-controls="acc-quotas-body">
-          <span class="acc-icon">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>
-          </span>
-          <span class="acc-title">Resource Quotas</span>
-          <span class="acc-summary" id="acc-quotas-summary">loading…</span>
-          <svg class="acc-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
-        </button>
-        <div class="acc-body" id="acc-quotas-body" hidden>
-          <div style="padding:0.75rem 1rem 1rem;">
-            <div class="section-label" style="margin-bottom:0.75rem;">Per-pod limits</div>
-            <div class="form-row-2" style="margin-bottom:0.75rem;">
+      <div class="stg-panel" id="settings-panel-quotas" role="tabpanel">
+
+        <div class="stg-section">
+          <div class="stg-section-label">Per-pod limits</div>
+          <div class="stg-group stg-group-form">
+            <div class="form-row-2">
               <div class="form-group" style="margin-bottom:0;">
                 <label class="form-label" for="setting-max-cpu-req">Max CPU request</label>
                 <input type="text" id="setting-max-cpu-req" placeholder="e.g. 500m  (empty = unlimited)" autocomplete="off">
@@ -199,12 +148,17 @@
                 <input type="text" id="setting-max-mem-lim" placeholder="e.g. 1Gi  (empty = unlimited)" autocomplete="off">
               </div>
             </div>
-            <div class="form-group" style="margin-bottom:1rem;">
+            <div class="form-group" style="margin-bottom:0;margin-top:0.75rem;">
               <label class="form-label" for="setting-max-replicas">Max replicas per app</label>
               <input type="number" id="setting-max-replicas" min="0" placeholder="0 = unlimited" autocomplete="off" style="width:10rem;">
             </div>
-            <div class="section-label" style="margin-bottom:0.75rem;">Aggregate limits</div>
-            <div class="form-row-2" style="margin-bottom:0.75rem;">
+          </div>
+        </div>
+
+        <div class="stg-section">
+          <div class="stg-section-label">Aggregate limits</div>
+          <div class="stg-group stg-group-form">
+            <div class="form-row-2">
               <div class="form-group" style="margin-bottom:0;">
                 <label class="form-label" for="setting-max-total-deploys">Max total deployments</label>
                 <input type="number" id="setting-max-total-deploys" min="0" placeholder="0 = unlimited" autocomplete="off">
@@ -222,9 +176,13 @@
                 <input type="text" id="setting-max-total-mem" placeholder="e.g. 8Gi  (empty = unlimited)" autocomplete="off">
               </div>
             </div>
-            <hr class="settings-divider" style="margin:0.75rem 0;">
-            <div class="section-label" style="margin-bottom:0.75rem;">PVC storage</div>
-            <div class="form-row-2" style="margin-bottom:0.75rem;">
+          </div>
+        </div>
+
+        <div class="stg-section">
+          <div class="stg-section-label">PVC storage</div>
+          <div class="stg-group stg-group-form">
+            <div class="form-row-2">
               <div class="form-group" style="margin-bottom:0;">
                 <label class="form-label" for="setting-max-pvc-per">Max per PVC (GB)</label>
                 <input type="number" id="setting-max-pvc-per" min="0" placeholder="0 = unlimited" autocomplete="off">
@@ -233,103 +191,100 @@
               <div class="form-group" style="margin-bottom:0;">
                 <label class="form-label" for="setting-max-pvc-total">Max total PVC storage (GB)</label>
                 <input type="number" id="setting-max-pvc-total" min="0" placeholder="0 = unlimited" autocomplete="off">
-                <span class="form-hint">Maximum combined PVC storage per submission.</span>
+                <span class="form-hint">Maximum combined PVC storage across all apps.</span>
               </div>
             </div>
-            <div class="flex-end" style="gap:0.5rem;">
-              <button type="button" id="setting-pvc-quotas-save" class="btn-sm btn-outline">Save PVC quotas</button>
-              <button type="button" id="setting-quotas-save" class="btn-sm">Save quotas</button>
-            </div>
+          </div>
+          <div class="stg-footer">
+            <button type="button" id="setting-quotas-save" class="btn-sm">Save quotas</button>
           </div>
         </div>
-      </div>
+
+      </div><!-- /quotas -->
 
       <!-- TUNNELS -->
-      <div class="acc-section" id="acc-tunnels">
-        <button type="button" class="acc-header" aria-expanded="false" aria-controls="acc-tunnels-body">
-          <span class="acc-icon">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h18"/><path d="M15 6l6 6-6 6"/><path d="M9 6L3 12l6 6"/></svg>
-          </span>
-          <span class="acc-title">Tunnels</span>
-          <span class="acc-summary" id="acc-tunnels-summary">loading…</span>
-          <svg class="acc-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
-        </button>
-        <div class="acc-body" id="acc-tunnels-body" hidden>
-          <div style="padding:0.75rem 1rem 1rem;">
-            <div class="toggle-row" style="padding-left:0;padding-right:0;margin-bottom:0.75rem;">
-              <div class="toggle-info">
-                <div class="toggle-label">Accept inbound tunnels</div>
-                <div class="toggle-desc">Allow peers to open HTTP proxy tunnels to pods on this cluster</div>
+      <div class="stg-panel" id="settings-panel-tunnels" role="tabpanel">
+
+        <div class="stg-section">
+          <div class="stg-section-label">Access</div>
+          <div class="stg-group">
+            <div class="stg-row stg-row-toggle stg-row-last">
+              <div class="stg-row-info">
+                <div class="stg-row-label">Accept inbound tunnels</div>
+                <div class="stg-row-desc">Allow peers to open HTTP proxy tunnels to pods on this cluster</div>
               </div>
-              <label class="toggle">
-                <input type="checkbox" id="setting-inbound-tunnels" aria-label="Accept inbound tunnels">
-                <span class="toggle-slider"></span>
-              </label>
-            </div>
-            <div class="form-group" style="margin-bottom:0.5rem;">
-              <label class="form-label">Allowed tunnel peers</label>
-              <div class="form-hint" style="margin-bottom:0.5rem;">Select which peers can open tunnels. All enabled by default.</div>
-              <div class="tunnel-peer-list" id="tunnel-peer-list">
-                <div class="tunnel-peer-empty" id="tunnel-peer-empty"></div>
-              </div>
-            </div>
-            <div class="flex-end mt1">
-              <button type="button" id="setting-tunnels-save" class="btn-sm">Save tunnel settings</button>
+              <label class="toggle"><input type="checkbox" id="setting-inbound-tunnels" aria-label="Accept inbound tunnels"><span class="toggle-slider"></span></label>
             </div>
           </div>
         </div>
-      </div>
+
+        <div class="stg-section">
+          <div class="stg-section-label">Allowed tunnel peers</div>
+          <p class="stg-hint" style="margin-bottom:0.625rem;">Select which peers may open tunnels. All peers are allowed by default.</p>
+          <div class="stg-group">
+            <div class="tunnel-peer-list" id="tunnel-peer-list" style="padding:0;">
+              <div class="tunnel-peer-empty" id="tunnel-peer-empty"></div>
+            </div>
+          </div>
+          <div class="stg-footer">
+            <button type="button" id="setting-tunnels-save" class="btn-sm">Save tunnel settings</button>
+          </div>
+        </div>
+
+      </div><!-- /tunnels -->
 
       <!-- REGISTRY PROXY -->
-      <div class="acc-section" id="acc-registry">
-        <button type="button" class="acc-header" aria-expanded="false" aria-controls="acc-registry-body">
-          <span class="acc-icon">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><path d="M1 10h22"/></svg>
-          </span>
-          <span class="acc-title">Registry Proxy</span>
-          <span class="acc-summary" id="acc-registry-summary">loading…</span>
-          <svg class="acc-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
-        </button>
-        <div class="acc-body" id="acc-registry-body" hidden>
-          <div style="padding:0.75rem 1rem 1rem;">
-            <div class="toggle-row" style="border:none;padding:0;margin-bottom:1.25rem;">
-              <div class="toggle-info">
-                <div class="toggle-label">Enable registry proxy</div>
-                <div class="toggle-desc">Auto-creates a system user and imagePullSecret (<span class="mono">porpulsion-image-proxy</span>) — add it to <span class="mono">imagePullSecrets</span> in your workload spec to pull images through this agent's registry proxy</div>
+      <div class="stg-panel" id="settings-panel-registry" role="tabpanel">
+
+        <div class="stg-section">
+          <div class="stg-section-label">Configuration</div>
+          <div class="stg-group">
+            <div class="stg-row stg-row-toggle stg-row-last">
+              <div class="stg-row-info">
+                <div class="stg-row-label">Enable registry proxy</div>
+                <div class="stg-row-desc">Auto-creates a system user and imagePullSecret (<span class="mono">porpulsion-image-proxy</span>) — add it to <span class="mono">imagePullSecrets</span> in your workload spec to pull images through this agent's registry proxy</div>
               </div>
-              <label class="toggle">
-                <input type="checkbox" id="setting-registry-pull-enabled" aria-label="Enable registry proxy">
-                <span class="toggle-slider"></span>
-              </label>
+              <label class="toggle"><input type="checkbox" id="setting-registry-pull-enabled" aria-label="Enable registry proxy"><span class="toggle-slider"></span></label>
             </div>
-            <div class="form-group" style="margin-bottom:0.75rem;">
-              <label class="form-label" for="setting-registry-api-url">API URL override</label>
+          </div>
+        </div>
+
+        <div class="stg-section">
+          <div class="stg-section-label">API URL override</div>
+          <div class="stg-group stg-group-form">
+            <div class="form-group" style="margin-bottom:0;">
               <input type="text" id="setting-registry-api-url" placeholder="defaults to agent selfUrl" autocomplete="off" spellcheck="false">
               <span class="form-hint">Override the URL used in the imagePullSecret server field. Use this if your API endpoint is reachable at a different address than the WebSocket endpoint — for example in split-ingress setups where <span class="mono">/ws</span> is public but <span class="mono">/api</span> is internal only.</span>
             </div>
-            <div class="flex-end">
-              <button type="button" id="setting-registry-save" class="btn-sm">Save</button>
-            </div>
+          </div>
+          <div class="stg-footer">
+            <button type="button" id="setting-registry-save" class="btn-sm">Save</button>
           </div>
         </div>
-      </div>
 
-    </div><!-- /settings-accordion -->
-  </div>
+      </div><!-- /registry -->
+
+    </div><!-- /stg-panels -->
+  </div><!-- /stg-root -->
 
 </section>
 {% endblock %}
 {% block scripts %}
 <script>
-  document.querySelectorAll('.acc-header').forEach(function (btn) {
-    btn.addEventListener('click', function () {
-      var bodyId = btn.getAttribute('aria-controls');
-      var body = document.getElementById(bodyId);
-      var open = btn.getAttribute('aria-expanded') === 'true';
-      btn.setAttribute('aria-expanded', open ? 'false' : 'true');
-      body.hidden = open;
-      btn.closest('.acc-section').classList.toggle('acc-open', !open);
+  (function () {
+    var tabs    = document.querySelectorAll('.stg-tab');
+    var panels  = document.querySelectorAll('.stg-panel');
+    tabs.forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var section = btn.getAttribute('data-section');
+        tabs.forEach(function (b) { b.classList.remove('active'); b.setAttribute('aria-selected', 'false'); });
+        panels.forEach(function (p) { p.classList.remove('active'); });
+        btn.classList.add('active');
+        btn.setAttribute('aria-selected', 'true');
+        var panel = document.getElementById('settings-panel-' + section);
+        if (panel) panel.classList.add('active');
+      });
     });
-  });
+  })();
 </script>
 {% endblock %}

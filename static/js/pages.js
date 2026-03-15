@@ -205,7 +205,7 @@
     if (!all.length) { body.innerHTML = ''; if (empty) empty.style.display = ''; return; }
     if (empty) empty.style.display = 'none';
     body.innerHTML = all.map(function (a) {
-      var typeLabel = a._type === 'submitted' ? '<span class="badge badge-handshake" style="font-size:0.65rem;">outbound</span>' : '<span class="badge badge-inbound" style="font-size:0.65rem;">inbound</span>';
+      var typeLabel = a._type === 'submitted' ? '<span class="badge badge-handshake" style="font-size:0.65rem;">remote</span>' : '<span class="badge badge-inbound" style="font-size:0.65rem;">executing</span>';
       return '<tr data-app-id="' + _esc(a.id) + '" data-app-name="' + _esc(a.name) + '" data-app-type="' + a._type + '">' +
         '<td><a href="#" class="app-open-link">' + _esc(a.name) + '</a></td>' +
         '<td>' + typeLabel + '</td><td>' + statusBadge(a.status) + '</td>' +
@@ -571,35 +571,6 @@
       setVal('setting-max-total-cpu',       s.max_total_cpu_requests);
       setVal('setting-max-total-mem',       s.max_total_memory_requests);
       _loadTunnelDeniedFromValue(s.allowed_tunnel_peers || '');
-      // Accordion summaries
-      (function () {
-        var inboundSummary = el('acc-inbound-summary');
-        if (inboundSummary) {
-          var parts = [];
-          if (!s.allow_inbound_remoteapps) parts.push('disabled');
-          else if (s.require_remoteapp_approval) parts.push('approval required');
-          else parts.push('open');
-          if (s.allowed_source_peers) parts.push('allowlisted');
-          inboundSummary.textContent = parts.join(' · ');
-        }
-        var quotasSummary = el('acc-quotas-summary');
-        if (quotasSummary) {
-          var qparts = [];
-          if (s.max_replicas_per_app) qparts.push('max ' + s.max_replicas_per_app + ' replicas');
-          if (s.max_total_deployments) qparts.push(s.max_total_deployments + ' apps');
-          if (s.allow_pvcs) qparts.push('PVCs on');
-          else qparts.push('no PVCs');
-          quotasSummary.textContent = qparts.length ? qparts.join(' · ') : 'default';
-        }
-        var tunnelsSummary = el('acc-tunnels-summary');
-        if (tunnelsSummary) {
-          tunnelsSummary.textContent = s.allow_inbound_tunnels ? 'tunnels allowed' : 'tunnels blocked';
-        }
-        var registrySummary = el('acc-registry-summary');
-        if (registrySummary) {
-          registrySummary.textContent = s.registry_pull_enabled ? 'proxy on · ' + (s.registry_api_url || '') : 'proxy off';
-        }
-      })();
       // Health grid (overview page)
       if (el('health-grid')) {
         P.getInvite().then(function (tok) {
@@ -897,11 +868,15 @@
 
   function _showModalTab(tabName) {
     var body = el('app-modal-body');
+    var tabsBar = el('app-modal-tabs-bar');
     if (!body) return;
-    body.querySelectorAll('.modal-tab').forEach(function (t) { t.classList.toggle('active', t.dataset.tab === tabName); });
+    // Update tab button active state (tabs live in tabsBar now)
+    var tabContainer = tabsBar || body;
+    tabContainer.querySelectorAll('.modal-tab').forEach(function (t) { t.classList.toggle('active', t.dataset.tab === tabName); });
     body.querySelectorAll('.modal-tab-panel').forEach(function (p) { p.classList.toggle('active', p.dataset.panel === tabName); });
-    // Terminal tab needs full-height flex layout with no padding
-    body.classList.toggle('modal-body-terminal', tabName === 'terminal');
+    // Terminal AND logs tabs need full-height flex layout (they contain a terminal widget)
+    var isFullHeight = tabName === 'terminal' || tabName === 'logs';
+    body.classList.toggle('modal-body-terminal', isFullHeight);
     // Show footer Save button for config and spec tabs only
     var footer = el('app-modal-footer');
     if (footer) {
@@ -929,24 +904,120 @@
     }
   }
 
+  // ── Logs terminal (xterm instance separate from exec terminal) ──
+  var _logsTerm = null;
+  var _logsFitAddon = null;
+  var _logsResizeObserver = null;
+
+  function _logsEnsureTerminal() {
+    var wrap = el('logs-terminal-wrap');
+    if (!wrap) return false;
+    if (_logsTerm) return true;
+    if (!window.Terminal) return false;
+    _logsTerm = new window.Terminal({
+      cursorBlink: false,
+      fontSize: 13,
+      fontFamily: "'SF Mono', 'Menlo', 'Monaco', 'Consolas', 'Courier New', monospace",
+      theme: {
+        background: '#0d1117',
+        foreground: '#c9d1d9',
+        black:   '#484f58', red:     '#ff7b72', green:   '#3fb950',
+        yellow:  '#d29922', blue:    '#58a6ff', magenta: '#bc8cff',
+        cyan:    '#39c5cf', white:   '#b1bac4',
+        brightBlack:   '#6e7681', brightRed:   '#ffa198', brightGreen: '#56d364',
+        brightYellow:  '#e3b341', brightBlue:  '#79c0ff', brightMagenta: '#d2a8ff',
+        brightCyan:    '#56d4dd', brightWhite: '#f0f6fc'
+      },
+      scrollback: 5000,
+      disableStdin: true,
+      convertEol: true,
+    });
+    if (window.FitAddon) {
+      _logsFitAddon = new window.FitAddon.FitAddon();
+      _logsTerm.loadAddon(_logsFitAddon);
+    }
+    _logsTerm.open(wrap);
+    if (_logsFitAddon) { try { _logsFitAddon.fit(); } catch(e) {} }
+    if (window.ResizeObserver) {
+      _logsResizeObserver = new ResizeObserver(function () {
+        if (_logsFitAddon) { try { _logsFitAddon.fit(); } catch(e) {} }
+      });
+      _logsResizeObserver.observe(wrap);
+    }
+    return true;
+  }
+
+  function _logsDestroyTerminal() {
+    if (_logsResizeObserver) { try { _logsResizeObserver.disconnect(); } catch(e) {} _logsResizeObserver = null; }
+    if (_logsTerm) { try { _logsTerm.dispose(); } catch(e) {} _logsTerm = null; }
+    _logsFitAddon = null;
+  }
+
+  // ANSI colour codes for log levels
+  var _LOG_LEVEL_COLORS = {
+    'ERROR': '\x1b[31m', 'WARN': '\x1b[33m', 'WARNING': '\x1b[33m',
+    'INFO': '\x1b[37m',  'DEBUG': '\x1b[34m',
+  };
+  var _ANSI_RESET = '\x1b[0m';
+  var _ANSI_MUTED = '\x1b[2;37m';
+  var _ANSI_POD   = '\x1b[36m';
+
   function _fetchModalLogs() {
-    var pre = el('modal-logs-pre');
-    var tailSel = el('modal-logs-tail');
-    if (!pre || !_currentAppId) return;
-    pre.textContent = 'Loading…';
+    if (!_logsEnsureTerminal()) return;
+    if (!_currentAppId) return;
+    var podSel = el('logs-pod-select');
+    var tailSel = el('logs-tail-select');
+    var sbText = el('logs-statusbar-text');
     var tail = tailSel ? parseInt(tailSel.value, 10) : 100;
+    var filterPod = podSel ? podSel.value : '';
+
+    _logsTerm.clear();
+    if (sbText) sbText.textContent = 'Loading…';
+
+    // Populate pod list first time
+    if (podSel && podSel.options.length <= 1) {
+      P.getAppPods(_currentAppId).then(function (d) {
+        var pods = (d && d.pods) ? d.pods : [];
+        pods.forEach(function (pod) {
+          var opt = document.createElement('option');
+          opt.value = pod.name;
+          opt.textContent = pod.name;
+          podSel.appendChild(opt);
+        });
+      }).catch(function () {});
+    }
+
     P.getAppLogs(_currentAppId, tail, 'time').then(function (d) {
       var lines = (d && d.lines) ? d.lines : [];
-      pre.textContent = lines.map(function (l) {
-        return (l.ts ? l.ts + ' ' : '') + (l.pod ? '[' + l.pod + '] ' : '') + (l.message || '');
-      }).join('\n') || '(no logs)';
-    }).catch(function (err) { pre.textContent = 'Error: ' + (err.message || 'failed'); });
+      if (filterPod) {
+        lines = lines.filter(function (l) { return l.pod === filterPod; });
+      }
+      if (!lines.length) {
+        _logsTerm.write(_ANSI_MUTED + '(no logs)' + _ANSI_RESET + '\r\n');
+        if (sbText) sbText.textContent = 'No logs';
+        return;
+      }
+      lines.forEach(function (l) {
+        var level = (l.level || '').toUpperCase();
+        var levelColor = _LOG_LEVEL_COLORS[level] || '';
+        var ts = l.ts ? _ANSI_MUTED + l.ts.replace('T', ' ').replace(/\.\d+Z?$/, '') + ' ' + _ANSI_RESET : '';
+        var pod = l.pod ? _ANSI_POD + '[' + l.pod + '] ' + _ANSI_RESET : '';
+        var msg = levelColor + (l.message || '') + (levelColor ? _ANSI_RESET : '');
+        _logsTerm.write(ts + pod + msg + '\r\n');
+      });
+      if (sbText) sbText.textContent = lines.length + ' lines · pod: ' + (filterPod || 'all');
+      if (_logsFitAddon) { try { _logsFitAddon.fit(); } catch(e) {} }
+    }).catch(function (err) {
+      _logsTerm.write('\x1b[31mError: ' + (err.message || 'failed') + '\x1b[0m\r\n');
+      if (sbText) sbText.textContent = 'Error loading logs';
+    });
   }
 
   var _execWs = null;
   var _execTerm = null;
   var _execFitAddon = null;
   var _execResizeObserver = null;
+  var _execInitializing = false;
 
   function _execSetStatus(state) {
     // state: 'connecting' | 'connected' | 'disconnected' | 'error'
@@ -1033,7 +1104,13 @@
   }
 
   function _execConnect(pod) {
-    if (_execWs) { try { _execWs.close(); } catch(e) {} _execWs = null; }
+    // Close any existing connection — mark as superseded so its onclose is silent
+    if (_execWs) {
+      var old = _execWs;
+      old._superseded = true;
+      _execWs = null;
+      try { old.close(); } catch(e) {}
+    }
     if (!_execEnsureTerminal()) return;
     _execTerm.clear();
     _execSetStatus('connecting');
@@ -1046,18 +1123,22 @@
     _execWs = ws;
 
     ws.onopen = function () {
+      if (ws._superseded) return;
       _execSetStatus('connected');
       if (_execFitAddon) { try { _execFitAddon.fit(); } catch(e) {} }
       if (_execTerm) _execTerm.focus();
     };
     ws.onmessage = function (e) {
+      if (ws._superseded) return;
       if (_execTerm) _execTerm.write(e.data);
     };
     ws.onerror = function () {
+      if (ws._superseded) return;
       _execSetStatus('error');
       if (_execTerm) _execTerm.write('\r\n\x1b[31m[connection error]\x1b[0m\r\n');
     };
     ws.onclose = function () {
+      if (ws._superseded) return; // intentionally replaced — stay silent
       if (_execWs === ws) _execWs = null;
       _execSetStatus('disconnected');
       if (_execTerm) _execTerm.write('\r\n\x1b[33m[session closed]\x1b[0m\r\n');
@@ -1071,7 +1152,9 @@
     _execSetStatus('disconnected');
     var sel = el('exec-pod-select');
     if (!sel || !_currentAppId) return;
+    _execInitializing = true;
     sel.innerHTML = '<option value="">Loading…</option>';
+    _execInitializing = false;
     _execSetStatus('connecting');
     var sbText = el('exec-statusbar-text');
     if (sbText) sbText.textContent = 'Loading pods…';
@@ -1081,17 +1164,21 @@
       if (_currentAppId !== initAppId) return;
       var pods = (d && d.pods) ? d.pods : [];
       if (!pods.length) {
+        _execInitializing = true;
         sel.innerHTML = '<option value="">No running pods</option>';
+        _execInitializing = false;
         _execSetStatus('disconnected');
         if (sbText) sbText.textContent = 'No running pods found';
         _execEnsureTerminal();
         if (_execTerm) _execTerm.write('\r\n\x1b[33mNo running pods found.\x1b[0m\r\n');
         return;
       }
+      _execInitializing = true;
       sel.innerHTML = pods.map(function (p) {
         var label = p.name + (p.ready ? '' : ' (not ready)');
         return '<option value="' + _esc(p.name) + '">' + _esc(label) + '</option>';
       }).join('');
+      _execInitializing = false;
       _execConnect(sel.value);
     }).catch(function () {
       if (_currentAppId !== initAppId) return;
@@ -1451,6 +1538,7 @@
     if (title) title.textContent = 'App Detail';
     body.innerHTML = '<p class="text-muted text-sm">Loading…</p>';
     modal.classList.add('open');
+    document.documentElement.style.overflowX = 'hidden';
     P.getAppDetail(appId).then(function (d) {
       var app = d.app || {};
       // Use CR spec when available (fullest representation including targetPeer etc.)
@@ -1458,46 +1546,110 @@
       var spec = crSpec || (d.k8s && d.k8s.spec) || app.spec || {};
       var isSubmitted = !!app.target_peer;
 
+      // Update modal title with app name
+      if (title) {
+        title.innerHTML = _esc(app.name || app.id) +
+          '<span class="modal-title-badge">' + (isSubmitted ? 'remote' : 'executing') + '</span>';
+      }
+
       // ── Overview tab ──────────────────────────────────────────
+      var peerLabel = isSubmitted ? 'Running on' : 'From peer';
+      var peerVal = _esc(app.target_peer || app.source_peer || '—');
+      // Status hero bar
       var overviewHtml =
-        '<div class="detail-grid">' +
-          '<div class="detail-block"><h4>App Info</h4>' +
-            '<div class="detail-row"><span class="label">ID</span><span class="mono">' + _esc(app.id) + '</span></div>' +
-            '<div class="detail-row"><span class="label">Status</span>' + statusBadge(app.status) + '</div>' +
-            '<div class="detail-row"><span class="label">' + (isSubmitted ? 'Running on' : 'From peer') + '</span><span>' + _esc(app.target_peer || app.source_peer || '—') + '</span></div>' +
-            '<div class="detail-row"><span class="label">Updated</span><span>' + timeAgo(app.updated_at) + '</span></div>' +
+        '<div class="app-overview-hero">' +
+          '<div class="app-overview-hero-left">' +
+            '<div class="app-overview-image mono">' + _esc(spec.image || '—') + '</div>' +
+            '<div class="app-overview-meta">' +
+              statusBadge(app.status) +
+              '<span class="app-overview-peer">' +
+                '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="7" r="3"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/><path d="M21 21v-2a4 4 0 0 0-3-3.85"/></svg>' +
+                peerLabel + ': <strong>' + peerVal + '</strong>' +
+              '</span>' +
+              (spec.replicas ? '<span class="app-overview-replicas">' + spec.replicas + ' replica' + (spec.replicas !== 1 ? 's' : '') + '</span>' : '') +
+            '</div>' +
           '</div>' +
-          '<div class="detail-block"><h4>Spec</h4>' +
-            '<div class="detail-row"><span class="label">Image</span><span class="mono">' + _esc(spec.image || '—') + '</span></div>' +
-            '<div class="detail-row"><span class="label">Replicas</span><span>' + (spec.replicas || 1) + '</span></div>' +
-            (spec.ports && spec.ports.length ? '<div class="detail-row"><span class="label">Ports</span><span>' + spec.ports.map(function (p) { return (p.name ? _esc(p.name) + ':' : '') + p.port; }).join(', ') + '</span></div>' : '') +
-            ((spec.configMaps || []).length ? '<div class="detail-row"><span class="label">ConfigMaps</span><span>' + spec.configMaps.map(function (c) { return _esc(c.name); }).join(', ') + '</span></div>' : '') +
-            ((spec.secrets || []).length ? '<div class="detail-row"><span class="label">Secrets</span><span>' + spec.secrets.map(function (s) { return _esc(s.name); }).join(', ') + '</span></div>' : '') +
-            ((spec.pvcs || []).length ? '<div class="detail-row"><span class="label">PVCs</span><span>' + spec.pvcs.map(function (p) { return _esc(p.name) + ' (' + _esc(p.storage) + ')'; }).join(', ') + '</span></div>' : '') +
+          '<div class="app-overview-hero-right">' +
+            '<div class="app-overview-id-row"><span class="app-overview-id-label">ID</span><code class="app-overview-id mono">' + _esc(app.id) + '</code></div>' +
+            '<div class="app-overview-updated text-muted">' + timeAgo(app.updated_at) + '</div>' +
           '</div>' +
         '</div>';
+
+      // Detail grid — rich info, no raw Spec block
+      var detailRows = '';
+      if (spec.ports && spec.ports.length) {
+        detailRows += '<div class="ov-row"><span class="ov-label">Ports</span><span class="ov-val">' + spec.ports.map(function (p) { return '<span class="ov-tag">' + (p.name ? _esc(p.name) + ':' : '') + p.port + '</span>'; }).join('') + '</span></div>';
+      }
+      if (spec.command || spec.args) {
+        var cmdStr = [].concat(spec.command || []).concat(spec.args || []).join(' ');
+        detailRows += '<div class="ov-row"><span class="ov-label">Command</span><code class="ov-val mono ov-code">' + _esc(cmdStr) + '</code></div>';
+      }
+      if (spec.env && spec.env.length) {
+        detailRows += '<div class="ov-row"><span class="ov-label">Env vars</span><span class="ov-val">' + spec.env.length + ' variable' + (spec.env.length !== 1 ? 's' : '') + '</span></div>';
+      }
+      if (spec.resources && (spec.resources.requests || spec.resources.limits)) {
+        var req = spec.resources.requests || {};
+        var lim = spec.resources.limits || {};
+        var resStr = [];
+        if (req.cpu || lim.cpu) resStr.push('CPU: ' + (req.cpu || '—') + ' / ' + (lim.cpu || '—'));
+        if (req.memory || lim.memory) resStr.push('Mem: ' + (req.memory || '—') + ' / ' + (lim.memory || '—'));
+        detailRows += '<div class="ov-row"><span class="ov-label">Resources</span><span class="ov-val mono">' + resStr.join('  ·  ') + '</span></div>';
+      }
+      if ((spec.configMaps || []).length || (spec.secrets || []).length) {
+        var vols = (spec.configMaps || []).map(function (c) { return '<span class="ov-tag">' + _esc(c.name) + '</span>'; }).concat((spec.secrets || []).map(function (s) { return '<span class="ov-tag ov-tag-secret">' + _esc(s.name) + ' <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>'; }));
+        detailRows += '<div class="ov-row"><span class="ov-label">Volumes</span><span class="ov-val">' + vols.join('') + '</span></div>';
+      }
+      if ((spec.pvcs || []).length) {
+        detailRows += '<div class="ov-row"><span class="ov-label">PVCs</span><span class="ov-val">' + spec.pvcs.map(function (p) { return '<span class="ov-tag">' + _esc(p.name) + ' (' + _esc(p.storage) + ')</span>'; }).join('') + '</span></div>';
+      }
+      if (detailRows) {
+        overviewHtml += '<div class="ov-detail-grid">' + detailRows + '</div>';
+      }
+
       if ((spec.ports || []).length) {
-        overviewHtml += '<div class="detail-block" style="margin-bottom:0.85rem;"><h4>Proxy URLs</h4>';
+        overviewHtml += '<div class="app-proxy-urls"><div class="app-proxy-urls-label">Proxy URLs</div>';
         (spec.ports || []).forEach(function (p) {
           var portNum = p.port || 80;
           var proxyUrl = window.location.origin + P.API_BASE + '/remoteapp/' + app.id + '/proxy/' + portNum;
-          overviewHtml += '<div class="detail-row"><span class="label">' + portNum + (p.name ? ' (' + _esc(p.name) + ')' : '') + '</span><span class="mono" style="font-size:0.72rem;word-break:break-all;">' + _esc(proxyUrl) + '</span></div>';
+          overviewHtml +=
+            '<div class="app-proxy-url-row">' +
+              '<span class="app-proxy-port-badge">' + portNum + (p.name ? ' · ' + _esc(p.name) : '') + '</span>' +
+              '<code class="app-proxy-url-val mono" id="proxy-url-' + portNum + '">' + _esc(proxyUrl) + '</code>' +
+              '<button type="button" class="app-proxy-copy btn-icon" data-url="' + _esc(proxyUrl) + '" title="Copy URL" aria-label="Copy proxy URL">' +
+                '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>' +
+              '</button>' +
+            '</div>';
         });
         overviewHtml += '</div>';
       }
-      // Delete button lives only in the overview tab
-      overviewHtml += '<div class="overview-actions"><button type="button" class="btn-sm btn-danger app-modal-delete-btn">Delete workload</button></div>';
+      // Delete danger zone
+      var deleteLabel = isSubmitted ? 'Delete workload' : 'Stop execution';
+      overviewHtml +=
+        '<div class="app-danger-zone">' +
+          '<div class="app-danger-zone-label">Danger zone</div>' +
+          '<div class="app-danger-zone-row">' +
+            '<div class="app-danger-zone-desc">' + (isSubmitted ? 'Permanently removes this workload from the peer cluster.' : 'Stops executing this workload on this cluster.') + '</div>' +
+            '<button type="button" class="btn-sm btn-danger app-modal-delete-btn">' + deleteLabel + '</button>' +
+          '</div>' +
+        '</div>';
 
       // ── Logs tab ──────────────────────────────────────────────
       var logsHtml =
-        '<div class="modal-logs-toolbar">' +
-          '<span class="text-sm text-muted">Tail:</span>' +
-          '<select id="modal-logs-tail" class="logs-tail-select" style="min-height:28px;padding:0.2rem 1.8rem 0.2rem 0.5rem;font-size:0.78rem;">' +
-            '<option value="50">50</option><option value="100" selected>100</option><option value="200">200</option>' +
-          '</select>' +
-          '<button type="button" class="btn-sm" id="modal-logs-refresh">Refresh</button>' +
+        '<div class="exec-toolbar">' +
+          '<div class="exec-toolbar-left">' +
+            '<label class="exec-label" for="logs-pod-select">Pod</label>' +
+            '<select id="logs-pod-select" class="exec-pod-select"><option value="">All pods</option></select>' +
+            '<label class="exec-label" for="logs-tail-select">Tail</label>' +
+            '<select id="logs-tail-select" class="exec-pod-select exec-shell-select">' +
+              '<option value="50">50</option><option value="100" selected>100</option><option value="200">200</option><option value="500">500</option>' +
+            '</select>' +
+          '</div>' +
+          '<div class="exec-toolbar-right">' +
+            '<button type="button" class="btn-sm" id="modal-logs-refresh" style="min-height:28px;font-size:0.78rem;">Refresh</button>' +
+          '</div>' +
         '</div>' +
-        '<div class="modal-logs-viewer"><pre id="modal-logs-pre" class="logs-content">Loading…</pre></div>';
+        '<div class="exec-terminal-wrap" id="logs-terminal-wrap"></div>' +
+        '<div class="exec-statusbar" id="logs-statusbar"><span id="logs-statusbar-text">Loading…</span></div>';
 
       // ── Config tab ────────────────────────────────────────────
       var configHtml = _buildConfigTab(spec, isSubmitted);
@@ -1539,21 +1691,26 @@
       var podReady = app.status === 'Running' || app.status === 'Ready';
       var configTabDisabled = !podReady;
       var termTabDisabled = !podReady;
-      var tabsHtml =
-        '<div class="modal-tabs">' +
-          '<button type="button" class="modal-tab active" data-tab="overview">Overview</button>' +
-          '<button type="button" class="modal-tab" data-tab="logs">Logs</button>' +
-          '<button type="button" class="modal-tab' + (termTabDisabled ? ' modal-tab-disabled' : '') + '" data-tab="terminal"' + (termTabDisabled ? ' disabled title="Available when pod is Running"' : '') + '>Terminal</button>' +
-          (isSubmitted ? '<button type="button" class="modal-tab' + (configTabDisabled ? ' modal-tab-disabled' : '') + '" data-tab="config"' + (configTabDisabled ? ' disabled title="Available when pod is Running"' : '') + '>Config</button>' : '') +
-          (isSubmitted ? '<button type="button" class="modal-tab" data-tab="edit">Spec</button>' : '') +
-        '</div>' +
+
+      // Tabs bar goes OUTSIDE the scrollable body (fixed above it)
+      var tabsBar = el('app-modal-tabs-bar');
+      if (tabsBar) {
+        tabsBar.innerHTML =
+          '<div class="modal-tabs">' +
+            '<button type="button" class="modal-tab active" data-tab="overview">Overview</button>' +
+            '<button type="button" class="modal-tab" data-tab="logs">Logs</button>' +
+            (isSubmitted ? '<button type="button" class="modal-tab' + (termTabDisabled ? ' modal-tab-disabled' : '') + '" data-tab="terminal"' + (termTabDisabled ? ' disabled title="Available when pod is Running"' : '') + '>Terminal</button>' : '') +
+            (isSubmitted ? '<button type="button" class="modal-tab' + (configTabDisabled ? ' modal-tab-disabled' : '') + '" data-tab="config"' + (configTabDisabled ? ' disabled title="Available when pod is Running"' : '') + '>Config</button>' : '') +
+            (isSubmitted ? '<button type="button" class="modal-tab" data-tab="edit">Spec</button>' : '') +
+          '</div>';
+      }
+
+      body.innerHTML =
         '<div class="modal-tab-panel active" data-panel="overview">' + overviewHtml + '</div>' +
-        '<div class="modal-tab-panel" data-panel="logs">' + logsHtml + '</div>' +
-        '<div class="modal-tab-panel modal-tab-panel-terminal" data-panel="terminal">' + termHtml + '</div>' +
+        '<div class="modal-tab-panel modal-tab-panel-terminal" data-panel="logs">' + logsHtml + '</div>' +
+        (isSubmitted ? '<div class="modal-tab-panel modal-tab-panel-terminal" data-panel="terminal">' + termHtml + '</div>' : '') +
         (isSubmitted ? '<div class="modal-tab-panel" data-panel="config"><div id="cfg-panel-body"' + (configTabDisabled ? ' style="opacity:0.4;pointer-events:none;"' : '') + '>' + configHtml + '</div></div>' : '') +
         (isSubmitted ? '<div class="modal-tab-panel" data-panel="edit">' + editHtml + '</div>' : '');
-
-      body.innerHTML = tabsHtml;
       if (initialTab) _showModalTab(initialTab);
       initCustomDropdowns();
       initNumSpinners();
@@ -1694,8 +1851,9 @@
         });
       }
 
-      // Tab click
-      body.querySelectorAll('.modal-tab').forEach(function (t) {
+      // Tab click — tabs now live in tabsBar, not body
+      var tabClickRoot = el('app-modal-tabs-bar') || body;
+      tabClickRoot.querySelectorAll('.modal-tab').forEach(function (t) {
         t.addEventListener('click', function () {
           if (t.disabled || t.classList.contains('modal-tab-disabled')) return;
           _showModalTab(t.dataset.tab);
@@ -1705,19 +1863,36 @@
       // Logs refresh
       var logsRefreshBtn = el('modal-logs-refresh');
       if (logsRefreshBtn) logsRefreshBtn.addEventListener('click', _fetchModalLogs);
-      var logsTailSel = el('modal-logs-tail');
+      var logsPodSel = el('logs-pod-select');
+      if (logsPodSel) logsPodSel.addEventListener('change', _fetchModalLogs);
+      var logsTailSel = el('logs-tail-select');
       if (logsTailSel) logsTailSel.addEventListener('change', _fetchModalLogs);
 
       // Terminal exec — xterm.js handles all input, just wire up pod/shell selects
       var execPodSel = el('exec-pod-select');
       var execShellSel = el('exec-shell-select');
       function _execReconnect() {
+        // Ignore programmatic changes during pod-list population
+        if (_execInitializing) return;
         var pod = execPodSel ? execPodSel.value : '';
         if (!pod) return;
         _execConnect(pod);
       }
       if (execPodSel) execPodSel.addEventListener('change', _execReconnect);
       if (execShellSel) execShellSel.addEventListener('change', _execReconnect);
+
+      // Proxy URL copy buttons
+      body.querySelectorAll('.app-proxy-copy').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var url = btn.dataset.url || '';
+          navigator.clipboard.writeText(url).then(function () {
+            var orig = btn.innerHTML;
+            btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+            btn.style.color = 'var(--green)';
+            setTimeout(function () { btn.innerHTML = orig; btn.style.color = ''; }, 1500);
+          }).catch(function () {});
+        });
+      });
 
       // Delete
       var delBtn = body.querySelector('.app-modal-delete-btn');
@@ -1738,12 +1913,14 @@
     _currentAppId = null;
     if (_execWs) { try { _execWs.close(); } catch(e) {} _execWs = null; }
     _execDestroyTerminal();
+    _logsDestroyTerminal();
     var body = el('app-modal-body');
     if (body) body.classList.remove('modal-body-terminal');
     var footer = el('app-modal-footer');
     if (footer) { footer.style.display = 'none'; footer.innerHTML = ''; }
     var modal = el('app-modal');
     if (modal) modal.classList.remove('open');
+    document.documentElement.style.overflowX = '';
     if (window.PorpulsionVscodeEditor) {
       window.PorpulsionVscodeEditor.disposeModalSpecEditor('modal-spec-editor-host');
     }
@@ -2130,19 +2307,10 @@
           max_total_pods:             parseInt((el('setting-max-total-pods') || {}).value || '0', 10) || 0,
           max_total_cpu_requests:     (el('setting-max-total-cpu') || {}).value || '',
           max_total_memory_requests:  (el('setting-max-total-mem') || {}).value || '',
-        };
-        P.updateSettings(payload).then(function () { toast('Quotas saved', 'ok'); }).catch(function (err) { toast(err.message, 'error'); });
-      });
-    }
-
-    var pvcQuotasSaveBtn = el('setting-pvc-quotas-save');
-    if (pvcQuotasSaveBtn) {
-      pvcQuotasSaveBtn.addEventListener('click', function () {
-        var payload = {
           max_pvc_storage_per_pvc_gb: parseInt((el('setting-max-pvc-per') || {}).value || '0', 10) || 0,
           max_pvc_storage_total_gb:   parseInt((el('setting-max-pvc-total') || {}).value || '0', 10) || 0,
         };
-        P.updateSettings(payload).then(function () { toast('PVC quotas saved', 'ok'); }).catch(function (err) { toast(err.message, 'error'); });
+        P.updateSettings(payload).then(function () { toast('Quotas saved', 'ok'); }).catch(function (err) { toast(err.message, 'error'); });
       });
     }
 

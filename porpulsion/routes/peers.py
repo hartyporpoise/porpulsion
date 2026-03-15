@@ -8,6 +8,7 @@ from flask import Blueprint, request, jsonify
 from porpulsion import state, tls
 from porpulsion.models import Peer
 from porpulsion.channel import open_channel_to
+from porpulsion.openapi_spec import api_doc, REF_PEER_ENTRY
 
 log = logging.getLogger("porpulsion.routes.peers")
 
@@ -48,6 +49,9 @@ bp = Blueprint("peers", __name__)
 
 
 @bp.route("/peers")
+@api_doc("List peers", tags=["Peers"],
+         description="List all connected and pending peers with channel status.",
+         responses={"200": {"description": "OK", "content": {"application/json": {"schema": {"type": "array", "items": REF_PEER_ENTRY}}}}})
 def list_peers():
     result = []
     for p in state.peers.values():
@@ -65,6 +69,21 @@ def list_peers():
 
 
 @bp.route("/invite")
+@api_doc("Get signed invite bundle", tags=["Peers"],
+         description=(
+             "Returns a signed invite bundle for this agent. The bundle is a compact base64url blob "
+             "containing the agent name, URL, CA cert, and an ECDSA signature. The connecting peer "
+             "verifies the signature locally before making any network call."
+         ),
+         responses={"200": {"description": "OK", "content": {"application/json": {"schema": {
+             "type": "object",
+             "properties": {
+                 "agent": {"type": "string"},
+                 "self_url": {"type": "string"},
+                 "bundle": {"type": "string", "description": "Signed base64url invite bundle"},
+                 "cert_fingerprint": {"type": "string", "description": "Human-readable only"},
+             },
+         }}}}})
 def get_invite():
     """
     Generate and return a signed invite bundle for this agent.
@@ -91,6 +110,18 @@ def get_invite():
 
 
 @bp.route("/peers/connect", methods=["POST"])
+@api_doc("Connect to peer via invite bundle", tags=["Peers"],
+         description=(
+             "Initiate peering with another agent using their signed invite bundle. "
+             "The bundle signature is verified locally before any network call is made."
+         ),
+         request_body={"required": True, "content": {"application/json": {"schema": {
+             "type": "object", "required": ["bundle"],
+             "properties": {"bundle": {"type": "string", "description": "Signed base64url invite bundle from /invite"}},
+         }}}},
+         responses={"200": {"description": "OK — WS channel connecting"},
+                    "400": {"description": "Missing or invalid bundle"},
+                    "409": {"description": "Already peered with this agent"}})
 def connect_peer():
     """
     Initiate peering with a remote agent using their signed invite bundle.
@@ -170,6 +201,12 @@ def connect_peer():
 
 
 @bp.route("/peers/<peer_name>", methods=["DELETE"])
+@api_doc("Remove peer", tags=["Peers"],
+         description="Remove a peer and disconnect. Submitted apps targeting this peer are marked Failed.",
+         parameters=[{"name": "peer_name", "in": "path", "required": True, "schema": {"type": "string"}}],
+         responses={"200": {"description": "OK", "content": {"application/json": {"schema": {
+             "type": "object", "properties": {"ok": {"type": "boolean"}, "removed": {"type": "string"}}}}}},
+                    "404": {"description": "Peer not found"}})
 def remove_peer(peer_name):
     if peer_name not in state.peers:
         return jsonify({"error": "peer not found"}), 404

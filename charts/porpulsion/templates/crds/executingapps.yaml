@@ -42,7 +42,7 @@ spec:
               type: object
               required: [image]
               description: >
-                ExecutingApp spec — defines a containerised workload being executed on this cluster on behalf of a peer.
+                ExecutingApp spec - defines a containerised workload being executed on this cluster on behalf of a peer.
               properties:
 {{ .Files.Get "files/schema.yaml" | indent 16 }}
             status:

@@ -58,29 +58,8 @@ service:
   # -- NodePort. Only used when type=NodePort.
   nodePort: ""
 
-# -- Agent runtime settings
-# These settings are configured at runtime via the dashboard UI or the /settings
-# API. They are persisted to the porpulsion-state ConfigMap and survive restarts.
-# The values below are for reference only  they are NOT applied by Helm.
-#
-# Access control:
-#   allow_inbound_remoteapps: true        # accept workloads from peers
-#   require_remoteapp_approval: false     # queue for manual approval before running
-#   allowed_images: ""                    # comma-sep prefixes; empty = allow all
-#   blocked_images: ""                    # comma-sep prefixes; always denied
-#   allowed_source_peers: ""             # comma-sep peer names; empty = all connected
-#
-# Tunnel control:
-#   allow_inbound_tunnels: true
-#   allowed_tunnel_peers: ""             # comma-sep "peer" or "peer/appid" tokens; empty = deny all
-#
-# Resource quotas (k8s quantity strings; "" = unlimited):
-#   max_cpu_request_per_pod: ""          # e.g. "500m"
-#   max_cpu_limit_per_pod: ""            # e.g. "1"
-#   max_memory_request_per_pod: ""       # e.g. "256Mi"
-#   max_memory_limit_per_pod: ""         # e.g. "512Mi"
-#   max_replicas_per_app: 0              # 0 = unlimited
-#   max_total_deployments: 0
-#   max_total_pods: 0
-#   max_total_cpu_requests: ""           # e.g. "8"
-#   max_total_memory_requests: ""        # e.g. "32Gi"
+# -- NetworkPolicy
+# Requires a CNI that supports NetworkPolicy (Calico, Cilium, Weave, etc.).
+networkPolicy:
+  # -- Enable the NetworkPolicy. Set to false if your CNI does not support it.
+  enabled: true
