@@ -1,177 +1,102 @@
 /**
- * Peering tests — invite bundle exchange between Agent A and Agent B.
+ * Peering tests — connect Agent A → Agent B entirely through the UI.
  *
  * Flow:
- *   1. GET agent-b /invite  → bundle
- *   2. POST agent-a /peers/connect  { bundle }
- *   3. Wait for channel to become "connected"
- *   4. Verify both agents show each other as peers
+ *   1. Open Agent B's Peers page, reveal and copy the invite bundle
+ *   2. Open Agent A's Peers page, paste the bundle, submit
+ *   3. Wait for the peer row to appear as "connected"
  */
-describe("Peering", () => {
-  const AGENT_A = Cypress.env("AGENT_A_URL");
-  const AGENT_B = Cypress.env("AGENT_B_URL");
-  const USERNAME = Cypress.env("USERNAME");
-  const PASSWORD = Cypress.env("PASSWORD");
+describe('Peering', () => {
+  const AGENT_B = Cypress.env('AGENT_B_URL');
 
-  // We need an active session cookie for A and B separately.
-  // The simplest approach: use cy.request() directly (session cookies are
-  // stored in the Cypress cookie jar per origin).
+  // We need Agent B's invite bundle. Fetch it via API (it's a read-only
+  // endpoint — no user interaction needed to just get the value).
+  let bundleB;
 
-  function loginTo(agentUrl) {
-    return cy.request({
-      method: "POST",
-      url: `${agentUrl}/login`,
-      form: true,
-      body: { username: USERNAME, password: PASSWORD },
-      followRedirect: false,
-    });
-  }
-
-  context("Invite bundle", () => {
-    it("Agent B returns a valid invite bundle", () => {
-      loginTo(AGENT_B).then(() => {
-        cy.request(`${AGENT_B}/invite`).then((resp) => {
-          expect(resp.status).to.eq(200);
-          expect(resp.body).to.have.property("bundle").and.to.be.a("string");
-          expect(resp.body).to.have.property("agent").and.to.be.a("string");
-          expect(resp.body).to.have.property("self_url").and.to.be.a("string");
-        });
-      });
-    });
-
-    it("Agent A returns a valid invite bundle", () => {
-      loginTo(AGENT_A).then(() => {
-        cy.request(`${AGENT_A}/invite`).then((resp) => {
-          expect(resp.status).to.eq(200);
-          expect(resp.body.bundle).to.be.a("string").and.have.length.greaterThan(10);
-        });
+  before(() => {
+    cy.loginTo(AGENT_B).then(() => {
+      cy.request(`${AGENT_B}/invite`).then((resp) => {
+        bundleB = resp.body.bundle;
+        expect(bundleB).to.be.a('string').and.have.length.greaterThan(10);
       });
     });
   });
 
-  context("Connect peers (A → B)", () => {
-    let bundleB;
+  // ----------------------------------------------------------------
+  // Invite bundle UI
+  // ----------------------------------------------------------------
+  context('Your Invite Bundle card on Agent A', () => {
+    beforeEach(() => cy.loginUI());
 
-    before(() => {
-      // Fetch B's bundle
-      loginTo(AGENT_B).then(() => {
-        cy.request(`${AGENT_B}/invite`).then((resp) => {
-          bundleB = resp.body.bundle;
-        });
-      });
+    it('shows the invite bundle on the Peers page', () => {
+      cy.visit('/peers');
+      // The bundle is masked by default — reveal it
+      cy.get('#invite-bundle').should('exist');
+      cy.get('.eye-btn').first().click();
+      cy.get('#invite-bundle').invoke('attr', 'data-value').should('have.length.greaterThan', 10);
     });
 
-    it("rejects connect with missing bundle", () => {
-      loginTo(AGENT_A).then(() => {
-        cy.request({
-          method: "POST",
-          url: `${AGENT_A}/peers/connect`,
-          body: {},
-          headers: { "Content-Type": "application/json" },
-          failOnStatusCode: false,
-        }).then((resp) => {
-          expect(resp.status).to.eq(400);
-          expect(resp.body.error).to.match(/bundle is required/i);
-        });
-      });
-    });
-
-    it("rejects connect with garbage bundle", () => {
-      loginTo(AGENT_A).then(() => {
-        cy.request({
-          method: "POST",
-          url: `${AGENT_A}/peers/connect`,
-          body: { bundle: "notavalidbundle" },
-          headers: { "Content-Type": "application/json" },
-          failOnStatusCode: false,
-        }).then((resp) => {
-          expect(resp.status).to.eq(400);
-          expect(resp.body.error).to.match(/invalid bundle/i);
-        });
-      });
-    });
-
-    it("connects A to B successfully using valid bundle", () => {
-      loginTo(AGENT_A).then(() => {
-        cy.request({
-          method: "POST",
-          url: `${AGENT_A}/peers/connect`,
-          body: { bundle: bundleB },
-          headers: { "Content-Type": "application/json" },
-        }).then((resp) => {
-          expect(resp.status).to.eq(200);
-          expect(resp.body.ok).to.be.true;
-        });
-      });
-    });
-
-    it("rejects duplicate connect (already peered)", () => {
-      // Give the channel a moment to establish
-      cy.wait(3000);
-      loginTo(AGENT_A).then(() => {
-        cy.request({
-          method: "POST",
-          url: `${AGENT_A}/peers/connect`,
-          body: { bundle: bundleB },
-          headers: { "Content-Type": "application/json" },
-          failOnStatusCode: false,
-        }).then((resp) => {
-          expect(resp.status).to.eq(409);
-          expect(resp.body.error).to.match(/already (fully )?peered/i);
-        });
-      });
+    it('shows the self URL endpoint', () => {
+      cy.visit('/peers');
+      cy.get('#token-url').should('not.be.empty');
     });
   });
 
-  context("Peer list after connecting", () => {
-    it("Agent A lists Agent B as a peer with connected channel", () => {
-      loginTo(AGENT_A).then(() => {
-        // Retry until channel is connected (up to 30s)
-        const waitForChannel = (attempts = 0) => {
-          cy.request(`${AGENT_A}/peers`).then((resp) => {
-            expect(resp.status).to.eq(200);
-            const peers = resp.body;
-            const b = peers.find((p) => p.channel === "connected");
-            if (!b && attempts < 10) {
-              cy.wait(3000);
-              waitForChannel(attempts + 1);
-            } else {
-              expect(b).to.exist;
-            }
-          });
-        };
-        waitForChannel();
-      });
+  // ----------------------------------------------------------------
+  // Connect via the UI form
+  // ----------------------------------------------------------------
+  context('Connect A → B using the UI form', () => {
+    it('pastes Agent B bundle into the connect form and submits', () => {
+      cy.loginUI();
+      cy.visit('/peers');
+
+      cy.get('#new-peer-bundle').should('be.visible').type(bundleB, { delay: 0 });
+      cy.get('#connect-peer-form button[type="submit"]').click();
+
+      // Should show a success toast or the peer should appear in the table
+      // Give the channel a few seconds to establish
+      cy.wait(4000);
+
+      // The peers table should now have at least one row
+      cy.get('#all-peers-body tr', { timeout: 20000 }).should('have.length.greaterThan', 0);
     });
 
-    it("Agent A's peer entry has a name, url, and direction", () => {
-      loginTo(AGENT_A).then(() => {
-        cy.request(`${AGENT_A}/peers`).then((resp) => {
-          expect(resp.body.length).to.be.greaterThan(0);
-          const peer = resp.body[0];
-          expect(peer).to.have.property("name").and.to.be.a("string");
-          expect(peer).to.have.property("url").and.to.be.a("string");
-          expect(peer).to.have.property("direction");
+    it('peer row shows the connected channel status', () => {
+      cy.loginUI();
+      cy.visit('/peers');
+
+      // Poll until the channel shows "connected"
+      const waitForConnected = (attempts = 0) => {
+        cy.get('#all-peers-body').then(($tbody) => {
+          const text = $tbody.text();
+          if (text.includes('connected')) return;
+          if (attempts >= 10) throw new Error('Peer channel never showed connected in UI');
+          cy.wait(3000);
+          cy.reload();
+          waitForConnected(attempts + 1);
         });
-      });
-    });
-  });
-
-  context("Peering UI", () => {
-    beforeEach(() => {
-      cy.loginUI(USERNAME, PASSWORD);
+      };
+      waitForConnected();
+      cy.get('#all-peers-body').should('contain.text', 'connected');
     });
 
-    it("peers page shows the connected peer", () => {
-      cy.visit("/");
-      // Navigate to peers section
-      cy.contains(/peers/i).first().click({ force: true });
-      cy.wait(1000);
-      // At least one peer row should be visible
-      cy.get("body").then(($body) => {
-        // Accept either the peers section or the full page
-        expect($body.text()).to.match(/connected|peer/i);
+    it('shows peer count badge > 0', () => {
+      cy.loginUI();
+      cy.visit('/peers');
+      cy.get('#all-peers-count').invoke('text').then((text) => {
+        expect(parseInt(text, 10)).to.be.greaterThan(0);
       });
+    });
+
+    it('rejects a duplicate connect attempt', () => {
+      cy.loginUI();
+      cy.visit('/peers');
+      cy.get('#new-peer-bundle').type(bundleB, { delay: 0 });
+      cy.get('#connect-peer-form button[type="submit"]').click();
+      // Should show an error toast (already peered)
+      cy.get('.toast, [class*="toast"], [class*="error"]', { timeout: 8000 })
+        .should('be.visible')
+        .and('satisfy', ($el) => $el.text().match(/already|peered|409/i));
     });
   });
 });

@@ -269,18 +269,15 @@ test: ## Deploy 2 clusters, create users, run Cypress E2E suite, tear down
 	echo ""; \
 	IP_A=$$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' $(CLUSTER_A)); \
 	IP_B=$$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' $(CLUSTER_B)); \
-	echo "==> [test] Creating admin user on agent-a ($$IP_A)..."; \
-	until curl -sf http://$$IP_A:30080/login &>/dev/null; do sleep 2; done; \
-	curl -sf -X POST http://$$IP_A:30080/signup \
-		-d "username=$(TEST_USERNAME)&password=$(TEST_PASSWORD)&confirm=$(TEST_PASSWORD)" \
-		-L -o /dev/null; \
-	echo "  done"; \
-	echo "==> [test] Creating admin user on agent-b ($$IP_B)..."; \
-	until curl -sf http://$$IP_B:30080/login &>/dev/null; do sleep 2; done; \
-	curl -sf -X POST http://$$IP_B:30080/signup \
-		-d "username=$(TEST_USERNAME)&password=$(TEST_PASSWORD)&confirm=$(TEST_PASSWORD)" \
-		-L -o /dev/null; \
-	echo "  done"; \
+	echo "  agent-a internal IP: $$IP_A"; \
+	echo "  agent-b internal IP: $$IP_B"; \
+	echo ""; \
+	echo "==> [test] Waiting for agent-a HTTP (localhost:8001)..."; \
+	until curl -sf http://localhost:8001/ -o /dev/null; do sleep 2; done; \
+	echo "  agent-a ready"; \
+	echo "==> [test] Waiting for agent-b HTTP (localhost:8002)..."; \
+	until curl -sf http://localhost:8002/ -o /dev/null; do sleep 2; done; \
+	echo "  agent-b ready"; \
 	echo ""; \
 	echo "==> [test] Running Cypress E2E suite..."; \
 	DOCKER_NET=$$(docker inspect $(CLUSTER_A) \

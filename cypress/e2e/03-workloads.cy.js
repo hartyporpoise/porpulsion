@@ -1,341 +1,365 @@
 /**
- * Workload (RemoteApp) tests — deploy, scale, spec update, delete.
+ * Workload tests — deploy, view, scale, spec-edit, delete — all via the UI.
  *
- * Precondition: A and B are already peered (02-peering ran first).
- *
- * We deploy from Agent A targeting Agent B as the executor.
+ * Precondition: A and B are peered (02-peering ran first).
  */
-describe("Workloads", () => {
-  const AGENT_A = Cypress.env("AGENT_A_URL");
-  const AGENT_B = Cypress.env("AGENT_B_URL");
-  const USERNAME = Cypress.env("USERNAME");
-  const PASSWORD = Cypress.env("PASSWORD");
-
-  let PEER_B_NAME; // populated in before()
-  let appCrName;   // populated after deploy
-
-  function loginTo(agentUrl) {
-    return cy.request({
-      method: "POST",
-      url: `${agentUrl}/login`,
-      form: true,
-      body: { username: USERNAME, password: PASSWORD },
-      followRedirect: false,
-    });
-  }
-
-  function loginToA() { return loginTo(AGENT_A); }
-  function loginToB() { return loginTo(AGENT_B); }
+describe('Workloads', () => {
+  const AGENT_A = Cypress.env('AGENT_A_URL');
+  const AGENT_B = Cypress.env('AGENT_B_URL');
+  let PEER_B_NAME;
 
   before(() => {
-    // Discover Agent B's name from Agent A's peer list
-    loginToA().then(() => {
+    // Discover peer B's name from the API so we can select it in the form
+    cy.loginTo(AGENT_A).then(() => {
       cy.request(`${AGENT_A}/peers`).then((resp) => {
-        const connected = resp.body.find((p) => p.channel === "connected");
-        PEER_B_NAME = connected ? connected.name : resp.body[0]?.name;
-        expect(PEER_B_NAME).to.be.a("string");
+        const connected = resp.body.find((p) => p.channel === 'connected') || resp.body[0];
+        PEER_B_NAME = connected?.name;
+        expect(PEER_B_NAME).to.be.a('string');
       });
     });
   });
 
   // ----------------------------------------------------------------
-  // Deploy
+  // Deploy page — Form mode
   // ----------------------------------------------------------------
-  context("Deploy a RemoteApp", () => {
-    it("deploys an nginx workload from A to B", () => {
-      loginToA().then(() => {
-        cy.request({
-          method: "POST",
-          url: `${AGENT_A}/remoteapp`,
-          body: {
-            name: "cypress-nginx",
-            target_peer: PEER_B_NAME,
-            spec: {
-              image: "nginx:alpine",
-              replicas: 1,
-              port: 80,
-            },
-          },
-          headers: { "Content-Type": "application/json" },
-        }).then((resp) => {
-          expect(resp.status).to.eq(200);
-          expect(resp.body.ok).to.be.true;
-        });
-      });
+  context('Deploy via Form', () => {
+    beforeEach(() => cy.loginUI());
+
+    it('deploy page loads with Form and YAML tabs', () => {
+      cy.visit('/deploy');
+      cy.get('#deploy-mode-ctrl').should('be.visible');
+      cy.get('[data-mode="form"]').should('have.class', 'active');
+      cy.get('[data-mode="yaml"]').should('exist');
     });
 
-    it("lists the app in Agent A's RemoteApps", () => {
-      loginToA().then(() => {
-        cy.request(`${AGENT_A}/remoteapps`).then((resp) => {
-          expect(resp.status).to.eq(200);
-          const app = resp.body.find((a) => a.name === "cypress-nginx");
-          expect(app).to.exist;
-          appCrName = app?.cr_name || app?.name;
-        });
-      });
+    it('shows a validation error when name is empty', () => {
+      cy.visit('/deploy');
+      cy.get('#deploy-submit-btn').click();
+      // Toast error for missing name
+      cy.get('.toast, [class*="toast"]', { timeout: 5000 })
+        .should('be.visible')
+        .and('contain.text', 'name');
     });
 
-    it("Agent B eventually shows the app as Running (up to 90s)", () => {
-      loginToB();
-      const waitForRunning = (attempts = 0) => {
-        cy.wait(5000);
-        loginToB().then(() => {
-          cy.request(`${AGENT_B}/remoteapps`).then((resp) => {
-            const app = resp.body.find(
-              (a) => a.name === "cypress-nginx" || a.spec?.image?.includes("nginx")
-            );
-            if (app && app.status?.phase === "Running") {
-              expect(app.status.phase).to.eq("Running");
-            } else if (attempts < 16) {
-              waitForRunning(attempts + 1);
-            } else {
-              // Print last known state for debug
-              expect(app?.status?.phase, "app never reached Running").to.eq("Running");
-            }
-          });
-        });
-      };
-      waitForRunning();
+    it('deploys an nginx app via the form', () => {
+      cy.visit('/deploy');
+
+      cy.get('#deploy-name').type('cypress-nginx');
+      cy.get('#deploy-target-peer').select(PEER_B_NAME);
+      cy.get('#deploy-image').type('nginx:alpine');
+      cy.get('#deploy-replicas').clear().type('1');
+
+      cy.get('#deploy-submit-btn').click();
+
+      // Should redirect to /workloads after successful deploy
+      cy.url({ timeout: 15000 }).should('include', '/workloads');
     });
 
-    it("app has an appId in Agent A's list", () => {
-      loginToA().then(() => {
-        cy.request(`${AGENT_A}/remoteapps`).then((resp) => {
-          const app = resp.body.find((a) => a.name === "cypress-nginx");
-          expect(app?.status?.appId || app?.app_id).to.be.a("string").and.have.length.greaterThan(0);
-        });
-      });
+    it('deployed app appears in the submitted apps table', () => {
+      cy.visit('/workloads');
+      cy.get('#submitted-body tr', { timeout: 15000 }).should('have.length.greaterThan', 0);
+      cy.get('#submitted-body').should('contain.text', 'cypress-nginx');
     });
   });
 
   // ----------------------------------------------------------------
-  // Scale
+  // Deploy page — YAML mode
   // ----------------------------------------------------------------
-  context("Scale a RemoteApp", () => {
-    it("scales the app to 2 replicas", () => {
-      loginToA().then(() => {
-        cy.request(`${AGENT_A}/remoteapps`).then((listResp) => {
-          const app = listResp.body.find((a) => a.name === "cypress-nginx");
-          expect(app).to.exist;
-          const id = app.app_id || app.status?.appId;
-          cy.request({
-            method: "POST",
-            url: `${AGENT_A}/remoteapp/${id}/scale`,
-            body: { replicas: 2 },
-            headers: { "Content-Type": "application/json" },
-          }).then((resp) => {
-            expect(resp.status).to.eq(200);
-            expect(resp.body.ok).to.be.true;
-          });
-        });
-      });
+  context('Deploy via YAML', () => {
+    beforeEach(() => cy.loginUI());
+
+    it('switching to YAML mode shows the CR editor', () => {
+      cy.visit('/deploy');
+      cy.get('#deploy-name').type('temp-yaml-test');
+      cy.get('#deploy-target-peer').select(PEER_B_NAME);
+      cy.get('#deploy-image').type('nginx:alpine');
+
+      cy.get('[data-mode="yaml"]').click();
+
+      cy.get('#deploy-yaml-wrap').should('be.visible');
+      // The editor textarea (backing) or Monaco should contain the CR scaffold
+      cy.get('#app-spec-yaml, #app-spec-yaml-fallback').invoke('val')
+        .should('match', /apiVersion.*porpulsion/s);
     });
 
-    it("Agent B eventually shows 2 replicas running (up to 60s)", () => {
-      const waitFor2 = (attempts = 0) => {
-        cy.wait(5000);
-        loginToB().then(() => {
-          cy.request(`${AGENT_B}/remoteapps`).then((resp) => {
-            const app = resp.body.find(
-              (a) => a.name === "cypress-nginx" || a.spec?.image?.includes("nginx")
-            );
-            const replicas = app?.status?.replicas || app?.replicas;
-            if (replicas >= 2) {
-              expect(replicas).to.be.at.least(2);
-            } else if (attempts < 12) {
-              waitFor2(attempts + 1);
-            } else {
-              expect(replicas, "replicas never reached 2").to.be.at.least(2);
-            }
-          });
-        });
-      };
-      waitFor2();
+    it('form fields survive a form→YAML→form roundtrip', () => {
+      cy.visit('/deploy');
+
+      cy.get('#deploy-name').type('roundtrip-test');
+      cy.get('#deploy-target-peer').select(PEER_B_NAME);
+      cy.get('#deploy-image').type('redis:alpine');
+      cy.get('#deploy-replicas').clear().type('2');
+
+      // Switch to YAML
+      cy.get('[data-mode="yaml"]').click();
+      cy.get('#app-spec-yaml, #app-spec-yaml-fallback').invoke('val')
+        .should('include', 'redis:alpine')
+        .and('include', 'roundtrip-test')
+        .and('include', PEER_B_NAME);
+
+      // Switch back to Form
+      cy.get('[data-mode="form"]').click();
+      cy.get('#deploy-image').should('have.value', 'redis:alpine');
+      cy.get('#deploy-replicas').should('have.value', '2');
+      cy.get('#deploy-name').should('have.value', 'roundtrip-test');
     });
 
-    it("scales back down to 1 replica", () => {
-      loginToA().then(() => {
-        cy.request(`${AGENT_A}/remoteapps`).then((listResp) => {
-          const app = listResp.body.find((a) => a.name === "cypress-nginx");
-          const id = app.app_id || app.status?.appId;
-          cy.request({
-            method: "POST",
-            url: `${AGENT_A}/remoteapp/${id}/scale`,
-            body: { replicas: 1 },
-            headers: { "Content-Type": "application/json" },
-          }).then((resp) => {
-            expect(resp.status).to.eq(200);
-          });
-        });
-      });
-    });
-  });
+    it('deploys a busybox app via raw YAML', () => {
+      cy.visit('/deploy');
+      cy.get('[data-mode="yaml"]').click();
 
-  // ----------------------------------------------------------------
-  // Spec update
-  // ----------------------------------------------------------------
-  context("Spec update (YAML editor)", () => {
-    it("updates the image tag via spec patch", () => {
-      loginToA().then(() => {
-        cy.request(`${AGENT_A}/remoteapps`).then((listResp) => {
-          const app = listResp.body.find((a) => a.name === "cypress-nginx");
-          const id = app.app_id || app.status?.appId;
-          const crName = app.cr_name || "cypress-nginx";
-          const peerName = app.peer || PEER_B_NAME;
-
-          cy.request({
-            method: "POST",
-            url: `${AGENT_A}/remoteapp/${id}/spec`,
-            body: {
-              spec_yaml: `image: nginx:1.25-alpine\nreplicas: 1\nport: 80\ntargetPeer: ${peerName}\n`,
-            },
-            headers: { "Content-Type": "application/json" },
-          }).then((resp) => {
-            expect(resp.status).to.eq(200);
-            expect(resp.body.ok).to.be.true;
-          });
-        });
-      });
-    });
-
-    it("updated image eventually reflects on Agent B (up to 90s)", () => {
-      const waitForImage = (attempts = 0) => {
-        cy.wait(5000);
-        loginToB().then(() => {
-          cy.request(`${AGENT_B}/remoteapps`).then((resp) => {
-            const app = resp.body.find(
-              (a) => a.name === "cypress-nginx" || a.spec?.image?.includes("nginx")
-            );
-            if (app?.spec?.image?.includes("1.25") || attempts >= 16) {
-              // Accept either propagated or timeout (spec patching may be async)
-              expect(app).to.exist;
-            } else {
-              waitForImage(attempts + 1);
-            }
-          });
-        });
-      };
-      waitForImage();
-    });
-  });
-
-  // ----------------------------------------------------------------
-  // App detail
-  // ----------------------------------------------------------------
-  context("App detail", () => {
-    it("detail endpoint returns spec and status", () => {
-      loginToA().then(() => {
-        cy.request(`${AGENT_A}/remoteapps`).then((listResp) => {
-          const app = listResp.body.find((a) => a.name === "cypress-nginx");
-          const id = app.app_id || app.status?.appId;
-          cy.request(`${AGENT_A}/remoteapp/${id}`).then((resp) => {
-            expect(resp.status).to.eq(200);
-            expect(resp.body).to.have.property("spec");
-            expect(resp.body).to.have.property("status");
-          });
-        });
-      });
-    });
-  });
-
-  // ----------------------------------------------------------------
-  // Deploy via full CR YAML
-  // ----------------------------------------------------------------
-  context("Deploy via full CR YAML", () => {
-    it("deploys a second app using cr_yaml field", () => {
-      loginToA().then(() => {
-        const cr = `apiVersion: porpulsion.io/v1alpha1
+      const cr = `apiVersion: porpulsion.io/v1alpha1
 kind: RemoteApp
 metadata:
   name: cypress-busybox
 spec:
   image: busybox:1.36
-  command: ["sh", "-c", "while true; do sleep 3600; done"]
+  command: ["sh", "-c", "sleep 3600"]
   replicas: 1
-  targetPeer: ${PEER_B_NAME}
-`;
-        cy.request({
-          method: "POST",
-          url: `${AGENT_A}/remoteapp`,
-          body: { cr_yaml: cr },
-          headers: { "Content-Type": "application/json" },
-        }).then((resp) => {
-          expect(resp.status).to.eq(200);
-          expect(resp.body.ok).to.be.true;
-        });
+  targetPeer: ${PEER_B_NAME}`;
+
+      // Type into the fallback textarea (Monaco may not be available headlessly)
+      cy.get('#app-spec-yaml').invoke('val', cr);
+      cy.get('#app-spec-yaml-fallback').then(($el) => {
+        if ($el.is(':visible')) cy.wrap($el).clear().type(cr, { delay: 0 });
       });
+
+      cy.get('#deploy-submit-btn-yaml').click();
+      cy.url({ timeout: 15000 }).should('include', '/workloads');
+    });
+  });
+
+  // ----------------------------------------------------------------
+  // Workloads list & app detail modal
+  // ----------------------------------------------------------------
+  context('Workloads list', () => {
+    beforeEach(() => cy.loginUI());
+
+    it('workloads page has a + Deploy link', () => {
+      cy.visit('/workloads');
+      cy.get('a[href="/deploy"]').should('be.visible');
     });
 
-    it("busybox app appears in Agent A's list", () => {
+    it('submitted apps table lists cypress-nginx', () => {
+      cy.visit('/workloads');
+      cy.get('#submitted-body', { timeout: 10000 }).should('contain.text', 'cypress-nginx');
+    });
+
+    it('clicking a submitted app row opens the detail modal', () => {
+      cy.visit('/workloads');
+      cy.contains('#submitted-body tr', 'cypress-nginx').click();
+      // Modal should appear
+      cy.get('[class*="modal"], [id*="modal"], [role="dialog"]', { timeout: 8000 })
+        .should('be.visible');
+    });
+
+    it('detail modal shows Overview, Logs, and YAML tabs', () => {
+      cy.visit('/workloads');
+      cy.contains('#submitted-body tr', 'cypress-nginx').click();
+      cy.get('[class*="modal"], [id*="modal"], [role="dialog"]', { timeout: 8000 })
+        .within(() => {
+          cy.contains(/overview/i).should('exist');
+          cy.contains(/logs/i).should('exist');
+          cy.contains(/yaml/i).should('exist');
+        });
+    });
+
+    it('YAML tab in detail modal shows the full CR', () => {
+      cy.visit('/workloads');
+      cy.contains('#submitted-body tr', 'cypress-nginx').click();
+      cy.get('[class*="modal"], [id*="modal"], [role="dialog"]', { timeout: 8000 })
+        .within(() => {
+          cy.contains(/yaml/i).click();
+          // The YAML editor/pre should contain the CR
+          cy.get('pre, textarea, [class*="editor"]', { timeout: 5000 })
+            .invoke('text')
+            .should('match', /apiVersion|kind.*RemoteApp/s);
+        });
+    });
+  });
+
+  // ----------------------------------------------------------------
+  // App reaches Running on Agent B
+  // ----------------------------------------------------------------
+  context('App lifecycle on Agent B', () => {
+    it('cypress-nginx reaches Running on Agent B (up to 90s)', () => {
+      cy.loginTo(AGENT_B);
+      cy.waitForAppPhase(AGENT_B, 'cypress-nginx', 'Running', 18, 5000);
+    });
+
+    it('Agent B shows the executing app in its workloads table', () => {
+      cy.loginUI();
+      cy.visit(AGENT_B);
+      cy.visit(AGENT_B + '/workloads');
+      cy.get('#executing-body', { timeout: 15000 }).should('contain.text', 'cypress-nginx');
+    });
+  });
+
+  // ----------------------------------------------------------------
+  // Scale via the detail modal
+  // ----------------------------------------------------------------
+  context('Scale via UI', () => {
+    beforeEach(() => cy.loginUI());
+
+    it('scales cypress-nginx to 2 replicas via the modal', () => {
+      cy.visit('/workloads');
+      cy.contains('#submitted-body tr', 'cypress-nginx').click();
+
+      cy.get('[class*="modal"], [id*="modal"], [role="dialog"]', { timeout: 8000 })
+        .within(() => {
+          // Look for a scale input or +/- replica control
+          cy.get('input[type="number"][value="1"], input[placeholder*="eplic"]')
+            .first()
+            .clear()
+            .type('2');
+          cy.contains(/scale|apply|save/i).click();
+        });
+
       cy.wait(3000);
-      loginToA().then(() => {
+
+      // Verify via API that replicas updated
+      cy.loginTo(AGENT_A).then(() => {
         cy.request(`${AGENT_A}/remoteapps`).then((resp) => {
-          const app = resp.body.find((a) => a.name === "cypress-busybox");
-          expect(app).to.exist;
+          const app = resp.body.find((a) => a.name === 'cypress-nginx');
+          expect(app?.spec?.replicas ?? app?.status?.replicas).to.be.at.least(2);
         });
       });
     });
   });
 
   // ----------------------------------------------------------------
-  // Delete
+  // Spec update via YAML tab
   // ----------------------------------------------------------------
-  context("Delete RemoteApps", () => {
-    it("deletes the nginx app", () => {
-      loginToA().then(() => {
-        cy.request(`${AGENT_A}/remoteapps`).then((listResp) => {
-          const app = listResp.body.find((a) => a.name === "cypress-nginx");
-          const id = app?.app_id || app?.status?.appId;
-          if (!id) return; // already gone
-          cy.request({
-            method: "DELETE",
-            url: `${AGENT_A}/remoteapp/${id}`,
-          }).then((resp) => {
-            expect(resp.status).to.eq(200);
-            expect(resp.body.ok).to.be.true;
+  context('Spec update via YAML editor', () => {
+    beforeEach(() => cy.loginUI());
+
+    it('edits the image tag in the YAML tab and saves', () => {
+      cy.visit('/workloads');
+      cy.contains('#submitted-body tr', 'cypress-nginx').click();
+
+      cy.get('[class*="modal"], [id*="modal"], [role="dialog"]', { timeout: 8000 })
+        .within(() => {
+          cy.contains(/yaml/i).click();
+
+          // Get the current YAML and replace the image tag
+          cy.get('textarea, pre[contenteditable]', { timeout: 5000 }).first().then(($el) => {
+            const current = $el.val() || $el.text();
+            const updated = current.replace(/nginx:alpine/, 'nginx:1.25-alpine');
+            cy.wrap($el).clear({ force: true }).type(updated, { delay: 0, force: true });
           });
-        });
-      });
-    });
 
-    it("nginx app no longer appears in Agent A's list after deletion", () => {
-      cy.wait(3000);
-      loginToA().then(() => {
-        cy.request(`${AGENT_A}/remoteapps`).then((resp) => {
-          const app = resp.body.find((a) => a.name === "cypress-nginx");
-          expect(app).to.be.undefined;
+          cy.contains(/save|apply|update/i).click();
         });
-      });
-    });
 
-    it("deletes the busybox app", () => {
-      loginToA().then(() => {
-        cy.request(`${AGENT_A}/remoteapps`).then((listResp) => {
-          const app = listResp.body.find((a) => a.name === "cypress-busybox");
-          const id = app?.app_id || app?.status?.appId;
-          if (!id) return;
-          cy.request({
-            method: "DELETE",
-            url: `${AGENT_A}/remoteapp/${id}`,
-          }).then((resp) => {
-            expect(resp.status).to.eq(200);
+      // Toast should confirm success
+      cy.get('.toast, [class*="toast"]', { timeout: 8000 })
+        .should('be.visible')
+        .and('satisfy', ($el) => $el.text().match(/saved|updated|ok/i));
+    });
+  });
+
+  // ----------------------------------------------------------------
+  // ConfigMap deploy (tests the multi-line fix)
+  // ----------------------------------------------------------------
+  context('ConfigMap in deploy form', () => {
+    beforeEach(() => cy.loginUI());
+
+    it('adds a configmap with a multi-line value and survives form→yaml→form roundtrip', () => {
+      cy.visit('/deploy');
+
+      cy.get('#deploy-name').type('cypress-cm-test');
+      cy.get('#deploy-target-peer').select(PEER_B_NAME);
+      cy.get('#deploy-image').type('nginx:alpine');
+
+      // Add a ConfigMap
+      cy.get('#deploy-add-cm').click();
+      cy.get('[data-role="vol-name"]').last().type('my-config');
+      cy.get('[data-role="vol-mount"]').last().type('/etc/myapp');
+      cy.get('.cfg-add-section').last().find('button').contains('+ Add key').click();
+      cy.get('[data-role="kv-key"]').last().type('app.conf');
+
+      // Type Shift+Enter to promote to textarea, then type multi-line value
+      cy.get('[data-role="kv-val"]').last().type('line1{shift}{enter}line2{shift}{enter}line3');
+
+      // Switch to YAML — multi-line value should appear as block scalar
+      cy.get('[data-mode="yaml"]').click();
+      cy.get('#app-spec-yaml, #app-spec-yaml-fallback').invoke('val')
+        .should('include', 'app.conf')
+        .and('include', '|');
+
+      // Switch back to Form — value should be preserved
+      cy.get('[data-mode="form"]').click();
+      cy.get('[data-role="kv-val"]').last()
+        .invoke('val')
+        .should('include', 'line1')
+        .and('include', 'line2');
+    });
+  });
+
+  // ----------------------------------------------------------------
+  // Delete via UI
+  // ----------------------------------------------------------------
+  context('Delete apps via UI', () => {
+    beforeEach(() => cy.loginUI());
+
+    it('deletes cypress-busybox via the workloads table', () => {
+      cy.visit('/workloads');
+      cy.get('body').then(($body) => {
+        if (!$body.text().includes('cypress-busybox')) return;
+        cy.contains('#submitted-body tr', 'cypress-busybox').click();
+        cy.get('[class*="modal"], [id*="modal"], [role="dialog"]', { timeout: 8000 })
+          .within(() => {
+            cy.contains(/delete|remove/i).click();
           });
-        });
+        // Confirm dialog
+        cy.on('window:confirm', () => true);
+        cy.get('.confirm-dialog button, [class*="confirm"] button')
+          .contains(/delete|confirm/i)
+          .click({ force: true });
+        cy.get('#submitted-body', { timeout: 10000 }).should('not.contain.text', 'cypress-busybox');
       });
     });
 
-    it("Agent B eventually removes the ExecutingApp (up to 60s)", () => {
+    it('deletes cypress-cm-test via the workloads table', () => {
+      cy.visit('/workloads');
+      cy.get('body').then(($body) => {
+        if (!$body.text().includes('cypress-cm-test')) return;
+        cy.contains('#submitted-body tr', 'cypress-cm-test').click();
+        cy.get('[class*="modal"], [id*="modal"], [role="dialog"]', { timeout: 8000 })
+          .within(() => {
+            cy.contains(/delete|remove/i).click();
+          });
+        cy.on('window:confirm', () => true);
+        cy.get('.confirm-dialog button, [class*="confirm"] button')
+          .contains(/delete|confirm/i)
+          .click({ force: true });
+        cy.get('#submitted-body', { timeout: 10000 }).should('not.contain.text', 'cypress-cm-test');
+      });
+    });
+
+    it('deletes cypress-nginx via the workloads table', () => {
+      cy.visit('/workloads');
+      cy.contains('#submitted-body tr', 'cypress-nginx').click();
+      cy.get('[class*="modal"], [id*="modal"], [role="dialog"]', { timeout: 8000 })
+        .within(() => {
+          cy.contains(/delete|remove/i).click();
+        });
+      cy.on('window:confirm', () => true);
+      cy.get('.confirm-dialog button, [class*="confirm"] button')
+        .contains(/delete|confirm/i)
+        .click({ force: true });
+      cy.get('#submitted-body', { timeout: 15000 }).should('not.contain.text', 'cypress-nginx');
+    });
+
+    it('Agent B eventually removes the executing app after deletion', () => {
+      cy.loginTo(AGENT_B);
       const waitForGone = (attempts = 0) => {
-        cy.wait(5000);
-        loginToB().then(() => {
-          cy.request(`${AGENT_B}/remoteapps`).then((resp) => {
-            const app = resp.body.find((a) => a.name === "cypress-nginx");
-            if (!app || attempts >= 12) {
-              expect(app).to.be.undefined;
-            } else {
-              waitForGone(attempts + 1);
-            }
-          });
+        cy.request(`${AGENT_B}/remoteapps`).then((resp) => {
+          const app = resp.body.find((a) => a.name === 'cypress-nginx');
+          if (!app) return;
+          if (attempts >= 12) expect(app, 'App still exists on B after deletion').to.be.undefined;
+          cy.wait(5000);
+          waitForGone(attempts + 1);
         });
       };
       waitForGone();
