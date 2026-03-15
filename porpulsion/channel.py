@@ -389,7 +389,6 @@ class PeerChannel:
         # would point to self and the is-not-self guard would block the send).
         with _state.peer_channels_lock:
             old = _state.peer_channels.get(peer_name)
-            outbound_channel = old if (old and old is not self) else None
             if old and old is not self:
                 old.close()
             _state.peer_channels[peer_name] = self
@@ -404,13 +403,12 @@ class PeerChannel:
         except Exception:
             pass
 
-        # Notify the peer over their outbound channel of our agent name and the
-        # IP we saw their inbound connection from. This covers both the initial
-        # bidirectional upgrade and subsequent reconnects where the peer already
-        # has direction=bidirectional but needs the fresh remote_addr.
-        if outbound_channel and self.peer_remote_addr:
+        # Tell the connecting peer what IP we saw their connection from.
+        # Send directly on self (the inbound socket they just connected on)
+        # so this works regardless of whether we have an outbound channel open.
+        if self.peer_remote_addr:
             try:
-                outbound_channel.push("peer/bidirectional", {
+                self.push("peer/bidirectional", {
                     "name":        _state.AGENT_NAME,
                     "remote_addr": self.peer_remote_addr,
                 })
