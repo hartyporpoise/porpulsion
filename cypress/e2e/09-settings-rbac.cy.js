@@ -28,7 +28,7 @@ describe('Settings & RBAC', () => {
   // Settings page structure
   // ----------------------------------------------------------------
   context('Settings page structure', () => {
-    beforeEach(() => cy.loginUI());
+    beforeEach(() => cy.loginTo());
 
     it('shows all five settings tabs', () => {
       cy.visit('/settings');
@@ -63,13 +63,13 @@ describe('Settings & RBAC', () => {
   // ----------------------------------------------------------------
   context('Inbound apps toggle', () => {
     after(() => {
-      cy.agentBSettings(AGENT_B, { inboundApps: true });
+      cy.agentBSettings({ inboundApps: true });
     });
 
     it('disabling inbound apps on Agent B rejects a deploy from Agent A', () => {
-      cy.agentBSettings(AGENT_B, { inboundApps: false });
+      cy.agentBSettings({ inboundApps: false });
 
-      cy.loginUI();
+      cy.loginTo();
       cy.visit('/deploy');
       cy.get('[data-mode="yaml"]').click();
       cy.get('#deploy-yaml-wrap').should('be.visible');
@@ -95,13 +95,12 @@ describe('Settings & RBAC', () => {
     });
 
     it('re-enabling inbound apps on Agent B via UI toggle persists', () => {
-      cy.agentBSettings(AGENT_B, { inboundApps: true });
+      cy.agentBSettings({ inboundApps: true });
       // Confirm the toggle is now checked in the UI
-      cy.origin(AGENT_B, { args: { AGENT_B } }, ({ AGENT_B }) => {
-        cy.visit(`${AGENT_B}/settings`);
-        cy.get('.stg-tab[data-section="executing"]').click();
-        cy.get('#setting-inbound-apps').should('be.checked');
-      });
+      cy.loginTo(AGENT_B);
+      cy.visit(`${AGENT_B}/settings`);
+      cy.get('.stg-tab[data-section="executing"]').click();
+      cy.get('#setting-inbound-apps').should('be.checked');
     });
   });
 
@@ -110,13 +109,13 @@ describe('Settings & RBAC', () => {
   // ----------------------------------------------------------------
   context('Image policy', () => {
     after(() => {
-      cy.agentBSettings(AGENT_B, { blockedImages: '', allowedImages: '' });
+      cy.agentBSettings({ blockedImages: '', allowedImages: '' });
     });
 
     it('blocked_images rejects a deploy whose image matches the prefix', () => {
-      cy.agentBSettings(AGENT_B, { blockedImages: 'cypress-blocked.io/', allowedImages: '' });
+      cy.agentBSettings({ blockedImages: 'cypress-blocked.io/', allowedImages: '' });
 
-      cy.loginUI();
+      cy.loginTo();
       cy.visit('/deploy');
       cy.get('[data-mode="yaml"]').click();
       cy.window().then((win) => {
@@ -137,9 +136,9 @@ describe('Settings & RBAC', () => {
     });
 
     it('allowed_images filter rejects an image outside the allowed prefix', () => {
-      cy.agentBSettings(AGENT_B, { blockedImages: '', allowedImages: 'docker.io/' });
+      cy.agentBSettings({ blockedImages: '', allowedImages: 'docker.io/' });
 
-      cy.loginUI();
+      cy.loginTo();
       cy.visit('/deploy');
       cy.get('[data-mode="yaml"]').click();
       cy.window().then((win) => {
@@ -160,7 +159,7 @@ describe('Settings & RBAC', () => {
     });
 
     it('image filter settings save and reload via the UI filters form', () => {
-      cy.loginUI();
+      cy.loginTo();
       cy.visit('/settings');
       cy.get('.stg-tab[data-section="executing"]').click();
       cy.get('#setting-allowed-images').clear().type('my-registry.io/');
@@ -182,27 +181,25 @@ describe('Settings & RBAC', () => {
   // ----------------------------------------------------------------
   context('allow_pvcs toggle', () => {
     after(() => {
-      cy.agentBSettings(AGENT_B, { allowPvcs: true });
+      cy.agentBSettings({ allowPvcs: true });
     });
 
     it('disabling allow_pvcs via UI toggle is reflected in the UI', () => {
-      cy.agentBSettings(AGENT_B, { allowPvcs: false });
+      cy.agentBSettings({ allowPvcs: false });
       // Confirm the toggle is now unchecked
-      cy.origin(AGENT_B, { args: { AGENT_B } }, ({ AGENT_B }) => {
-        cy.visit(`${AGENT_B}/settings`);
-        cy.get('.stg-tab[data-section="executing"]').click();
-        cy.get('#setting-allow-pvcs').should('not.be.checked');
-      });
+      cy.loginTo(AGENT_B);
+      cy.visit(`${AGENT_B}/settings`);
+      cy.get('.stg-tab[data-section="executing"]').click();
+      cy.get('#setting-allow-pvcs').should('not.be.checked');
     });
 
     it('enabling allow_pvcs via UI toggle is reflected in the UI', () => {
-      cy.agentBSettings(AGENT_B, { allowPvcs: true });
+      cy.agentBSettings({ allowPvcs: true });
       // Confirm the toggle is now checked
-      cy.origin(AGENT_B, { args: { AGENT_B } }, ({ AGENT_B }) => {
-        cy.visit(`${AGENT_B}/settings`);
-        cy.get('.stg-tab[data-section="executing"]').click();
-        cy.get('#setting-allow-pvcs').should('be.checked');
-      });
+      cy.loginTo(AGENT_B);
+      cy.visit(`${AGENT_B}/settings`);
+      cy.get('.stg-tab[data-section="executing"]').click();
+      cy.get('#setting-allow-pvcs').should('be.checked');
     });
   });
 });

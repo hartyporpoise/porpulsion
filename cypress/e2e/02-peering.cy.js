@@ -20,7 +20,7 @@ describe('Peering', () => {
   });
 
   context('Your Invite Bundle card on Agent A', () => {
-    beforeEach(() => cy.loginUI());
+    beforeEach(() => cy.loginTo());
 
     it('shows the invite bundle on the Peers page', () => {
       cy.visit('/peers');
@@ -38,7 +38,7 @@ describe('Peering', () => {
 
   context('Connect A → B using the UI form', () => {
     it('pastes Agent B bundle into the connect form and submits', () => {
-      cy.loginUI();
+      cy.loginTo();
       cy.visit('/peers');
       cy.get('#new-peer-bundle').should('be.visible').type(bundleB, { delay: 0 });
       cy.get('#connect-peer-form button[type="submit"]').click();
@@ -47,7 +47,7 @@ describe('Peering', () => {
     });
 
     it('peer row shows the connected channel status', () => {
-      cy.loginUI();
+      cy.loginTo();
       cy.visit('/peers');
       // Channel badge shows "live" (badge-mtls) or "local" (badge-pending) — never the literal word "connected".
       // Use Cypress retry-ability: should() retries until the badge appears or timeout.
@@ -56,7 +56,7 @@ describe('Peering', () => {
     });
 
     it('shows peer count badge > 0', () => {
-      cy.loginUI();
+      cy.loginTo();
       cy.visit('/peers');
       // #all-peers-count is updated by the JS poll — wait for it to reflect > 0
       cy.get('#all-peers-count', { timeout: 15000 }).should(($el) => {
@@ -65,7 +65,7 @@ describe('Peering', () => {
     });
 
     it('rejects a duplicate connect attempt', () => {
-      cy.loginUI();
+      cy.loginTo();
       cy.visit('/peers');
       cy.get('#new-peer-bundle').type(bundleB, { delay: 0 });
       cy.get('#connect-peer-form button[type="submit"]').click();

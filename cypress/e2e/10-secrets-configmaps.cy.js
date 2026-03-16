@@ -12,7 +12,7 @@ describe('Secrets & ConfigMaps', () => {
   let APP_ID;
 
   before(() => {
-    cy.agentBSettings(AGENT_B, { inboundApps: true, requireApproval: false });
+    cy.agentBSettings({ inboundApps: true, requireApproval: false });
 
     const waitForPeer = (attempts = 0) => {
       cy.apiRequest('GET', `${AGENT_A}/api/peers`).then((resp) => {
@@ -30,7 +30,7 @@ describe('Secrets & ConfigMaps', () => {
   // Deploy an app that has both a ConfigMap and a Secret volume
   // ----------------------------------------------------------------
   it('deploys an app with a configmap and a secret volume', () => {
-    cy.loginUI();
+    cy.loginTo();
     cy.visit('/deploy');
     cy.get('[data-mode="yaml"]').click();
     cy.get('#deploy-yaml-wrap').should('be.visible');
@@ -65,20 +65,20 @@ describe('Secrets & ConfigMaps', () => {
   });
 
   it('app appears in submitted table', () => {
-    cy.loginUI();
+    cy.loginTo();
     cy.visit('/workloads');
     cy.get('#submitted-body', { timeout: 15000 }).should('contain.text', 'cypress-cfg-test');
   });
 
   it('app reaches Ready on Agent B (up to 90s)', () => {
-    cy.waitForExecutingApp(AGENT_B, 'cypress-cfg-test', 'Ready', 18, 5000);
+    cy.waitForExecutingApp('cypress-cfg-test', 'Ready', 18, 5000);
   });
 
   // ----------------------------------------------------------------
   // Config tab: verify secrets are displayed as plaintext (decoded)
   // ----------------------------------------------------------------
   context('Config tab', () => {
-    beforeEach(() => cy.loginUI());
+    beforeEach(() => cy.loginTo());
 
     it('Config tab is enabled when app is Running', () => {
       cy.visit('/workloads');
@@ -164,7 +164,7 @@ describe('Secrets & ConfigMaps', () => {
   // YAML tab: secrets appear base64-encoded in the raw CR
   // ----------------------------------------------------------------
   it('YAML tab shows secret values as base64 (not plaintext) in the CR', () => {
-    cy.loginUI();
+    cy.loginTo();
     cy.visit('/workloads');
     cy.openAppModal('cypress-cfg-test');
     cy.appModalTab('edit');

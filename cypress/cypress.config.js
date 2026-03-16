@@ -3,6 +3,8 @@ const { defineConfig } = require("cypress");
 module.exports = defineConfig({
   e2e: {
     baseUrl: process.env.CYPRESS_BASE_URL || "http://cluster-a:30080",
+    viewportWidth: 1920,
+    viewportHeight: 1080,
     setupNodeEvents(on) {
       on('before:browser:launch', (browser, launchOptions) => {
         if (browser.name === 'electron') {
@@ -20,7 +22,7 @@ module.exports = defineConfig({
     responseTimeout: 30000,
     pageLoadTimeout: 60000,
     requestTimeout: 20000,
-    experimentalSessionAndOrigin: true,
+    testIsolation: true,
     video: false,
     screenshotOnRunFailure: true,
     screenshotsFolder: "cypress/screenshots",

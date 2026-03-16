@@ -17,7 +17,7 @@ describe('PVC persistence', () => {
 
   before(() => {
     // Make sure PVCs are allowed on Agent B via the settings UI
-    cy.agentBSettings(AGENT_B, { inboundApps: true, requireApproval: false, allowPvcs: true });
+    cy.agentBSettings({ inboundApps: true, requireApproval: false, allowPvcs: true });
 
     const waitForPeer = (attempts = 0) => {
       cy.apiRequest('GET', `${AGENT_A}/api/peers`).then((resp) => {
@@ -35,7 +35,7 @@ describe('PVC persistence', () => {
   // Deploy
   // ----------------------------------------------------------------
   it('deploys an alpine app with a 100Mi PVC', () => {
-    cy.loginUI();
+    cy.loginTo();
     cy.visit('/deploy');
     cy.get('[data-mode="yaml"]').click();
     cy.get('#deploy-yaml-wrap').should('be.visible');
@@ -63,17 +63,17 @@ describe('PVC persistence', () => {
   });
 
   it('app appears in submitted table', () => {
-    cy.loginUI();
+    cy.loginTo();
     cy.visit('/workloads');
     cy.get('#submitted-body', { timeout: 15000 }).should('contain.text', 'cypress-pvc');
   });
 
   it('app reaches Ready on Agent B (up to 120s — PVC provisioning can be slow)', () => {
-    cy.waitForExecutingApp(AGENT_B, 'cypress-pvc', 'Ready', 24, 5000);
+    cy.waitForExecutingApp('cypress-pvc', 'Ready', 24, 5000);
   });
 
   it('detail modal Overview mentions the PVC volume', () => {
-    cy.loginUI();
+    cy.loginTo();
     cy.visit('/workloads');
     cy.openAppModal('cypress-pvc');
     cy.get('#app-modal-body [data-panel="overview"]', { timeout: 10000 })
@@ -84,7 +84,7 @@ describe('PVC persistence', () => {
   // Write a file via exec terminal
   // ----------------------------------------------------------------
   it('Terminal tab is enabled when app is Running', () => {
-    cy.loginUI();
+    cy.loginTo();
     cy.visit('/workloads');
     cy.openAppModal('cypress-pvc');
     cy.get('#app-modal-tabs-bar [data-tab="terminal"]', { timeout: 10000 })
@@ -93,7 +93,7 @@ describe('PVC persistence', () => {
   });
 
   it('writes a sentinel file to /data via the exec terminal', () => {
-    cy.loginUI();
+    cy.loginTo();
     cy.visit('/workloads');
     cy.openAppModal('cypress-pvc');
     cy.appModalTab('terminal');
@@ -133,11 +133,11 @@ describe('PVC persistence', () => {
 
   it('app returns to Ready after restart (up to 90s)', () => {
     cy.wait(5000); // let the rollout begin
-    cy.waitForExecutingApp(AGENT_B, 'cypress-pvc', 'Ready', 18, 5000);
+    cy.waitForExecutingApp('cypress-pvc', 'Ready', 18, 5000);
   });
 
   it('sentinel file is still in /data after pod restart (PVC persisted)', () => {
-    cy.loginUI();
+    cy.loginTo();
     cy.visit('/workloads');
     cy.openAppModal('cypress-pvc');
     cy.appModalTab('terminal');

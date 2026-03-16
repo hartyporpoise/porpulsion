@@ -9,7 +9,7 @@ describe('Workloads', () => {
 
   before(() => {
     // Ensure Agent B will accept inbound workloads
-    cy.agentBSettings(AGENT_B, { inboundApps: true, requireApproval: false });
+    cy.agentBSettings({ inboundApps: true, requireApproval: false });
 
     // Wait for at least one peer to be connected (02-peering must have run first)
     const waitForPeer = (attempts = 0) => {
@@ -40,7 +40,7 @@ describe('Workloads', () => {
   // Deploy page — Form mode
   // ----------------------------------------------------------------
   context('Deploy via Form', () => {
-    beforeEach(() => cy.loginUI());
+    beforeEach(() => cy.loginTo());
 
     it('deploy page loads with Form and YAML tabs', () => {
       cy.visit('/deploy');
@@ -76,7 +76,7 @@ describe('Workloads', () => {
   // Deploy page — YAML mode
   // ----------------------------------------------------------------
   context('Deploy via YAML', () => {
-    beforeEach(() => cy.loginUI());
+    beforeEach(() => cy.loginTo());
 
     it('switching to YAML mode shows the CR editor', () => {
       cy.visit('/deploy');
@@ -138,7 +138,7 @@ describe('Workloads', () => {
   // Workloads list & app detail modal
   // ----------------------------------------------------------------
   context('Workloads list', () => {
-    beforeEach(() => cy.loginUI());
+    beforeEach(() => cy.loginTo());
 
     it('workloads page has a + Deploy link', () => {
       cy.visit('/workloads');
@@ -179,7 +179,7 @@ describe('Workloads', () => {
   // ----------------------------------------------------------------
   context('App lifecycle on Agent B', () => {
     it('cypress-nginx reaches Ready on Agent B executing apps (up to 90s)', () => {
-      cy.waitForExecutingApp(AGENT_B, 'cypress-nginx', 'Ready', 18, 5000);
+      cy.waitForExecutingApp('cypress-nginx', 'Ready', 18, 5000);
     });
   });
 
@@ -187,7 +187,7 @@ describe('Workloads', () => {
   // Spec update via YAML tab
   // ----------------------------------------------------------------
   context('Spec update via YAML editor', () => {
-    beforeEach(() => cy.loginUI());
+    beforeEach(() => cy.loginTo());
 
     it('edits the image tag in the YAML tab and saves', () => {
       cy.visit('/workloads');
@@ -219,7 +219,7 @@ describe('Workloads', () => {
   // ConfigMap deploy (tests the multi-line fix)
   // ----------------------------------------------------------------
   context('ConfigMap in deploy form', () => {
-    beforeEach(() => cy.loginUI());
+    beforeEach(() => cy.loginTo());
 
     it('adds a configmap with a multi-line value and survives form→yaml→form roundtrip', () => {
       cy.visit('/deploy');
@@ -254,7 +254,7 @@ describe('Workloads', () => {
   // Delete via UI
   // ----------------------------------------------------------------
   context('Delete apps via UI', () => {
-    beforeEach(() => cy.loginUI());
+    beforeEach(() => cy.loginTo());
 
     it('deletes cypress-busybox via the workloads table', () => {
       cy.visit('/workloads');

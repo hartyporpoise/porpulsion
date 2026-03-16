@@ -10,7 +10,7 @@ describe('Terminal (exec)', () => {
 
   before(() => {
     // Ensure Agent B will accept inbound workloads (may have been toggled by 09-settings-rbac)
-    cy.agentBSettings(AGENT_B, { inboundApps: true, requireApproval: false });
+    cy.agentBSettings({ inboundApps: true, requireApproval: false });
 
     const waitForPeer = (attempts = 0) => {
       cy.apiRequest('GET', `${AGENT_A}/api/peers`).then((resp) => {
@@ -25,7 +25,7 @@ describe('Terminal (exec)', () => {
   });
 
   it('deploys a long-running alpine container', () => {
-    cy.loginUI();
+    cy.loginTo();
     cy.visit('/deploy');
     cy.get('[data-mode="yaml"]').click();
     cy.get('#deploy-yaml-wrap').should('be.visible');
@@ -48,11 +48,11 @@ describe('Terminal (exec)', () => {
   });
 
   it('app reaches Ready on Agent B (up to 90s)', () => {
-    cy.waitForExecutingApp(AGENT_B, 'cypress-exec', 'Ready', 18, 5000);
+    cy.waitForExecutingApp('cypress-exec', 'Ready', 18, 5000);
   });
 
   it('detail modal has an enabled Terminal tab when app is Running', () => {
-    cy.loginUI();
+    cy.loginTo();
     // The modal reads status from Agent A which may lag Agent B by a few seconds.
     // Poll by reopening the modal until the Terminal tab becomes enabled.
     const waitForTerminalEnabled = (attempts = 0) => {
@@ -72,7 +72,7 @@ describe('Terminal (exec)', () => {
   });
 
   it('Terminal tab renders the xterm container', () => {
-    cy.loginUI();
+    cy.loginTo();
     cy.visit('/workloads');
     cy.openAppModal('cypress-exec');
     // Terminal tab must be enabled before clicking — wait for it
@@ -85,7 +85,7 @@ describe('Terminal (exec)', () => {
   });
 
   it('shell selector dropdown exists in the terminal tab', () => {
-    cy.loginUI();
+    cy.loginTo();
     cy.visit('/workloads');
     cy.openAppModal('cypress-exec');
     cy.get('#app-modal-tabs-bar [data-tab="terminal"]:not(.modal-tab-disabled)', { timeout: 60000 })

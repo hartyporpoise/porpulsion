@@ -20,7 +20,7 @@ describe('Logs', () => {
   });
 
   it('deploys a log-emitting app via YAML', () => {
-    cy.loginUI();
+    cy.loginTo();
     cy.visit('/deploy');
     cy.get('[data-mode="yaml"]').click();
     cy.get('#deploy-yaml-wrap').should('be.visible');
@@ -43,13 +43,13 @@ describe('Logs', () => {
   });
 
   it('app appears in the submitted apps table', () => {
-    cy.loginUI();
+    cy.loginTo();
     cy.visit('/workloads');
     cy.get('#submitted-body', { timeout: 15000 }).should('contain.text', 'cypress-logs');
   });
 
   it('logs tab in detail modal renders the xterm terminal (up to 90s)', () => {
-    cy.loginUI();
+    cy.loginTo();
     cy.visit('/workloads');
     cy.openAppModal('cypress-logs');
     cy.appModalTab('logs');

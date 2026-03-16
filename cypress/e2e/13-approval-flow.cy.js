@@ -12,7 +12,7 @@ describe('Approval flow', () => {
 
   before(() => {
     // Enable require_approval on Agent B so incoming apps wait for approval
-    cy.agentBSettings(AGENT_B, { inboundApps: true, requireApproval: true });
+    cy.agentBSettings({ inboundApps: true, requireApproval: true });
 
     const waitForPeer = (attempts = 0) => {
       cy.apiRequest('GET', `${AGENT_A}/api/peers`).then((resp) => {
@@ -28,7 +28,7 @@ describe('Approval flow', () => {
 
   after(() => {
     // Restore Agent B to auto-approve mode
-    cy.agentBSettings(AGENT_B, { requireApproval: false });
+    cy.agentBSettings({ requireApproval: false });
 
     // Delete the test app if it exists
     cy.apiRequest('GET', `${AGENT_A}/api/remoteapps`).then((resp) => {
@@ -43,7 +43,7 @@ describe('Approval flow', () => {
   // Deploy — app should be held for approval, not immediately Running
   // ----------------------------------------------------------------
   it('deploys an app to a peer that requires approval', () => {
-    cy.loginUI();
+    cy.loginTo();
     cy.visit('/deploy');
     cy.get('[data-mode="yaml"]').click();
     cy.get('#deploy-yaml-wrap').should('be.visible');
@@ -65,77 +65,51 @@ describe('Approval flow', () => {
   });
 
   it('app appears in the submitted table on Agent A', () => {
-    cy.loginUI();
+    cy.loginTo();
     cy.visit('/workloads');
     cy.get('#submitted-body', { timeout: 15000 }).should('contain.text', 'cypress-approval');
   });
 
   it('app does NOT reach Ready on Agent B within a short window (held for approval)', () => {
-    // Wait a few seconds — if approval is working the app should stay in PendingApproval
     cy.wait(8000);
-    cy.origin(AGENT_B, { args: { AGENT_B } }, ({ AGENT_B }) => {
-      const user = Cypress.env('USERNAME') || 'admin';
-      const pass = Cypress.env('PASSWORD') || 'admin';
-      cy.visit(`${AGENT_B}/login`);
-      cy.get('#username').type(user);
-      cy.get('#password').type(pass);
-      cy.get('button[type="submit"]').click();
-      cy.url({ timeout: 10000 }).should('not.include', '/login');
-      cy.visit(`${AGENT_B}/workloads`);
-      // App should exist in executing table but NOT show Ready
-      cy.contains('#executing-body tr', 'cypress-approval', { timeout: 15000 })
-        .find('td:nth-child(3)')
-        .should('not.contain.text', 'Ready');
-    });
+    cy.loginTo(AGENT_B);
+    cy.visit(`${AGENT_B}/workloads`);
+    cy.contains('#executing-body tr', 'cypress-approval', { timeout: 15000 })
+      .find('td:nth-child(3)')
+      .should('not.contain.text', 'Ready');
   });
 
   // ----------------------------------------------------------------
   // Approve via Agent B UI
   // ----------------------------------------------------------------
   it('approval banner appears on Agent B workloads page', () => {
-    cy.origin(AGENT_B, { args: { AGENT_B } }, ({ AGENT_B }) => {
-      const user = Cypress.env('USERNAME') || 'admin';
-      const pass = Cypress.env('PASSWORD') || 'admin';
-      cy.visit(`${AGENT_B}/login`);
-      cy.get('#username').type(user);
-      cy.get('#password').type(pass);
-      cy.get('button[type="submit"]').click();
-      cy.url({ timeout: 10000 }).should('not.include', '/login');
-      cy.visit(`${AGENT_B}/workloads`);
-      cy.get('#approval-banner', { timeout: 15000 }).should('be.visible');
-      cy.get('.approval-item', { timeout: 10000 }).should('have.length.gte', 1);
-      cy.get('.approval-item-name').should('contain.text', 'cypress-approval');
-    });
+    cy.loginTo(AGENT_B);
+    cy.visit(`${AGENT_B}/workloads`);
+    cy.get('#approval-banner', { timeout: 15000 }).should('be.visible');
+    cy.get('.approval-item', { timeout: 10000 }).should('have.length.gte', 1);
+    cy.get('.approval-item-name').should('contain.text', 'cypress-approval');
   });
 
   it('clicking Approve on Agent B makes the app proceed to Ready', () => {
-    cy.origin(AGENT_B, { args: { AGENT_B } }, ({ AGENT_B }) => {
-      const user = Cypress.env('USERNAME') || 'admin';
-      const pass = Cypress.env('PASSWORD') || 'admin';
-      cy.visit(`${AGENT_B}/login`);
-      cy.get('#username').type(user);
-      cy.get('#password').type(pass);
-      cy.get('button[type="submit"]').click();
-      cy.url({ timeout: 10000 }).should('not.include', '/login');
-      cy.visit(`${AGENT_B}/workloads`);
+    cy.loginTo(AGENT_B);
+    cy.visit(`${AGENT_B}/workloads`);
 
-      // Find the approval item for cypress-approval and click Approve
-      cy.contains('.approval-item', 'cypress-approval', { timeout: 15000 })
-        .find('[data-approve-app]')
-        .click();
+    // Find the approval item for cypress-approval and click Approve
+    cy.contains('.approval-item', 'cypress-approval', { timeout: 15000 })
+      .find('[data-approve-app]')
+      .click();
 
-      // Toast should confirm approval
-      cy.get('#toast', { timeout: 8000 })
-        .should('have.class', 'show')
-        .and('satisfy', ($el) => /approved/i.test($el.text()));
-    });
+    // Toast should confirm approval
+    cy.get('#toast', { timeout: 8000 })
+      .should('have.class', 'show')
+      .and('satisfy', ($el) => /approved/i.test($el.text()));
 
     // Now wait for it to reach Ready on Agent B
-    cy.waitForExecutingApp(AGENT_B, 'cypress-approval', 'Ready', 18, 5000);
+    cy.waitForExecutingApp('cypress-approval', 'Ready', 18, 5000);
   });
 
   it('app also shows as running on Agent A submitted list', () => {
-    cy.loginUI();
+    cy.loginTo();
     cy.visit('/workloads');
     cy.contains('#submitted-body tr', 'cypress-approval', { timeout: 30000 })
       .find('td:nth-child(3)')

@@ -97,18 +97,10 @@ describe('Registry pull-through proxy', () => {
     });
 
     it('Registry tab in the UI reflects the enabled state', () => {
-      const user = Cypress.env('USERNAME');
-      const pass = Cypress.env('PASSWORD');
-      cy.origin(AGENT_B, { args: { AGENT_B, user, pass } }, ({ AGENT_B, user, pass }) => {
-        cy.visit(`${AGENT_B}/login`);
-        cy.get('#username').type(user);
-        cy.get('#password').type(pass);
-        cy.get('button[type="submit"]').click();
-        cy.url({ timeout: 10000 }).should('not.include', '/login');
-        cy.visit(`${AGENT_B}/settings`);
-        cy.get('.stg-tab[data-section="registry"]').click();
-        cy.get('#setting-registry-pull-enabled', { timeout: 5000 }).should('be.checked');
-      });
+      cy.loginTo(AGENT_B);
+      cy.visit(`${AGENT_B}/settings`);
+      cy.get('.stg-tab[data-section="registry"]').click();
+      cy.get('#setting-registry-pull-enabled', { timeout: 5000 }).should('be.checked');
     });
 
     it('disabling registry_pull_enabled persists to GET /api/settings', () => {
@@ -123,21 +115,13 @@ describe('Registry pull-through proxy', () => {
       // First enable registry pull so the URL field is relevant
       cy.apiRequest('POST', `${AGENT_B}/api/settings`, { registry_pull_enabled: true });
 
-      const user = Cypress.env('USERNAME');
-      const pass = Cypress.env('PASSWORD');
-      cy.origin(AGENT_B, { args: { AGENT_B, user, pass } }, ({ AGENT_B, user, pass }) => {
-        cy.visit(`${AGENT_B}/login`);
-        cy.get('#username').type(user);
-        cy.get('#password').type(pass);
-        cy.get('button[type="submit"]').click();
-        cy.url({ timeout: 10000 }).should('not.include', '/login');
-        cy.visit(`${AGENT_B}/settings`);
-        cy.get('.stg-tab[data-section="registry"]').click();
-        cy.get('#setting-registry-api-url').clear().type('https://registry.example.internal');
-        cy.get('#setting-registry-save').click();
-        cy.get('#toast', { timeout: 5000 }).should('have.class', 'show')
-          .and('satisfy', ($el) => /saved|registry/i.test($el.text()));
-      });
+      cy.loginTo(AGENT_B);
+      cy.visit(`${AGENT_B}/settings`);
+      cy.get('.stg-tab[data-section="registry"]').click();
+      cy.get('#setting-registry-api-url').clear().type('https://registry.example.internal');
+      cy.get('#setting-registry-save').click();
+      cy.get('#toast', { timeout: 5000 }).should('have.class', 'show')
+        .and('satisfy', ($el) => /saved|registry/i.test($el.text()));
 
       cy.apiRequest('GET', `${AGENT_B}/api/settings`).then((r) => {
         expect(r.body.registry_api_url).to.eq('https://registry.example.internal');

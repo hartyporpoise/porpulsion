@@ -4,7 +4,7 @@
  * Precondition: A and B are peered (02-peering ran first).
  */
 describe('Peer persistence', () => {
-  beforeEach(() => cy.loginUI());
+  beforeEach(() => cy.loginTo());
 
   it('peers page shows at least one peer', () => {
     cy.visit('/peers');

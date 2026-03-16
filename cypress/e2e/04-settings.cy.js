@@ -4,7 +4,7 @@
 describe('Settings', () => {
   const AGENT_A = Cypress.env('AGENT_A_URL');
 
-  beforeEach(() => cy.loginUI());
+  beforeEach(() => cy.loginTo());
 
   it('settings page loads', () => {
     cy.visit('/settings');

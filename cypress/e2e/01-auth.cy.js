@@ -33,7 +33,7 @@ describe('Authentication', () => {
   });
 
   context('Authenticated session', () => {
-    beforeEach(() => cy.loginUI());
+    beforeEach(() => cy.loginTo());
 
     it('dashboard loads at /', () => {
       cy.visit('/');
@@ -59,7 +59,7 @@ describe('Authentication', () => {
   });
 
   context('User management', () => {
-    beforeEach(() => cy.loginUI());
+    beforeEach(() => cy.loginTo());
 
     it('users page lists the admin user', () => {
       cy.visit('/users');

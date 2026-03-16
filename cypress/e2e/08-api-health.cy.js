@@ -8,7 +8,7 @@ describe('API Health', () => {
 
   context('Agent A', () => {
     it('GET / returns 200', () => {
-      cy.loginUI();
+      cy.loginTo();
       cy.request(AGENT_A).its('status').should('eq', 200);
     });
 
