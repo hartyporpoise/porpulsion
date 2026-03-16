@@ -162,6 +162,7 @@ describe('Approval flow', () => {
 
       // Agent A should reflect Failed status
       cy.loginTo();
+      cy.visit('/workloads');
       cy.contains('#submitted-body tr', 'cypress-reject', { timeout: 30000 })
         .find('td:nth-child(3)')
         .should('contain.text', 'Failed');
