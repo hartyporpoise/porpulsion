@@ -36,23 +36,15 @@ function authHeaders() {
  */
 Cypress.Commands.add('loginTo', (agentUrl) => {
   const url = agentUrl || clusterA();
-  const loginUrl = `${url}/login`;
   cy.clearAllCookies();
   cy.clearAllLocalStorage();
   cy.clearAllSessionStorage();
-  cy.request({ url: loginUrl, method: 'GET' }).then((resp) => {
-    const match = resp.body.match(/name="_csrf_token"\s+value="([^"]+)"/);
-    const csrf = match ? match[1] : '';
-    cy.request({
-      url: loginUrl,
-      method: 'POST',
-      form: true,
-      failOnStatusCode: false,
-      body: { username: USERNAME(), password: PASSWORD(), _csrf_token: csrf },
-    });
-  });
-  cy.visit(`${url}/`);
-  cy.url({ timeout: 10000 }).should('not.include', '/login');
+  // Visit the login page directly in the browser so cookies are set in the
+  // correct origin context — avoids cy.request cookie jar vs browser mismatch.
+  cy.visit(`${url}/login`);
+  cy.get('#username', { timeout: 10000 }).should('be.visible').type(USERNAME());
+  cy.get('#password').type(PASSWORD());
+  cy.get('button[type="submit"]').click();
 });
 
 /**

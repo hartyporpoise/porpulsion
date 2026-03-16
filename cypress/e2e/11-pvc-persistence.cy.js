@@ -8,24 +8,25 @@
  */
 describe('PVC persistence', () => {
   const AGENT_A = Cypress.env('AGENT_A_URL');
-  const AGENT_B = Cypress.env('AGENT_B_URL');
   let PEER_B_NAME;
   let APP_ID;
 
   // Unique sentinel written to the PVC
   const SENTINEL = 'porpulsion-pvc-ok';
 
-  before(() => {
-    // Make sure PVCs are allowed on Agent B via the settings UI
-    cy.agentBSettings({ inboundApps: true, requireApproval: false, allowPvcs: true });
+  context('Agent B setup', () => {
+    it('enables inbound apps and PVCs on Agent B', () => {
+      cy.agentBSettings({ inboundApps: true, requireApproval: false, allowPvcs: true });
+    });
+  });
 
+  before(() => {
     const waitForPeer = (attempts = 0) => {
       cy.apiRequest('GET', `${AGENT_A}/api/peers`).then((resp) => {
         const peer = resp.body.find((p) => p.channel === 'connected') || resp.body[0];
         if (peer?.name) { PEER_B_NAME = peer.name; return; }
         if (attempts >= 10) throw new Error('No peer found on Agent A after waiting');
-        cy.wait(3000);
-        waitForPeer(attempts + 1);
+        cy.wait(3000).then(() => waitForPeer(attempts + 1));
       });
     };
     waitForPeer();

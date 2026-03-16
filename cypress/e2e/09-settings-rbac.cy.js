@@ -4,7 +4,7 @@
  * a deploy, and that image policy enforcement works.
  *
  * Precondition: A and B are peered (02-peering ran first).
- * All state changes are restored in after() / afterEach() so later suites are unaffected.
+ * Each context stays on one cluster — no mid-test cluster switches.
  */
 describe('Settings & RBAC', () => {
   const AGENT_A = Cypress.env('AGENT_A_URL');
@@ -25,7 +25,7 @@ describe('Settings & RBAC', () => {
   });
 
   // ----------------------------------------------------------------
-  // Settings page structure
+  // Settings page structure (cluster-a)
   // ----------------------------------------------------------------
   context('Settings page structure', () => {
     beforeEach(() => cy.loginTo());
@@ -59,21 +59,32 @@ describe('Settings & RBAC', () => {
   });
 
   // ----------------------------------------------------------------
-  // Toggle: inbound apps (allow_inbound_remoteapps)
+  // Inbound apps toggle (cluster-b only)
   // ----------------------------------------------------------------
-  context('Inbound apps toggle', () => {
-    after(() => {
-      cy.agentBSettings({ inboundApps: true });
+  context('Inbound apps toggle — Agent B', () => {
+    beforeEach(() => cy.loginTo(AGENT_B));
+
+    it('disables inbound apps on Agent B', () => {
+      cy.agentBSettings({ inboundApps: false });
     });
 
-    it('disabling inbound apps on Agent B rejects a deploy from Agent A', () => {
-      cy.agentBSettings({ inboundApps: false });
+    it('inbound apps toggle is unchecked after disabling', () => {
+      cy.visit(`${AGENT_B}/settings`);
+      cy.get('.stg-tab[data-section="executing"]').click();
+      cy.get('#setting-inbound-apps').should('not.be.checked');
+    });
+  });
 
-      cy.loginTo();
+  // ----------------------------------------------------------------
+  // Deploy rejected when inbound disabled (cluster-a)
+  // ----------------------------------------------------------------
+  context('Inbound apps toggle — deploy rejected on Agent A', () => {
+    beforeEach(() => cy.loginTo());
+
+    it('deploy to Agent B is rejected when inbound apps is disabled', () => {
       cy.visit('/deploy');
       cy.get('[data-mode="yaml"]').click();
       cy.get('#deploy-yaml-wrap').should('be.visible');
-
       cy.window().then((win) => {
         win.PorpulsionVscodeEditor.setDeploySpecValue([
           'apiVersion: porpulsion.io/v1alpha1',
@@ -87,17 +98,23 @@ describe('Settings & RBAC', () => {
         ].join('\n'));
       });
       cy.get('#deploy-submit-btn-yaml').click();
-
-      // Should show a toast error — not redirect to /workloads
       cy.get('#toast', { timeout: 8000 }).should('have.class', 'show')
         .and('satisfy', ($el) => /inbound|disabled|not allowed|rejected/i.test($el.text()));
       cy.url().should('not.include', '/workloads');
     });
+  });
 
-    it('re-enabling inbound apps on Agent B via UI toggle persists', () => {
+  // ----------------------------------------------------------------
+  // Re-enable inbound apps (cluster-b only)
+  // ----------------------------------------------------------------
+  context('Inbound apps toggle — re-enable on Agent B', () => {
+    beforeEach(() => cy.loginTo(AGENT_B));
+
+    it('re-enables inbound apps on Agent B', () => {
       cy.agentBSettings({ inboundApps: true });
-      // Confirm the toggle is now checked in the UI
-      cy.loginTo(AGENT_B);
+    });
+
+    it('inbound apps toggle is checked after re-enabling', () => {
       cy.visit(`${AGENT_B}/settings`);
       cy.get('.stg-tab[data-section="executing"]').click();
       cy.get('#setting-inbound-apps').should('be.checked');
@@ -105,17 +122,20 @@ describe('Settings & RBAC', () => {
   });
 
   // ----------------------------------------------------------------
-  // Image policy: allowed_images and blocked_images
+  // Image policy — set blocked images (cluster-b)
   // ----------------------------------------------------------------
-  context('Image policy', () => {
-    after(() => {
-      cy.agentBSettings({ blockedImages: '', allowedImages: '' });
-    });
+  context('Image policy — blocked images on Agent B', () => {
+    beforeEach(() => cy.loginTo(AGENT_B));
 
-    it('blocked_images rejects a deploy whose image matches the prefix', () => {
+    it('sets blocked_images on Agent B', () => {
       cy.agentBSettings({ blockedImages: 'cypress-blocked.io/', allowedImages: '' });
+    });
+  });
 
-      cy.loginTo();
+  context('Image policy — blocked deploy rejected on Agent A', () => {
+    beforeEach(() => cy.loginTo());
+
+    it('deploy with blocked image is rejected', () => {
       cy.visit('/deploy');
       cy.get('[data-mode="yaml"]').click();
       cy.window().then((win) => {
@@ -134,11 +154,23 @@ describe('Settings & RBAC', () => {
       cy.get('#toast', { timeout: 8000 }).should('have.class', 'show')
         .and('satisfy', ($el) => /block|policy|not allowed/i.test($el.text()));
     });
+  });
 
-    it('allowed_images filter rejects an image outside the allowed prefix', () => {
+  // ----------------------------------------------------------------
+  // Image policy — set allowed images (cluster-b)
+  // ----------------------------------------------------------------
+  context('Image policy — allowed images on Agent B', () => {
+    beforeEach(() => cy.loginTo(AGENT_B));
+
+    it('sets allowed_images on Agent B', () => {
       cy.agentBSettings({ blockedImages: '', allowedImages: 'docker.io/' });
+    });
+  });
 
-      cy.loginTo();
+  context('Image policy — non-allowed deploy rejected on Agent A', () => {
+    beforeEach(() => cy.loginTo());
+
+    it('deploy with image outside allowed prefix is rejected', () => {
       cy.visit('/deploy');
       cy.get('[data-mode="yaml"]').click();
       cy.window().then((win) => {
@@ -157,9 +189,26 @@ describe('Settings & RBAC', () => {
       cy.get('#toast', { timeout: 8000 }).should('have.class', 'show')
         .and('satisfy', ($el) => /allowed|policy|not in/i.test($el.text()));
     });
+  });
+
+  // ----------------------------------------------------------------
+  // Clear image filters (cluster-b)
+  // ----------------------------------------------------------------
+  context('Image policy — clear filters on Agent B', () => {
+    beforeEach(() => cy.loginTo(AGENT_B));
+
+    it('clears image filters on Agent B', () => {
+      cy.agentBSettings({ blockedImages: '', allowedImages: '' });
+    });
+  });
+
+  // ----------------------------------------------------------------
+  // Image filter UI round-trip (cluster-a)
+  // ----------------------------------------------------------------
+  context('Image filter UI round-trip', () => {
+    beforeEach(() => cy.loginTo());
 
     it('image filter settings save and reload via the UI filters form', () => {
-      cy.loginTo();
       cy.visit('/settings');
       cy.get('.stg-tab[data-section="executing"]').click();
       cy.get('#setting-allowed-images').clear().type('my-registry.io/');
@@ -168,7 +217,6 @@ describe('Settings & RBAC', () => {
       cy.get('#toast', { timeout: 5000 }).should('have.class', 'show')
         .and('satisfy', ($el) => /saved|filter/i.test($el.text()));
 
-      // Reload and verify the values are reflected
       cy.reload();
       cy.get('.stg-tab[data-section="executing"]').click();
       cy.get('#setting-allowed-images').should('have.value', 'my-registry.io/');
@@ -177,26 +225,26 @@ describe('Settings & RBAC', () => {
   });
 
   // ----------------------------------------------------------------
-  // Allow PVCs toggle
+  // Allow PVCs toggle (cluster-b)
   // ----------------------------------------------------------------
-  context('allow_pvcs toggle', () => {
-    after(() => {
-      cy.agentBSettings({ allowPvcs: true });
+  context('allow_pvcs toggle — Agent B', () => {
+    beforeEach(() => cy.loginTo(AGENT_B));
+
+    it('disables allow_pvcs on Agent B', () => {
+      cy.agentBSettings({ allowPvcs: false });
     });
 
-    it('disabling allow_pvcs via UI toggle is reflected in the UI', () => {
-      cy.agentBSettings({ allowPvcs: false });
-      // Confirm the toggle is now unchecked
-      cy.loginTo(AGENT_B);
+    it('allow_pvcs toggle is unchecked after disabling', () => {
       cy.visit(`${AGENT_B}/settings`);
       cy.get('.stg-tab[data-section="executing"]').click();
       cy.get('#setting-allow-pvcs').should('not.be.checked');
     });
 
-    it('enabling allow_pvcs via UI toggle is reflected in the UI', () => {
+    it('re-enables allow_pvcs on Agent B', () => {
       cy.agentBSettings({ allowPvcs: true });
-      // Confirm the toggle is now checked
-      cy.loginTo(AGENT_B);
+    });
+
+    it('allow_pvcs toggle is checked after re-enabling', () => {
       cy.visit(`${AGENT_B}/settings`);
       cy.get('.stg-tab[data-section="executing"]').click();
       cy.get('#setting-allow-pvcs').should('be.checked');

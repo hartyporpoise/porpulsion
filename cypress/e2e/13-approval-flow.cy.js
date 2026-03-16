@@ -10,26 +10,25 @@ describe('Approval flow', () => {
   const AGENT_B = Cypress.env('AGENT_B_URL');
   let PEER_B_NAME;
 
-  before(() => {
-    // Enable require_approval on Agent B so incoming apps wait for approval
-    cy.agentBSettings({ inboundApps: true, requireApproval: true });
+  context('Agent B setup', () => {
+    it('enables inbound apps and require approval on Agent B', () => {
+      cy.agentBSettings({ inboundApps: true, requireApproval: true });
+    });
+  });
 
+  before(() => {
     const waitForPeer = (attempts = 0) => {
       cy.apiRequest('GET', `${AGENT_A}/api/peers`).then((resp) => {
         const peer = resp.body.find((p) => p.channel === 'connected') || resp.body[0];
         if (peer?.name) { PEER_B_NAME = peer.name; return; }
         if (attempts >= 10) throw new Error('No peer found on Agent A after waiting');
-        cy.wait(3000);
-        waitForPeer(attempts + 1);
+        cy.wait(3000).then(() => waitForPeer(attempts + 1));
       });
     };
     waitForPeer();
   });
 
   after(() => {
-    // Restore Agent B to auto-approve mode
-    cy.agentBSettings({ requireApproval: false });
-
     // Delete the test app if it exists
     cy.apiRequest('GET', `${AGENT_A}/api/remoteapps`).then((resp) => {
       const all = [...(resp.body?.submitted || []), ...(resp.body?.executing || [])];
@@ -114,5 +113,16 @@ describe('Approval flow', () => {
     cy.contains('#submitted-body tr', 'cypress-approval', { timeout: 30000 })
       .find('td:nth-child(3)')
       .should('contain.text', 'Ready');
+  });
+
+  // ----------------------------------------------------------------
+  // Agent B teardown — restore auto-approve
+  // ----------------------------------------------------------------
+  context('Agent B teardown', () => {
+    beforeEach(() => cy.loginTo(AGENT_B));
+
+    it('restores Agent B to auto-approve mode', () => {
+      cy.agentBSettings({ requireApproval: false });
+    });
   });
 });

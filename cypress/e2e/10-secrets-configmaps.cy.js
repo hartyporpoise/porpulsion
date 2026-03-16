@@ -7,20 +7,16 @@
  */
 describe('Secrets & ConfigMaps', () => {
   const AGENT_A = Cypress.env('AGENT_A_URL');
-  const AGENT_B = Cypress.env('AGENT_B_URL');
   let PEER_B_NAME;
   let APP_ID;
 
   before(() => {
-    cy.agentBSettings({ inboundApps: true, requireApproval: false });
-
     const waitForPeer = (attempts = 0) => {
       cy.apiRequest('GET', `${AGENT_A}/api/peers`).then((resp) => {
         const peer = resp.body.find((p) => p.channel === 'connected') || resp.body[0];
         if (peer?.name) { PEER_B_NAME = peer.name; return; }
         if (attempts >= 10) throw new Error('No peer found on Agent A after waiting');
-        cy.wait(3000);
-        waitForPeer(attempts + 1);
+        cy.wait(3000).then(() => waitForPeer(attempts + 1));
       });
     };
     waitForPeer();

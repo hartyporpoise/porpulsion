@@ -8,17 +8,17 @@ describe('Workloads', () => {
   let PEER_B_NAME;
 
   before(() => {
-    // Ensure Agent B will accept inbound workloads
-    cy.agentBSettings({ inboundApps: true, requireApproval: false });
-
-    // Wait for at least one peer to be connected (02-peering must have run first)
+    // Wait for at least one peer to be connected (02-peering must have run first).
     const waitForPeer = (attempts = 0) => {
       cy.apiRequest('GET', `${AGENT_A}/api/peers`).then((resp) => {
         const connected = resp.body.find((p) => p.channel === 'connected') || resp.body[0];
-        if (connected?.name) { PEER_B_NAME = connected.name; return; }
+        if (connected?.name) {
+          PEER_B_NAME = connected.name;
+          cy.log(`PEER_B_NAME resolved to: ${PEER_B_NAME}`);
+          return;
+        }
         if (attempts >= 10) throw new Error('No peer found on Agent A after waiting');
-        cy.wait(3000);
-        waitForPeer(attempts + 1);
+        cy.wait(3000).then(() => waitForPeer(attempts + 1));
       });
     };
     waitForPeer();
@@ -57,6 +57,7 @@ describe('Workloads', () => {
     });
 
     it('deploys an nginx app via the form', () => {
+      expect(PEER_B_NAME, 'PEER_B_NAME must be set — is a peer connected?').to.be.ok;
       cy.visit('/deploy');
       cy.get('#deploy-name').type('cypress-nginx');
       cy.selectTargetPeer(PEER_B_NAME);
