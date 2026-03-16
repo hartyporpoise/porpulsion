@@ -42,36 +42,28 @@ describe('Terminal (exec)', () => {
     cy.url({ timeout: 15000 }).should('include', '/workloads');
   });
 
-  it('app reaches Ready on Agent B (up to 90s)', () => {
-    cy.waitForExecutingApp('cypress-exec', 'Ready', 18, 5000);
+  it('app reaches Ready on Agent B (up to 120s)', () => {
+    cy.waitForExecutingApp('cypress-exec', 'Ready', 24, 5000);
+  });
+
+  it('app status propagates to Agent A (terminal tab becomes enabled)', () => {
+    // Wait for Agent A to reflect Ready so the terminal tab is enabled in the modal
+    cy.waitForSubmittedAppReady('cypress-exec', 24, 5000);
   });
 
   it('detail modal has an enabled Terminal tab when app is Running', () => {
     cy.loginTo();
-    // The modal reads status from Agent A which may lag Agent B by a few seconds.
-    // Poll by reopening the modal until the Terminal tab becomes enabled.
-    const waitForTerminalEnabled = (attempts = 0) => {
-      cy.visit('/workloads');
-      cy.openAppModal('cypress-exec');
-      cy.get('#app-modal-tabs-bar [data-tab="terminal"]', { timeout: 10000 })
-        .then(($tab) => {
-          if (!$tab.hasClass('modal-tab-disabled')) return;
-          if (attempts >= 12) throw new Error('Terminal tab never became enabled');
-          cy.get('#app-modal-close').click({ force: true });
-          cy.wait(5000);
-          waitForTerminalEnabled(attempts + 1);
-        });
-    };
-    waitForTerminalEnabled();
-    cy.get('#app-modal-tabs-bar [data-tab="terminal"]').should('not.have.class', 'modal-tab-disabled');
+    cy.visit('/workloads');
+    cy.openAppModal('cypress-exec');
+    cy.get('#app-modal-tabs-bar [data-tab="terminal"]', { timeout: 10000 })
+      .should('not.have.class', 'modal-tab-disabled');
   });
 
   it('Terminal tab renders the xterm container', () => {
     cy.loginTo();
     cy.visit('/workloads');
     cy.openAppModal('cypress-exec');
-    // Terminal tab must be enabled before clicking — wait for it
-    cy.get('#app-modal-tabs-bar [data-tab="terminal"]:not(.modal-tab-disabled)', { timeout: 60000 })
+    cy.get('#app-modal-tabs-bar [data-tab="terminal"]:not(.modal-tab-disabled)', { timeout: 15000 })
       .click();
     cy.get('#app-modal-body [data-panel="terminal"].active', { timeout: 5000 }).should('exist');
     cy.get('#app-modal-body [data-panel="terminal"]')
@@ -83,7 +75,7 @@ describe('Terminal (exec)', () => {
     cy.loginTo();
     cy.visit('/workloads');
     cy.openAppModal('cypress-exec');
-    cy.get('#app-modal-tabs-bar [data-tab="terminal"]:not(.modal-tab-disabled)', { timeout: 60000 })
+    cy.get('#app-modal-tabs-bar [data-tab="terminal"]:not(.modal-tab-disabled)', { timeout: 15000 })
       .click();
     cy.get('#app-modal-body [data-panel="terminal"].active', { timeout: 5000 }).should('exist');
     cy.get('#app-modal-body [data-panel="terminal"] #exec-shell-select', { timeout: 5000 })

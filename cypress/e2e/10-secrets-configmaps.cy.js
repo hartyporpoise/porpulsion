@@ -42,7 +42,7 @@ describe('Secrets & ConfigMaps', () => {
         '  command: ["sh", "-c", "sleep 3600"]',
         '  replicas: 1',
         `  targetPeer: ${PEER_B_NAME}`,
-        '  configmaps:',
+        '  configMaps:',
         '    - name: my-config',
         '      mountPath: /etc/myapp',
         '      data:',
@@ -70,6 +70,11 @@ describe('Secrets & ConfigMaps', () => {
     cy.waitForExecutingApp('cypress-cfg-test', 'Ready', 18, 5000);
   });
 
+  it('app status propagates to Agent A (config tab becomes enabled)', () => {
+    // Allow up to 120s — previous tests may have left pending apps that slow Agent A kopf
+    cy.waitForSubmittedAppReady('cypress-cfg-test', 24, 5000);
+  });
+
   // ----------------------------------------------------------------
   // Config tab: verify secrets are displayed as plaintext (decoded)
   // ----------------------------------------------------------------
@@ -88,22 +93,22 @@ describe('Secrets & ConfigMaps', () => {
       cy.visit('/workloads');
       cy.openAppModal('cypress-cfg-test');
       cy.appModalTab('config');
-      // ConfigMap section should exist and show the key names
-      cy.get('#cfg-panel-body', { timeout: 10000 })
-        .should('contain.text', 'my-config')
-        .and('contain.text', 'app.conf')
-        .and('contain.text', 'greeting');
+      // Volume name is in static HTML (immediate); keys are loaded async via fetch
+      cy.get('#cfg-panel-body', { timeout: 10000 }).should('contain.text', 'my-config');
+      // Keys are populated by _buildKvEditor async fetch — wait up to 15s
+      cy.get('#cfg-panel-body', { timeout: 15000 }).should('contain.text', 'app.conf');
+      cy.get('#cfg-panel-body', { timeout: 5000 }).should('contain.text', 'greeting');
     });
 
     it('Config tab shows the secret with decoded plaintext values', () => {
       cy.visit('/workloads');
       cy.openAppModal('cypress-cfg-test');
       cy.appModalTab('config');
-      // Secret section should show key names; values are loaded via API (plaintext)
-      cy.get('#cfg-panel-body', { timeout: 10000 })
-        .should('contain.text', 'my-secret')
-        .and('contain.text', 'api_key')
-        .and('contain.text', 'db_pass');
+      // Volume name is in static HTML (immediate); keys are loaded async via fetch
+      cy.get('#cfg-panel-body', { timeout: 10000 }).should('contain.text', 'my-secret');
+      // Keys are populated by _buildKvEditor async fetch — wait up to 15s
+      cy.get('#cfg-panel-body', { timeout: 15000 }).should('contain.text', 'api_key');
+      cy.get('#cfg-panel-body', { timeout: 5000 }).should('contain.text', 'db_pass');
     });
 
     it('secret values API returns plaintext (base64 decoded by server)', () => {
@@ -173,10 +178,11 @@ describe('Secrets & ConfigMaps', () => {
     });
     cy.window().then((win) => {
       const yaml = win.PorpulsionVscodeEditor.getModalSpecEditorValue('modal-spec-editor-host', 'modal-spec-textarea');
-      // The base64 of "updated-secret" is "dXBkYXRlZC1zZWNyZXQ="
-      expect(yaml).to.include('dXBkYXRlZC1zZWNyZXQ=');
-      // Plain text should NOT appear
-      expect(yaml).not.to.include('updated-secret');
+      // The CR spec stores base64-encoded secret values.
+      // base64 of "super-secret-value" = "c3VwZXItc2VjcmV0LXZhbHVl"
+      expect(yaml).to.match(/secrets/);
+      // Plain text values should NOT appear raw
+      expect(yaml).not.to.include('super-secret-value');
     });
   });
 

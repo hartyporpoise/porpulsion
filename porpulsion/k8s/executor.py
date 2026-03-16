@@ -629,8 +629,8 @@ def run_workload(remote_app, callback_url, peer=None, cr_body=None):
 
         _report_status(remote_app, callback_url, "Running", peer=peer)
 
-        # -- Poll until ready
-        for _ in range(60):
+        # -- Poll until ready (up to 5 minutes — image pulls can be slow on first run)
+        for _ in range(150):
             if stop.is_set():
                 log.info("Watcher for %s cancelled (re-deploy)", remote_app.id)
                 return

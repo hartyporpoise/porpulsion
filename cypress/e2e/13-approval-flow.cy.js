@@ -26,6 +26,17 @@ describe('Approval flow', () => {
       });
     };
     waitForPeer();
+
+    // Clean up any leftover cypress-approval from a previous run
+    cy.apiRequest('GET', `${AGENT_A}/api/remoteapps`).then((resp) => {
+      const all = [...(resp.body?.submitted || []), ...(resp.body?.executing || [])];
+      const app = all.find((a) => a.name === 'cypress-approval');
+      const id = app?.app_id || app?.id;
+      if (id) {
+        cy.apiRequest('DELETE', `${AGENT_A}/api/remoteapp/${id}`);
+        cy.wait(3000);
+      }
+    });
   });
 
   after(() => {
@@ -41,6 +52,19 @@ describe('Approval flow', () => {
   // ----------------------------------------------------------------
   // Deploy — app should be held for approval, not immediately Running
   // ----------------------------------------------------------------
+  it('confirms Agent B has require_remoteapp_approval=true via API', () => {
+    // Belt-and-suspenders: verify the setting is saved before we deploy.
+    // If this fails the agentBSettings toast-wait is not working correctly.
+    const waitForSetting = (attempts = 0) => {
+      cy.apiRequest('GET', `${AGENT_B}/api/settings`).then((resp) => {
+        if (resp.body.require_remoteapp_approval === true) return;
+        if (attempts >= 5) throw new Error('Agent B require_remoteapp_approval never became true');
+        cy.wait(1000).then(() => waitForSetting(attempts + 1));
+      });
+    };
+    waitForSetting();
+  });
+
   it('deploys an app to a peer that requires approval', () => {
     cy.loginTo();
     cy.visit('/deploy');
@@ -69,13 +93,13 @@ describe('Approval flow', () => {
     cy.get('#submitted-body', { timeout: 15000 }).should('contain.text', 'cypress-approval');
   });
 
-  it('app does NOT reach Ready on Agent B within a short window (held for approval)', () => {
+  it('app does NOT reach executing on Agent B within a short window (held for approval)', () => {
+    // When requireApproval is on, the app goes to pending_approval — NOT executing.
+    // After 8s, the executing body should not contain cypress-approval.
     cy.wait(8000);
     cy.loginTo(AGENT_B);
     cy.visit(`${AGENT_B}/workloads`);
-    cy.contains('#executing-body tr', 'cypress-approval', { timeout: 15000 })
-      .find('td:nth-child(3)')
-      .should('not.contain.text', 'Ready');
+    cy.get('#executing-body').should('not.contain.text', 'cypress-approval');
   });
 
   // ----------------------------------------------------------------
@@ -108,9 +132,9 @@ describe('Approval flow', () => {
   });
 
   it('app also shows as running on Agent A submitted list', () => {
-    cy.loginTo();
-    cy.visit('/workloads');
-    cy.contains('#submitted-body tr', 'cypress-approval', { timeout: 30000 })
+    // Wait for Agent A to reflect Ready before checking the table
+    cy.waitForSubmittedAppReady('cypress-approval', 18, 5000);
+    cy.contains('#submitted-body tr', 'cypress-approval', { timeout: 10000 })
       .find('td:nth-child(3)')
       .should('contain.text', 'Ready');
   });

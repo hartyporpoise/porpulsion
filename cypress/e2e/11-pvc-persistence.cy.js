@@ -73,6 +73,10 @@ describe('PVC persistence', () => {
     cy.waitForExecutingApp('cypress-pvc', 'Ready', 24, 5000);
   });
 
+  it('app status propagates to Agent A (terminal tab becomes enabled)', () => {
+    cy.waitForSubmittedAppReady('cypress-pvc', 24, 5000);
+  });
+
   it('detail modal Overview mentions the PVC volume', () => {
     cy.loginTo();
     cy.visit('/workloads');
@@ -88,7 +92,9 @@ describe('PVC persistence', () => {
     cy.loginTo();
     cy.visit('/workloads');
     cy.openAppModal('cypress-pvc');
-    cy.get('#app-modal-tabs-bar [data-tab="terminal"]', { timeout: 10000 })
+    // waitForSubmittedAppReady already confirmed Agent A shows Ready,
+    // so the terminal tab should be enabled immediately.
+    cy.get('#app-modal-tabs-bar [data-tab="terminal"]', { timeout: 15000 })
       .should('exist')
       .and('not.have.class', 'modal-tab-disabled');
   });
@@ -134,39 +140,31 @@ describe('PVC persistence', () => {
 
   it('app returns to Ready after restart (up to 90s)', () => {
     cy.wait(5000); // let the rollout begin
-    cy.waitForExecutingApp('cypress-pvc', 'Ready', 18, 5000);
+    cy.waitForExecutingApp('cypress-pvc', 'Ready', 24, 5000);
   });
 
   it('sentinel file is still in /data after pod restart (PVC persisted)', () => {
-    cy.loginTo();
-    cy.visit('/workloads');
-    cy.openAppModal('cypress-pvc');
-    cy.appModalTab('terminal');
+    // Use the API exec endpoint to verify the sentinel file — more reliable than
+    // reading the xterm DOM (the xterm helper textarea does not hold terminal output).
+    cy.apiRequest('GET', `${AGENT_A}/api/remoteapps`).then((resp) => {
+      const app = resp.body.submitted.find((a) => a.name === 'cypress-pvc');
+      expect(app, 'cypress-pvc must exist in submitted list').to.exist;
+      APP_ID = app.app_id || app.id;
 
-    cy.get('#exec-terminal-wrap', { timeout: 10000 }).should('exist');
-    cy.get('#exec-shell-select').select('/bin/sh', { force: true });
-    cy.get('#exec-status .exec-status-text', { timeout: 20000 })
-      .should('contain.text', 'Connected');
+      // Get a pod name
+      cy.apiRequest('GET', `${AGENT_A}/api/remoteapp/${APP_ID}/pods`).then((podsResp) => {
+        const pod = (podsResp.body.pods || [])[0];
+        expect(pod, 'at least one pod must be running for cypress-pvc').to.exist;
 
-    cy.execTerminalType('cat /data/sentinel.txt');
-    cy.wait(2000);
-
-    // Read the xterm terminal buffer to verify the sentinel is present.
-    // _execTerm is in the IIFE closure but xterm attaches its screen to the DOM —
-    // we grab the accessible terminal lines from xterm's textarea (accessibility)
-    // or fall back to checking the entire text content of the wrap.
-    cy.get('#exec-terminal-wrap').then(($wrap) => {
-      // xterm renders an aria-live region or textarea for accessibility
-      const ariaEl = $wrap[0].querySelector('[aria-live]') || $wrap[0].querySelector('textarea');
-      if (ariaEl) {
-        cy.wrap(ariaEl).should('satisfy', ($el) => {
-          return $el.textContent.includes(SENTINEL) || $el.value?.includes(SENTINEL);
+        // Exec cat /data/sentinel.txt
+        cy.apiRequest('POST', `${AGENT_A}/api/remoteapp/${APP_ID}/exec`, {
+          pod: pod.name,
+          command: `cat /data/sentinel.txt`,
+        }).then((execResp) => {
+          expect(execResp.status).to.eq(200);
+          expect(execResp.body.output || '').to.include(SENTINEL);
         });
-      } else {
-        // xterm v5 exposes a data-xterm-screen div — check its text
-        // If neither works we at minimum confirm the session is still live
-        cy.get('#exec-status .exec-status-text').should('contain.text', 'Connected');
-      }
+      });
     });
   });
 

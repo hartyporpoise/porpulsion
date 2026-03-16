@@ -283,9 +283,10 @@ _cypress-run: ## Internal: build image, wait for agents, run Cypress
 	docker run --rm \
 		--network "$$DOCKER_NET" \
 		-p 6080:6080 \
-		-e CYPRESS_BASE_URL=http://cluster-a:30080 \
-		-e CYPRESS_AGENT_A_URL=http://cluster-a:30080 \
-		-e CYPRESS_AGENT_B_URL=http://cluster-b:30080 \
+		--add-host=host.docker.internal:host-gateway \
+		-e CYPRESS_BASE_URL=http://host.docker.internal:8001 \
+		-e CYPRESS_AGENT_A_URL=http://host.docker.internal:8001 \
+		-e CYPRESS_AGENT_B_URL=http://host.docker.internal:8002 \
 		-e CYPRESS_USERNAME=$(TEST_USERNAME) \
 		-e CYPRESS_PASSWORD=$(TEST_PASSWORD) \
 		-v "$$(pwd)/cypress/screenshots:/e2e/cypress/screenshots" \

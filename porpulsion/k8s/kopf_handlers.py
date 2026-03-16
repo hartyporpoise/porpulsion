@@ -149,8 +149,11 @@ def on_remoteapp_created(body, meta, status, namespace, **kwargs):
             "quota",
             "not permitted",
             "blocked image",
+            "is blocked",
+            "allowed image list",
             "spec invalid",
             "not allowed",
+            "cluster's policy",
         )
         if any(p in err_msg for p in _peer_rejection_phrases):
             log.warning("kopf: RemoteApp %s rejected by peer %s: %s", cr_name, target_peer, err_msg)

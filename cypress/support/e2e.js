@@ -119,9 +119,16 @@ Cypress.Commands.add('execTerminalType', (command) => {
  * settings: { inboundApps, requireApproval, allowPvcs, blockedImages, allowedImages }
  */
 Cypress.Commands.add('agentBSettings', (settings = {}) => {
+  // iOS toggles hide the <input> behind the label — always force click.
+  // After clicking, wait for the toast so the async API save has completed.
   function setToggle(id, value) {
     cy.get(id).then(($el) => {
-      if ($el.prop('checked') !== value) cy.wrap($el).click();
+      if ($el.prop('checked') !== value) {
+        // Wait for any stale toast to clear, then click, then wait for the new toast.
+        cy.get('#toast').should('not.have.class', 'show');
+        cy.wrap($el).click({ force: true });
+        cy.get('#toast', { timeout: 5000 }).should('have.class', 'show');
+      }
     });
   }
 
@@ -136,10 +143,12 @@ Cypress.Commands.add('agentBSettings', (settings = {}) => {
   if (settings.blockedImages !== undefined || settings.allowedImages !== undefined) {
     cy.get('.stg-tab[data-section="executing"]').click();
     if (settings.blockedImages !== undefined) {
-      cy.get('#setting-blocked-images').clear().type(settings.blockedImages);
+      cy.get('#setting-blocked-images').clear();
+      if (settings.blockedImages) cy.get('#setting-blocked-images').type(settings.blockedImages);
     }
     if (settings.allowedImages !== undefined) {
-      cy.get('#setting-allowed-images').clear().type(settings.allowedImages);
+      cy.get('#setting-allowed-images').clear();
+      if (settings.allowedImages) cy.get('#setting-allowed-images').type(settings.allowedImages);
     }
     cy.get('#setting-filters-save').click();
   }
@@ -154,7 +163,38 @@ Cypress.Commands.add('waitForExecutingApp', (appName, status = 'Ready', maxAttem
 
   cy.loginTo(clusterB());
   cy.visit(`${clusterB()}/workloads`);
-  cy.contains('#executing-body tr', appName, { timeout: timeoutMs })
-    .find('td:nth-child(3)')
-    .should('contain.text', status);
+  // Use a single cy.contains targeting the row text that includes both the app name
+  // AND status, so the full timeout applies to the status assertion too.
+  // The table auto-refreshes every 3s, so Cypress will see the updated status.
+  cy.get('#executing-body', { timeout: timeoutMs }).should(($body) => {
+    const row = $body.find('tr').filter((_, tr) => tr.textContent.includes(appName));
+    expect(row.length, `App "${appName}" not found in executing table`).to.be.gt(0);
+    const statusCell = row.find('td:nth-child(3)');
+    expect(statusCell.text(), `App "${appName}" status`).to.include(status);
+  });
+});
+
+/**
+ * After waitForExecutingApp confirms Agent B shows the app as Ready,
+ * switch back to Agent A and wait for the submitted app's status to
+ * also reflect Ready (so the modal terminal/config tabs are enabled).
+ */
+Cypress.Commands.add('waitForSubmittedAppReady', (appName, maxAttempts = 12, intervalMs = 5000) => {
+  const AGENT_A_URL = clusterA();
+  cy.loginTo(AGENT_A_URL);
+  cy.visit(`${AGENT_A_URL}/workloads`);
+
+  const waitForStatus = (attempts = 0) => {
+    cy.apiRequest('GET', `${AGENT_A_URL}/api/remoteapps`).then((resp) => {
+      const all = [...(resp.body?.submitted || []), ...(resp.body?.executing || [])];
+      const app = all.find((a) => a.name === appName);
+      if (app && (app.status === 'Ready' || app.status === 'Running')) return;
+      if (attempts >= maxAttempts) throw new Error(`${appName} never reached Ready on Agent A`);
+      cy.wait(intervalMs).then(() => waitForStatus(attempts + 1));
+    });
+  };
+  waitForStatus();
+
+  // Reload the page so the workloads table reflects the latest status
+  cy.visit(`${AGENT_A_URL}/workloads`);
 });

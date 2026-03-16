@@ -11,28 +11,36 @@ describe('Workloads', () => {
     // Wait for at least one peer to be connected (02-peering must have run first).
     const waitForPeer = (attempts = 0) => {
       cy.apiRequest('GET', `${AGENT_A}/api/peers`).then((resp) => {
-        const connected = resp.body.find((p) => p.channel === 'connected') || resp.body[0];
+        const connected = resp.body.find((p) => p.channel === 'connected');
         if (connected?.name) {
           PEER_B_NAME = connected.name;
           cy.log(`PEER_B_NAME resolved to: ${PEER_B_NAME}`);
           return;
         }
-        if (attempts >= 10) throw new Error('No peer found on Agent A after waiting');
+        if (attempts >= 20) throw new Error('No connected peer found on Agent A after waiting');
         cy.wait(3000).then(() => waitForPeer(attempts + 1));
       });
     };
     waitForPeer();
 
-    // Clean up any leftover apps from a previous run before starting fresh
-    const CLEANUP_APPS = ['cypress-nginx', 'cypress-busybox', 'cypress-cm-test'];
+    // Clean up any leftover apps from a previous run before starting fresh.
+    // Wait after deletion so k8s finalizers complete before tests run.
+    const CLEANUP_APPS = ['cypress-busybox', 'cypress-cm-test'];
     cy.apiRequest('GET', `${AGENT_A}/api/remoteapps`).then((resp) => {
       const all = [...(resp.body?.submitted || []), ...(resp.body?.executing || [])];
-      all.forEach((app) => {
-        if (CLEANUP_APPS.includes(app.name)) {
-          const id = app.app_id || app.id;
-          if (id) cy.apiRequest('DELETE', `${AGENT_A}/api/remoteapp/${id}`);
-        }
+      const toDelete = all.filter((app) => CLEANUP_APPS.includes(app.name));
+      toDelete.forEach((app) => {
+        const id = app.app_id || app.id;
+        if (id) cy.apiRequest('DELETE', `${AGENT_A}/api/remoteapp/${id}`);
       });
+      if (toDelete.length > 0) cy.wait(3000);
+    });
+  });
+
+  // Reset Agent B to a clean state before tests run (in case a previous run left filters set).
+  context('Agent B setup', () => {
+    it('resets Agent B settings to defaults', () => {
+      cy.agentBSettings({ inboundApps: true, requireApproval: false, blockedImages: '', allowedImages: '' });
     });
   });
 
@@ -179,8 +187,8 @@ describe('Workloads', () => {
   // App reaches Running on Agent B
   // ----------------------------------------------------------------
   context('App lifecycle on Agent B', () => {
-    it('cypress-nginx reaches Ready on Agent B executing apps (up to 90s)', () => {
-      cy.waitForExecutingApp('cypress-nginx', 'Ready', 18, 5000);
+    it('cypress-nginx reaches Ready on Agent B executing apps (up to 5 minutes)', () => {
+      cy.waitForExecutingApp('cypress-nginx', 'Ready', 60, 5000);
     });
   });
 

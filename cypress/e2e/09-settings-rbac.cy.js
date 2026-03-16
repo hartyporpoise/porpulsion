@@ -17,8 +17,7 @@ describe('Settings & RBAC', () => {
         const peer = resp.body.find((p) => p.channel === 'connected') || resp.body[0];
         if (peer?.name) { PEER_B_NAME = peer.name; return; }
         if (attempts >= 10) throw new Error('No peer found on Agent A after waiting');
-        cy.wait(3000);
-        waitForPeer(attempts + 1);
+        cy.wait(3000).then(() => waitForPeer(attempts + 1));
       });
     };
     waitForPeer();
@@ -98,9 +97,18 @@ describe('Settings & RBAC', () => {
         ].join('\n'));
       });
       cy.get('#deploy-submit-btn-yaml').click();
-      cy.get('#toast', { timeout: 8000 }).should('have.class', 'show')
-        .and('satisfy', ($el) => /inbound|disabled|not allowed|rejected/i.test($el.text()));
-      cy.url().should('not.include', '/workloads');
+      // Deploy creates a CR and redirects to /workloads; the peer rejects it asynchronously
+      // and kopf marks the CR as Failed. Wait for the Failed status in the submitted table.
+      cy.url({ timeout: 15000 }).should('include', '/workloads');
+      cy.contains('#submitted-body tr', 'cypress-rbac-blocked', { timeout: 30000 })
+        .find('td:nth-child(3)')
+        .should('contain.text', 'Failed');
+      // Clean up the rejected app
+      cy.apiRequest('GET', `${AGENT_A}/api/remoteapps`).then((resp) => {
+        const app = (resp.body?.submitted || []).find((a) => a.name === 'cypress-rbac-blocked');
+        const id = app?.app_id || app?.id;
+        if (id) cy.apiRequest('DELETE', `${AGENT_A}/api/remoteapp/${id}`);
+      });
     });
   });
 
@@ -151,8 +159,15 @@ describe('Settings & RBAC', () => {
         ].join('\n'));
       });
       cy.get('#deploy-submit-btn-yaml').click();
-      cy.get('#toast', { timeout: 8000 }).should('have.class', 'show')
-        .and('satisfy', ($el) => /block|policy|not allowed/i.test($el.text()));
+      cy.url({ timeout: 15000 }).should('include', '/workloads');
+      cy.contains('#submitted-body tr', 'cypress-image-blocked', { timeout: 30000 })
+        .find('td:nth-child(3)')
+        .should('contain.text', 'Failed');
+      cy.apiRequest('GET', `${AGENT_A}/api/remoteapps`).then((resp) => {
+        const app = (resp.body?.submitted || []).find((a) => a.name === 'cypress-image-blocked');
+        const id = app?.app_id || app?.id;
+        if (id) cy.apiRequest('DELETE', `${AGENT_A}/api/remoteapp/${id}`);
+      });
     });
   });
 
@@ -186,8 +201,15 @@ describe('Settings & RBAC', () => {
         ].join('\n'));
       });
       cy.get('#deploy-submit-btn-yaml').click();
-      cy.get('#toast', { timeout: 8000 }).should('have.class', 'show')
-        .and('satisfy', ($el) => /allowed|policy|not in/i.test($el.text()));
+      cy.url({ timeout: 15000 }).should('include', '/workloads');
+      cy.contains('#submitted-body tr', 'cypress-image-notallowed', { timeout: 30000 })
+        .find('td:nth-child(3)')
+        .should('contain.text', 'Failed');
+      cy.apiRequest('GET', `${AGENT_A}/api/remoteapps`).then((resp) => {
+        const app = (resp.body?.submitted || []).find((a) => a.name === 'cypress-image-notallowed');
+        const id = app?.app_id || app?.id;
+        if (id) cy.apiRequest('DELETE', `${AGENT_A}/api/remoteapp/${id}`);
+      });
     });
   });
 
