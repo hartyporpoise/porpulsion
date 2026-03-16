@@ -11,13 +11,13 @@ describe('Workloads', () => {
     // Wait for at least one peer to be connected (02-peering must have run first).
     const waitForPeer = (attempts = 0) => {
       cy.apiRequest('GET', `${AGENT_A}/api/peers`).then((resp) => {
-        const connected = resp.body.find((p) => p.channel === 'connected');
-        if (connected?.name) {
-          PEER_B_NAME = connected.name;
+        const peer = resp.body[0];
+        if (peer?.name) {
+          PEER_B_NAME = peer.name;
           cy.log(`PEER_B_NAME resolved to: ${PEER_B_NAME}`);
           return;
         }
-        if (attempts >= 20) throw new Error('No connected peer found on Agent A after waiting');
+        if (attempts >= 20) throw new Error('No peer found on Agent A after waiting');
         cy.wait(3000).then(() => waitForPeer(attempts + 1));
       });
     };

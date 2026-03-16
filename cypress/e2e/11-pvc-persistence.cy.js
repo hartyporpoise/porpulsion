@@ -23,9 +23,18 @@ describe('PVC persistence', () => {
       allowed_images: '',
       blocked_images: '',
     });
+    // Verify the settings actually took before proceeding
+    const waitForSettings = (attempts = 0) => {
+      cy.apiRequest('GET', `${Cypress.env('AGENT_B_URL')}/api/settings`).then((resp) => {
+        if (resp.body.allow_pvcs === true && resp.body.require_remoteapp_approval === false) return;
+        if (attempts >= 5) throw new Error('Agent B settings never applied for PVC spec');
+        cy.wait(1000).then(() => waitForSettings(attempts + 1));
+      });
+    };
+    waitForSettings();
     const waitForPeer = (attempts = 0) => {
       cy.apiRequest('GET', `${AGENT_A}/api/peers`).then((resp) => {
-        const peer = resp.body.find((p) => p.channel === 'connected') || resp.body[0];
+        const peer = resp.body[0];
         if (peer?.name) { PEER_B_NAME = peer.name; return; }
         if (attempts >= 10) throw new Error('No peer found on Agent A after waiting');
         cy.wait(3000).then(() => waitForPeer(attempts + 1));

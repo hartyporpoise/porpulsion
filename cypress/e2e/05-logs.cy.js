@@ -13,19 +13,34 @@ describe('Logs', () => {
       allowed_images: '',
       blocked_images: '',
     });
+    const waitForSettings = (attempts = 0) => {
+      cy.apiRequest('GET', `${Cypress.env('AGENT_B_URL')}/api/settings`).then((resp) => {
+        if (resp.body.allow_inbound_remoteapps === true && resp.body.require_remoteapp_approval === false) return;
+        if (attempts >= 5) throw new Error('Agent B settings never applied for logs spec');
+        cy.wait(1000).then(() => waitForSettings(attempts + 1));
+      });
+    };
+    waitForSettings();
+    // Clean up any leftover cypress-logs from a previous run
+    cy.apiRequest('GET', `${AGENT_A}/api/remoteapps`).then((resp) => {
+      const all = [...(resp.body?.submitted || []), ...(resp.body?.executing || [])];
+      const app = all.find((a) => a.name === 'cypress-logs');
+      const id = app?.app_id || app?.id;
+      if (id) cy.apiRequest('DELETE', `${AGENT_A}/api/remoteapp/${id}`);
+    });
     const waitForPeer = (attempts = 0) => {
       cy.apiRequest('GET', `${AGENT_A}/api/peers`).then((resp) => {
-        const peer = resp.body.find((p) => p.channel === 'connected') || resp.body[0];
+        const peer = resp.body[0];
         if (peer?.name) { PEER_B_NAME = peer.name; return; }
         if (attempts >= 10) throw new Error('No peer found on Agent A after waiting');
-        cy.wait(3000);
-        waitForPeer(attempts + 1);
+        cy.wait(3000).then(() => waitForPeer(attempts + 1));
       });
     };
     waitForPeer();
   });
 
   it('deploys a log-emitting app via YAML', () => {
+    expect(PEER_B_NAME, 'PEER_B_NAME must be set by before()').to.be.a('string').and.have.length.greaterThan(0);
     cy.loginTo();
     cy.visit('/deploy');
     cy.get('[data-mode="yaml"]').click();
@@ -67,7 +82,7 @@ describe('Logs', () => {
 
   after(() => {
     cy.apiRequest('GET', `${AGENT_A}/api/remoteapps`).then((resp) => {
-      const app = (resp.body.submitted || []).find((a) => a.name === 'cypress-logs');
+      const app = [...(resp.body?.submitted || []), ...(resp.body?.executing || [])].find((a) => a.name === 'cypress-logs');
       const id = app?.app_id || app?.id;
       if (id) cy.apiRequest('DELETE', `${AGENT_A}/api/remoteapp/${id}`);
     });

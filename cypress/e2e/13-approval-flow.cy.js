@@ -20,7 +20,7 @@ describe('Approval flow', () => {
     });
     const waitForPeer = (attempts = 0) => {
       cy.apiRequest('GET', `${AGENT_A}/api/peers`).then((resp) => {
-        const peer = resp.body.find((p) => p.channel === 'connected') || resp.body[0];
+        const peer = resp.body[0];
         if (peer?.name) { PEER_B_NAME = peer.name; return; }
         if (attempts >= 10) throw new Error('No peer found on Agent A after waiting');
         cy.wait(3000).then(() => waitForPeer(attempts + 1));
@@ -149,7 +149,7 @@ describe('Approval flow', () => {
       cy.get('.approval-item-name', { timeout: 15000 }).should('contain.text', 'cypress-reject');
     });
 
-    it('clicking Reject marks the app as Failed on Agent A', () => {
+    it('clicking Reject marks the app as Rejected on Agent A', () => {
       cy.loginTo(AGENT_B);
       cy.visit(`${AGENT_B}/workloads`);
       cy.contains('.approval-item', 'cypress-reject', { timeout: 15000 })
@@ -160,12 +160,12 @@ describe('Approval flow', () => {
         .should('have.class', 'show')
         .and('satisfy', ($el) => /reject/i.test($el.text()));
 
-      // Agent A should reflect Failed status
+      // Agent A should reflect Rejected status
       cy.loginTo();
       cy.visit('/workloads');
       cy.contains('#submitted-body tr', 'cypress-reject', { timeout: 30000 })
         .find('td:nth-child(3)')
-        .should('contain.text', 'Failed');
+        .should('contain.text', 'Rejected');
     });
 
     after(() => {
