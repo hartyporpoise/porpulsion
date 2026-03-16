@@ -22,19 +22,6 @@ describe('Workloads', () => {
       });
     };
     waitForPeer();
-
-    // Clean up any leftover apps from a previous run before starting fresh.
-    // Wait after deletion so k8s finalizers complete before tests run.
-    const CLEANUP_APPS = ['cypress-busybox', 'cypress-cm-test'];
-    cy.apiRequest('GET', `${AGENT_A}/api/remoteapps`).then((resp) => {
-      const all = [...(resp.body?.submitted || []), ...(resp.body?.executing || [])];
-      const toDelete = all.filter((app) => CLEANUP_APPS.includes(app.name));
-      toDelete.forEach((app) => {
-        const id = app.app_id || app.id;
-        if (id) cy.apiRequest('DELETE', `${AGENT_A}/api/remoteapp/${id}`);
-      });
-      if (toDelete.length > 0) cy.wait(3000);
-    });
   });
 
   // Reset Agent B to a clean state before tests run (in case a previous run left filters set).
@@ -189,6 +176,66 @@ describe('Workloads', () => {
   context('App lifecycle on Agent B', () => {
     it('cypress-nginx reaches Ready on Agent B executing apps (up to 5 minutes)', () => {
       cy.waitForExecutingApp('cypress-nginx', 'Ready', 60, 5000);
+    });
+  });
+
+  // ----------------------------------------------------------------
+  // Overview tab content
+  // ----------------------------------------------------------------
+  context('Overview tab content', () => {
+    beforeEach(() => cy.loginTo());
+
+    it('overview tab shows the image, replicas, and target peer', () => {
+      cy.visit('/workloads');
+      cy.openAppModal('cypress-nginx');
+      cy.appModalTab('overview');
+      cy.get('#app-modal-body [data-panel="overview"]').should(($panel) => {
+        const text = $panel.text();
+        expect(text).to.match(/nginx/i);
+        expect(text).to.match(/1/);
+      });
+    });
+  });
+
+  // ----------------------------------------------------------------
+  // Scale via API
+  // ----------------------------------------------------------------
+  context('Scale', () => {
+    it('scales cypress-nginx to 2 replicas via the API', () => {
+      const AGENT_A = Cypress.env('AGENT_A_URL');
+      cy.apiRequest('GET', `${AGENT_A}/api/remoteapps`).then((resp) => {
+        const app = (resp.body.submitted || []).find((a) => a.name === 'cypress-nginx');
+        expect(app, 'cypress-nginx must exist').to.exist;
+        const id = app.app_id || app.id;
+        cy.apiRequest('POST', `${AGENT_A}/api/remoteapp/${id}/scale`, { replicas: 2 })
+          .its('status').should('eq', 200);
+      });
+    });
+
+    it('cypress-nginx spec shows 2 replicas on Agent A after scale', () => {
+      const AGENT_A = Cypress.env('AGENT_A_URL');
+      // The RemoteApp CR spec is patched on A — check it reflects the new replica count
+      const waitForScale = (attempts = 0) => {
+        cy.apiRequest('GET', `${AGENT_A}/api/remoteapps`).then((resp) => {
+          const app = (resp.body.submitted || []).find((a) => a.name === 'cypress-nginx');
+          if (app?.spec?.replicas === 2) return;
+          if (attempts >= 12) throw new Error('cypress-nginx spec never updated to 2 replicas on Agent A');
+          cy.wait(3000).then(() => waitForScale(attempts + 1));
+        });
+      };
+      waitForScale();
+    });
+
+    it('scales cypress-nginx back to 1 replica via the API', () => {
+      const AGENT_A = Cypress.env('AGENT_A_URL');
+      cy.apiRequest('GET', `${AGENT_A}/api/remoteapps`).then((resp) => {
+        const app = (resp.body.submitted || []).find((a) => a.name === 'cypress-nginx');
+        const id = app?.app_id || app?.id;
+        if (id) {
+          cy.apiRequest('POST', `${AGENT_A}/api/remoteapp/${id}/scale`, { replicas: 1 })
+            .its('status').should('eq', 200);
+        }
+      });
     });
   });
 

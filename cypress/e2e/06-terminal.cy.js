@@ -8,6 +8,12 @@ describe('Terminal (exec)', () => {
   let PEER_B_NAME;
 
   before(() => {
+    cy.apiRequest('POST', `${Cypress.env('AGENT_B_URL')}/api/settings`, {
+      allow_inbound_remoteapps: true,
+      require_remoteapp_approval: false,
+      allowed_images: '',
+      blocked_images: '',
+    });
     const waitForPeer = (attempts = 0) => {
       cy.apiRequest('GET', `${AGENT_A}/api/peers`).then((resp) => {
         const peer = resp.body.find((p) => p.channel === 'connected') || resp.body[0];

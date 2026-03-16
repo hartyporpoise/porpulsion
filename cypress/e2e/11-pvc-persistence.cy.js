@@ -14,13 +14,15 @@ describe('PVC persistence', () => {
   // Unique sentinel written to the PVC
   const SENTINEL = 'porpulsion-pvc-ok';
 
-  context('Agent B setup', () => {
-    it('enables inbound apps and PVCs on Agent B', () => {
-      cy.agentBSettings({ inboundApps: true, requireApproval: false, allowPvcs: true });
-    });
-  });
-
   before(() => {
+    // Reset Agent B — ensure inbound, no approval, PVCs enabled
+    cy.apiRequest('POST', `${Cypress.env('AGENT_B_URL')}/api/settings`, {
+      allow_inbound_remoteapps: true,
+      require_remoteapp_approval: false,
+      allow_pvcs: true,
+      allowed_images: '',
+      blocked_images: '',
+    });
     const waitForPeer = (attempts = 0) => {
       cy.apiRequest('GET', `${AGENT_A}/api/peers`).then((resp) => {
         const peer = resp.body.find((p) => p.channel === 'connected') || resp.body[0];
@@ -174,6 +176,13 @@ describe('PVC persistence', () => {
       const app = all.find((a) => a.name === 'cypress-pvc');
       const id = app?.app_id || app?.id;
       if (id) cy.apiRequest('DELETE', `${AGENT_A}/api/remoteapp/${id}`);
+    });
+    cy.apiRequest('POST', `${Cypress.env('AGENT_B_URL')}/api/settings`, {
+      allow_inbound_remoteapps: true,
+      require_remoteapp_approval: false,
+      allow_pvcs: true,
+      allowed_images: '',
+      blocked_images: '',
     });
   });
 });

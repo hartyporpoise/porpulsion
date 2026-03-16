@@ -10,13 +10,14 @@ describe('Approval flow', () => {
   const AGENT_B = Cypress.env('AGENT_B_URL');
   let PEER_B_NAME;
 
-  context('Agent B setup', () => {
-    it('enables inbound apps and require approval on Agent B', () => {
-      cy.agentBSettings({ inboundApps: true, requireApproval: true });
-    });
-  });
-
   before(() => {
+    // Set Agent B to require approval before any tests run
+    cy.apiRequest('POST', `${AGENT_B}/api/settings`, {
+      allow_inbound_remoteapps: true,
+      require_remoteapp_approval: true,
+      allowed_images: '',
+      blocked_images: '',
+    });
     const waitForPeer = (attempts = 0) => {
       cy.apiRequest('GET', `${AGENT_A}/api/peers`).then((resp) => {
         const peer = resp.body.find((p) => p.channel === 'connected') || resp.body[0];
@@ -26,27 +27,6 @@ describe('Approval flow', () => {
       });
     };
     waitForPeer();
-
-    // Clean up any leftover cypress-approval from a previous run
-    cy.apiRequest('GET', `${AGENT_A}/api/remoteapps`).then((resp) => {
-      const all = [...(resp.body?.submitted || []), ...(resp.body?.executing || [])];
-      const app = all.find((a) => a.name === 'cypress-approval');
-      const id = app?.app_id || app?.id;
-      if (id) {
-        cy.apiRequest('DELETE', `${AGENT_A}/api/remoteapp/${id}`);
-        cy.wait(3000);
-      }
-    });
-  });
-
-  after(() => {
-    // Delete the test app if it exists
-    cy.apiRequest('GET', `${AGENT_A}/api/remoteapps`).then((resp) => {
-      const all = [...(resp.body?.submitted || []), ...(resp.body?.executing || [])];
-      const app = all.find((a) => a.name === 'cypress-approval');
-      const id = app?.app_id || app?.id;
-      if (id) cy.apiRequest('DELETE', `${AGENT_A}/api/remoteapp/${id}`);
-    });
   });
 
   // ----------------------------------------------------------------
@@ -140,13 +120,70 @@ describe('Approval flow', () => {
   });
 
   // ----------------------------------------------------------------
-  // Agent B teardown — restore auto-approve
+  // Reject flow — deploy a second app and reject it
   // ----------------------------------------------------------------
-  context('Agent B teardown', () => {
-    beforeEach(() => cy.loginTo(AGENT_B));
+  context('Reject flow', () => {
+    it('deploys a second app to be rejected', () => {
+      cy.loginTo();
+      cy.visit('/deploy');
+      cy.get('[data-mode="yaml"]').click();
+      cy.window().then((win) => {
+        win.PorpulsionVscodeEditor.setDeploySpecValue([
+          'apiVersion: porpulsion.io/v1alpha1',
+          'kind: RemoteApp',
+          'metadata:',
+          '  name: cypress-reject',
+          'spec:',
+          '  image: nginx:alpine',
+          '  replicas: 1',
+          `  targetPeer: ${PEER_B_NAME}`,
+        ].join('\n'));
+      });
+      cy.get('#deploy-submit-btn-yaml').click();
+      cy.url({ timeout: 15000 }).should('include', '/workloads');
+    });
 
-    it('restores Agent B to auto-approve mode', () => {
-      cy.agentBSettings({ requireApproval: false });
+    it('rejection banner shows cypress-reject on Agent B', () => {
+      cy.loginTo(AGENT_B);
+      cy.visit(`${AGENT_B}/workloads`);
+      cy.get('.approval-item-name', { timeout: 15000 }).should('contain.text', 'cypress-reject');
+    });
+
+    it('clicking Reject marks the app as Failed on Agent A', () => {
+      cy.loginTo(AGENT_B);
+      cy.visit(`${AGENT_B}/workloads`);
+      cy.contains('.approval-item', 'cypress-reject', { timeout: 15000 })
+        .find('[data-reject-app]')
+        .click();
+      cy.confirmDialog();
+      cy.get('#toast', { timeout: 8000 })
+        .should('have.class', 'show')
+        .and('satisfy', ($el) => /reject/i.test($el.text()));
+
+      // Agent A should reflect Failed status
+      cy.loginTo();
+      cy.contains('#submitted-body tr', 'cypress-reject', { timeout: 30000 })
+        .find('td:nth-child(3)')
+        .should('contain.text', 'Failed');
+    });
+
+    after(() => {
+      cy.apiRequest('GET', `${AGENT_A}/api/remoteapps`).then((resp) => {
+        const app = (resp.body?.submitted || []).find((a) => a.name === 'cypress-reject');
+        const id = app?.app_id || app?.id;
+        if (id) cy.apiRequest('DELETE', `${AGENT_A}/api/remoteapp/${id}`);
+      });
+    });
+  });
+
+  after(() => {
+    // Restore Agent B to auto-approve so subsequent specs are not affected
+    cy.apiRequest('POST', `${AGENT_B}/api/settings`, { require_remoteapp_approval: false });
+    // Clean up cypress-approval
+    cy.apiRequest('GET', `${AGENT_A}/api/remoteapps`).then((resp) => {
+      const app = (resp.body?.submitted || []).find((a) => a.name === 'cypress-approval');
+      const id = app?.app_id || app?.id;
+      if (id) cy.apiRequest('DELETE', `${AGENT_A}/api/remoteapp/${id}`);
     });
   });
 });

@@ -11,6 +11,13 @@ describe('Secrets & ConfigMaps', () => {
   let APP_ID;
 
   before(() => {
+    // Reset Agent B to clean state regardless of what previous spec left behind
+    cy.apiRequest('POST', `${Cypress.env('AGENT_B_URL')}/api/settings`, {
+      allow_inbound_remoteapps: true,
+      require_remoteapp_approval: false,
+      allowed_images: '',
+      blocked_images: '',
+    });
     const waitForPeer = (attempts = 0) => {
       cy.apiRequest('GET', `${AGENT_A}/api/peers`).then((resp) => {
         const peer = resp.body.find((p) => p.channel === 'connected') || resp.body[0];
@@ -93,22 +100,24 @@ describe('Secrets & ConfigMaps', () => {
       cy.visit('/workloads');
       cy.openAppModal('cypress-cfg-test');
       cy.appModalTab('config');
-      // Volume name is in static HTML (immediate); keys are loaded async via fetch
-      cy.get('#cfg-panel-body', { timeout: 10000 }).should('contain.text', 'my-config');
-      // Keys are populated by _buildKvEditor async fetch — wait up to 15s
-      cy.get('#cfg-panel-body', { timeout: 15000 }).should('contain.text', 'app.conf');
-      cy.get('#cfg-panel-body', { timeout: 5000 }).should('contain.text', 'greeting');
+      // Wait for the async fetch to populate key inputs, then assert values via .should() callback
+      cy.get('#cfg-panel-body [data-role="cfg-key"]', { timeout: 20000 }).should(($inputs) => {
+        const values = $inputs.toArray().map((el) => el.value);
+        expect(values).to.include('app.conf');
+        expect(values).to.include('greeting');
+      });
     });
 
     it('Config tab shows the secret with decoded plaintext values', () => {
       cy.visit('/workloads');
       cy.openAppModal('cypress-cfg-test');
       cy.appModalTab('config');
-      // Volume name is in static HTML (immediate); keys are loaded async via fetch
-      cy.get('#cfg-panel-body', { timeout: 10000 }).should('contain.text', 'my-secret');
-      // Keys are populated by _buildKvEditor async fetch — wait up to 15s
-      cy.get('#cfg-panel-body', { timeout: 15000 }).should('contain.text', 'api_key');
-      cy.get('#cfg-panel-body', { timeout: 5000 }).should('contain.text', 'db_pass');
+      // Wait for the async fetch to populate key inputs, then assert values via .should() callback
+      cy.get('#cfg-panel-body [data-role="cfg-key"]', { timeout: 20000 }).should(($inputs) => {
+        const values = $inputs.toArray().map((el) => el.value);
+        expect(values).to.include('api_key');
+        expect(values).to.include('db_pass');
+      });
     });
 
     it('secret values API returns plaintext (base64 decoded by server)', () => {
@@ -142,20 +151,19 @@ describe('Secrets & ConfigMaps', () => {
     it('patching a secret value re-encodes correctly (round-trip)', () => {
       cy.apiRequest('GET', `${AGENT_A}/api/remoteapps`).then((resp) => {
         const app = resp.body.submitted.find((a) => a.name === 'cypress-cfg-test');
+        expect(app, 'cypress-cfg-test must exist').to.exist;
         APP_ID = app.app_id || app.id;
 
-        // Write a new plaintext value
         cy.apiRequest('PATCH', `${AGENT_A}/api/remoteapp/${APP_ID}/config/secret/my-secret`, {
           data: { api_key: 'updated-secret', db_pass: 'newpass123' },
         }).then((patch) => {
           expect(patch.status).to.eq(200);
-        });
 
-        // Read back and confirm it decodes to the new plaintext
-        cy.apiRequest('GET', `${AGENT_A}/api/remoteapp/${APP_ID}/config/secret/my-secret`).then((r) => {
-          expect(r.status).to.eq(200);
-          expect(r.body.data.api_key).to.eq('updated-secret');
-          expect(r.body.data.db_pass).to.eq('newpass123');
+          cy.apiRequest('GET', `${AGENT_A}/api/remoteapp/${APP_ID}/config/secret/my-secret`).then((r) => {
+            expect(r.status).to.eq(200);
+            expect(r.body.data.api_key).to.eq('updated-secret');
+            expect(r.body.data.db_pass).to.eq('newpass123');
+          });
         });
       });
     });
@@ -192,6 +200,13 @@ describe('Secrets & ConfigMaps', () => {
       const app = all.find((a) => a.name === 'cypress-cfg-test');
       const id = app?.app_id || app?.id;
       if (id) cy.apiRequest('DELETE', `${AGENT_A}/api/remoteapp/${id}`);
+    });
+    // Reset Agent B to clean state so subsequent specs deploy without restrictions
+    cy.apiRequest('POST', `${Cypress.env('AGENT_B_URL')}/api/settings`, {
+      allow_inbound_remoteapps: true,
+      require_remoteapp_approval: false,
+      allowed_images: '',
+      blocked_images: '',
     });
   });
 });

@@ -278,22 +278,30 @@ cy.apiRequest('GET', `${AGENT_A}/api/remoteapps`).then((resp) => {
 
 The `cy.waitForAppPhase` command handles this internally.
 
-### Cleanup Pattern in before() Hooks
+### Cleanup Pattern
 
-When a spec deploys apps that may have been left over from a previous run, clean them up in `before()`:
+**Cleanups must happen in `after()`, never in `before()` of the next spec.** Cleaning up in `before()` deletes apps or resets settings that the current spec's own tests may still depend on, causing cascade failures.
+
+Each spec is responsible for cleaning up what it creates:
 
 ```js
-before(() => {
-  const CLEANUP = ['app-name-1', 'app-name-2'];
+after(() => {
   cy.apiRequest('GET', `${AGENT_A}/api/remoteapps`).then((resp) => {
     const all = [...(resp.body?.submitted || []), ...(resp.body?.executing || [])];
-    all.forEach((app) => {
-      if (CLEANUP.includes(app.name)) {
-        const id = app.app_id || app.id;
-        if (id) cy.apiRequest('DELETE', `${AGENT_A}/api/remoteapp/${id}`);
-      }
+    ['app-name-1', 'app-name-2'].forEach((name) => {
+      const app = all.find((a) => a.name === name);
+      const id = app?.app_id || app?.id;
+      if (id) cy.apiRequest('DELETE', `${AGENT_A}/api/remoteapp/${id}`);
     });
   });
+});
+```
+
+Settings changed during a spec must also be restored in `after()`, using the API directly (more reliable than UI clicks in teardown):
+
+```js
+after(() => {
+  cy.apiRequest('POST', `${AGENT_B}/api/settings`, { require_remoteapp_approval: false });
 });
 ```
 

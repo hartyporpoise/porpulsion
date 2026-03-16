@@ -46,6 +46,23 @@ describe('API Health', () => {
       cy.request({ url: `${AGENT_A}/settings`, failOnStatusCode: false, followRedirect: false })
         .its('status').should('be.oneOf', [302, 401, 403]);
     });
+
+    it('unauthenticated GET /api/peers returns 401', () => {
+      cy.request({ url: `${AGENT_A}/api/peers`, failOnStatusCode: false })
+        .its('status').should('eq', 401);
+    });
+
+    it('unauthenticated GET /api/remoteapps returns 401', () => {
+      cy.request({ url: `${AGENT_A}/api/remoteapps`, failOnStatusCode: false })
+        .its('status').should('eq', 401);
+    });
+
+    it('GET /api/notifications returns array', () => {
+      cy.apiRequest('GET', `${AGENT_A}/api/notifications`).then((r) => {
+        expect(r.status).to.eq(200);
+        expect(r.body).to.be.an('array');
+      });
+    });
   });
 
   context('Agent B', () => {

@@ -27,6 +27,15 @@ describe('Peer persistence', () => {
     cy.get('#peer-modal').should('not.have.class', 'open');
   });
 
+  it('peer detail modal shows peer name, URL, and latency', () => {
+    cy.visit('/peers');
+    cy.get('#all-peers-body tr').first().find('.peer-info-btn').click();
+    cy.get('#peer-modal.open', { timeout: 5000 }).should('be.visible');
+    // Modal must show a peer name and a URL (http)
+    cy.get('#peer-modal').invoke('text').should('match', /http/i);
+    cy.get('#peer-modal-close').click();
+  });
+
   it('peer count badge matches the number of peer rows', () => {
     cy.visit('/peers');
     cy.get('#all-peers-body tr', { timeout: 10000 }).then(($rows) => {

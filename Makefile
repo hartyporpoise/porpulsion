@@ -276,6 +276,9 @@ _cypress-run: ## Internal: build image, wait for agents, run Cypress
 	echo "==> [test] Waiting for agent-b (localhost:8002)..."; \
 	until curl -sf http://localhost:8002/ -o /dev/null; do sleep 2; done; \
 	echo "  agent-b ready"; \
+	echo "==> [test] Waiting for local-path-provisioner on cluster-b..."; \
+	until $(KUBECTL_B) -n kube-system rollout status deployment/local-path-provisioner --timeout=5s &>/dev/null; do sleep 3; done; \
+	echo "  local-path-provisioner ready"; \
 	echo ""; \
 	echo "==> [test] Running Cypress — open http://localhost:6080/vnc.html to watch..."; \
 	DOCKER_NET=$$(docker inspect $(CLUSTER_A) \

@@ -272,4 +272,17 @@ describe('Settings & RBAC', () => {
       cy.get('#setting-allow-pvcs').should('be.checked');
     });
   });
+
+  after(() => {
+    // Clear Agent A image filters left by the UI round-trip test
+    cy.apiRequest('POST', `${AGENT_A}/api/settings`, { allowed_images: '', blocked_images: '' });
+    // Fully reset Agent B so subsequent specs start clean
+    cy.apiRequest('POST', `${AGENT_B}/api/settings`, {
+      allow_inbound_remoteapps: true,
+      require_remoteapp_approval: false,
+      allow_pvcs: true,
+      allowed_images: '',
+      blocked_images: '',
+    });
+  });
 });
