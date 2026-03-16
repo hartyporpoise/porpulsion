@@ -45,11 +45,9 @@ def _run_executingapp(body, meta, status, namespace):
 
     cr_name = meta["name"]
 
-    # Bootstrap appId for manually kubectl-applied CRs (no porpulsion.io/app-id label)
     app_id = status.get("appId", "")
     if not app_id:
-        app_id = bootstrap_cr_status(namespace, PLURAL_EA, cr_name, dict(meta),
-                                     dict(body.get("spec", {})), dict(status))
+        app_id = bootstrap_cr_status(namespace, PLURAL_EA, cr_name, dict(status))
     if not app_id:
         raise kopf.TemporaryError("appId not set in status yet", delay=1)
 
@@ -109,8 +107,7 @@ def on_remoteapp_created(body, meta, status, namespace, **kwargs):
     cr_name = meta["name"]
     app_id = status.get("appId", "")
     if not app_id:
-        app_id = bootstrap_cr_status(namespace, PLURAL, cr_name, dict(meta),
-                                     dict(body.get("spec", {})), dict(status))
+        app_id = bootstrap_cr_status(namespace, PLURAL, cr_name, dict(status))
     if not app_id:
         raise kopf.TemporaryError("appId not set in status yet", delay=1)
     spec_dict = dict(body.get("spec", {}))
@@ -129,7 +126,7 @@ def on_remoteapp_created(body, meta, status, namespace, **kwargs):
         log.warning("kopf: RemoteApp %s rejected: %s", cr_name, msg)
         _patch_status(namespace, PLURAL, cr_name, {
             "phase": "Failed", "appId": app_id,
-            "message": msg, "sourcePeer": state.AGENT_NAME,
+            "message": msg,
         })
         raise kopf.PermanentError(msg)
 
@@ -152,8 +149,11 @@ def on_remoteapp_created(body, meta, status, namespace, **kwargs):
             "quota",
             "not permitted",
             "blocked image",
+            "is blocked",
+            "allowed image list",
             "spec invalid",
             "not allowed",
+            "cluster's policy",
         )
         if any(p in err_msg for p in _peer_rejection_phrases):
             log.warning("kopf: RemoteApp %s rejected by peer %s: %s", cr_name, target_peer, err_msg)

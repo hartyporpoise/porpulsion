@@ -170,10 +170,10 @@
     }
 
     var remoteAddrRow = p.remote_addr
-      ? '<div class="detail-row"><span class="label">Inbound IP</span><span class="mono" style="font-size:0.85rem;">' + _esc(p.remote_addr) + '</span></div>'
+      ? '<div class="detail-row"><span class="label">Public IP</span><span class="mono" style="font-size:0.85rem;">' + _esc(p.remote_addr) + '</span></div>'
       : '';
     var proxyRow = p.registry_proxy_url
-      ? '<div class="detail-row"><span class="label">Image proxy</span><span class="mono" style="font-size:0.82rem;word-break:break-all;">' + _esc(p.registry_proxy_url) + '</span></div>'
+      ? '<div class="detail-row"><span class="label">API Domain</span><span class="mono" style="font-size:0.82rem;word-break:break-all;">' + _esc(p.registry_proxy_url.replace(/^https?:\/\//, '')) + '</span></div>'
       : '';
 
     body.innerHTML =
@@ -508,7 +508,7 @@
     return allowed.length ? allowed.join(', ') : '__none__';
   }
 
-  function _populateHealthGrid(s, selfUrl) {
+  function _populateHealthGrid(s, selfUrl, versionHash) {
     function setBadge(id, ok, trueLabel, falseLabel) {
       var e = el(id);
       if (!e) return;
@@ -522,6 +522,8 @@
     if (ll) ll.textContent = s.log_level || 'INFO';
     var au = el('health-agent-url');
     if (au) au.textContent = selfUrl || '—';
+    var vh = el('health-version');
+    if (vh) vh.textContent = versionHash || '—';
   }
 
   function loadSettings() {
@@ -565,8 +567,8 @@
       // Health grid (overview page)
       if (el('health-grid')) {
         P.getInvite().then(function (tok) {
-          _populateHealthGrid(s, tok.self_url || '');
-        }).catch(function () { _populateHealthGrid(s, ''); });
+          _populateHealthGrid(s, tok.self_url || '', tok.version_hash || '');
+        }).catch(function () { _populateHealthGrid(s, '', ''); });
       }
     }).catch(function () {});
   }
@@ -871,7 +873,8 @@
     // Show footer Save button for config and spec tabs only
     var footer = el('app-modal-footer');
     if (footer) {
-      if (tabName === 'config' || tabName === 'edit') {
+      var showEditSave = tabName === 'edit' && !!el('modal-spec-textarea');
+      if (tabName === 'config' || showEditSave) {
         var btnId = tabName === 'config' ? 'cfg-tab-save' : 'spec-tab-save';
         footer.style.display = '';
         footer.innerHTML = '<button type="button" class="btn-sm" id="' + btnId + '">Save</button>';
@@ -1080,12 +1083,17 @@
         _execWs.send(data);
       }
     });
-    // Resize observer — refit terminal when container size changes
+    // Re-focus terminal on click so arrow keys and special keys work
+    wrap.addEventListener('click', function () {
+      if (_execTerm) _execTerm.focus();
+    });
+    // Resize observer — refit terminal and notify server when container size changes
     if (window.ResizeObserver) {
       _execResizeObserver = new ResizeObserver(function () {
         if (_execFitAddon) {
           try { _execFitAddon.fit(); } catch(e) {}
         }
+        _execSendResize();
       });
       _execResizeObserver.observe(wrap);
     }
@@ -1096,6 +1104,11 @@
     if (_execResizeObserver) { try { _execResizeObserver.disconnect(); } catch(e) {} _execResizeObserver = null; }
     if (_execTerm) { try { _execTerm.dispose(); } catch(e) {} _execTerm = null; }
     _execFitAddon = null;
+  }
+
+  function _execSendResize() {
+    if (!_execWs || _execWs.readyState !== WebSocket.OPEN || !_execTerm) return;
+    _execWs.send(JSON.stringify({ type: 'resize', cols: _execTerm.cols, rows: _execTerm.rows }));
   }
 
   function _execConnect(pod) {
@@ -1111,7 +1124,7 @@
     _execSetStatus('connecting');
 
     var shellSel = el('exec-shell-select');
-    var shell = shellSel ? shellSel.value : '/bin/sh';
+    var shell = shellSel ? shellSel.value : '/bin/bash';
     var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     var url = proto + '//' + location.host + '/api/remoteapp/' + encodeURIComponent(_currentAppId) + '/exec-ws?pod=' + encodeURIComponent(pod) + '&shell=' + encodeURIComponent(shell);
     var ws = new WebSocket(url);
@@ -1121,6 +1134,7 @@
       if (ws._superseded) return;
       _execSetStatus('connected');
       if (_execFitAddon) { try { _execFitAddon.fit(); } catch(e) {} }
+      _execSendResize();
       if (_execTerm) _execTerm.focus();
     };
     ws.onmessage = function (e) {
@@ -1654,17 +1668,21 @@
       // ── Config tab ────────────────────────────────────────────
       var configHtml = _buildConfigTab(spec, isSubmitted);
 
-      // ── Spec tab ──────────────────────────────────────────────
-      var specYaml = d.spec_yaml || _specToYaml(spec);
-      var specLineCount = specYaml ? specYaml.split('\n').length : 1;
-      var specEditorPx = Math.max(180, Math.min(480, specLineCount * 19 + 16));
+      // ── YAML tab ──────────────────────────────────────────────
+      var crYaml = d.cr_yaml || '';
+      var crLineCount = crYaml ? crYaml.split('\n').length : 1;
+      var crEditorPx = Math.max(240, Math.min(600, crLineCount * 19 + 16));
       var editHtml = isSubmitted
-        ? '<p class="text-sm text-muted" style="margin-bottom:0.75rem;">Edit the YAML spec and save to update the running deployment.</p>' +
-          '<div class="monaco-editor-wrap" id="modal-spec-editor-wrap">' +
-            '<div id="modal-spec-editor-host" class="monaco-editor-host" style="height:' + specEditorPx + 'px;" aria-label="YAML spec editor"></div>' +
-            '<textarea id="modal-spec-textarea" class="monaco-fallback-textarea modal-spec-editor" rows="' + specLineCount + '" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" data-spec-yaml="' + _esc(specYaml) + '">' + _esc(specYaml) + '</textarea>' +
+        ? '<div class="cr-yaml-section">' +
+            '<p class="text-sm text-muted" style="margin-bottom:0.75rem;">Edit the full CR YAML and save to apply changes.</p>' +
+            '<div class="monaco-editor-wrap" id="modal-spec-editor-wrap">' +
+              '<div id="modal-spec-editor-host" class="monaco-editor-host" style="height:' + crEditorPx + 'px;" aria-label="CR YAML editor"></div>' +
+              '<textarea id="modal-spec-textarea" class="monaco-fallback-textarea modal-spec-editor" rows="' + crLineCount + '" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" data-spec-yaml="' + _esc(crYaml) + '">' + _esc(crYaml) + '</textarea>' +
+            '</div>' +
           '</div>'
-        : '<p class="text-sm text-muted">Editing is only available for workloads you submitted.</p>';
+        : '<div class="cr-yaml-section">' +
+            '<pre class="cr-yaml-block">' + _esc(crYaml) + '</pre>' +
+          '</div>';
 
       // ── Terminal tab ──────────────────────────────────────────
       var termHtml =
@@ -1678,7 +1696,7 @@
               '<span class="exec-ctrl-label">Shell</span>' +
               '<select id="exec-shell-select" class="exec-native-sel custom-dd-init">' +
                 '<option value="/bin/sh">/bin/sh</option>' +
-                '<option value="/bin/bash">/bin/bash</option>' +
+                '<option value="/bin/bash" selected>/bin/bash</option>' +
               '</select>' +
             '</div>' +
           '</div>' +
@@ -1705,7 +1723,7 @@
             '<button type="button" class="modal-tab" data-tab="logs">Logs</button>' +
             (isSubmitted ? '<button type="button" class="modal-tab' + (termTabDisabled ? ' modal-tab-disabled' : '') + '" data-tab="terminal"' + (termTabDisabled ? ' disabled title="Available when pod is Running"' : '') + '>Terminal</button>' : '') +
             (isSubmitted ? '<button type="button" class="modal-tab' + (configTabDisabled ? ' modal-tab-disabled' : '') + '" data-tab="config"' + (configTabDisabled ? ' disabled title="Available when pod is Running"' : '') + '>Config</button>' : '') +
-            (isSubmitted ? '<button type="button" class="modal-tab" data-tab="edit">Spec</button>' : '') +
+            '<button type="button" class="modal-tab" data-tab="edit">YAML</button>' +
           '</div>';
       }
 
@@ -1714,7 +1732,7 @@
         '<div class="modal-tab-panel modal-tab-panel-terminal" data-panel="logs">' + logsHtml + '</div>' +
         (isSubmitted ? '<div class="modal-tab-panel modal-tab-panel-terminal" data-panel="terminal">' + termHtml + '</div>' : '') +
         (isSubmitted ? '<div class="modal-tab-panel" data-panel="config"><div id="cfg-panel-body"' + (configTabDisabled ? ' style="opacity:0.4;pointer-events:none;"' : '') + '>' + configHtml + '</div></div>' : '') +
-        (isSubmitted ? '<div class="modal-tab-panel" data-panel="edit">' + editHtml + '</div>' : '');
+        '<div class="modal-tab-panel" data-panel="edit">' + editHtml + '</div>';
       if (initialTab) _showModalTab(initialTab);
       initCustomDropdowns();
       initExecDropdowns();
@@ -1777,15 +1795,14 @@
         });
       }
 
-      // Spec save — delegated via footer
+      // YAML save — extract spec from full CR, patch it
       function _doSpecSave(btn) {
-        var yamlStr = window.PorpulsionVscodeEditor
+        var crStr = window.PorpulsionVscodeEditor
           ? window.PorpulsionVscodeEditor.getModalSpecEditorValue('modal-spec-editor-host', 'modal-spec-textarea')
           : (el('modal-spec-textarea') || {}).value || '';
-        if (!yamlStr.trim()) { toast('Spec cannot be empty', 'error'); return; }
-        if (yamlStr.indexOf('image:') === -1) { toast('Spec must include an image field', 'error'); return; }
+        if (!crStr.trim()) { toast('YAML cannot be empty', 'error'); return; }
         btn.disabled = true; btn.textContent = 'Saving…';
-        P.updateAppSpec(app.id, yamlStr).then(function () {
+        P.updateAppSpec(app.id, crStr).then(function () {
           toast('Saved', 'ok');
           closeAppModal();
           refresh();

@@ -4,13 +4,11 @@ SHELL := /bin/bash
 COMPOSE   := docker-compose
 CLUSTER_A := porpulsion-cluster-a-1
 CLUSTER_B := porpulsion-cluster-b-1
-CLUSTER_C := porpulsion-cluster-c-1
 HELM      := porpulsion-helm-1
 
 # kubectl via docker exec - no local kubeconfig ever needed
 KUBECTL_A := docker exec $(CLUSTER_A) kubectl
 KUBECTL_B := docker exec $(CLUSTER_B) kubectl
-KUBECTL_C := docker exec $(CLUSTER_C) kubectl
 
 # Single-cluster setup (docker-compose.single.yml)
 COMPOSE_SINGLE  := docker-compose -f docker-compose.single.yml
@@ -36,7 +34,8 @@ define helm
 endef
 
 .PHONY: help deploy teardown clean-ns _clean-cluster status logs \
-        deploy-single teardown-single status-single logs-single
+        deploy-single teardown-single status-single logs-single \
+        test test-teardown
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -45,13 +44,12 @@ help: ## Show this help
 deploy: ## Full deploy: start clusters, build image, helm install all agents
 	@_names=.porpulsion-agents; \
 	_get() { grep "^$$1=" $$_names 2>/dev/null | cut -d= -f2; }; \
-	NAME_A=$$(_get a); NAME_B=$$(_get b); NAME_C=$$(_get c); \
+	NAME_A=$$(_get a); NAME_B=$$(_get b); \
 	[ -z "$$NAME_A" ] && NAME_A=$$(openssl rand -hex 6); \
 	[ -z "$$NAME_B" ] && NAME_B=$$(openssl rand -hex 6); \
-	[ -z "$$NAME_C" ] && NAME_C=$$(openssl rand -hex 6); \
-	printf 'a=%s\nb=%s\nc=%s\n' "$$NAME_A" "$$NAME_B" "$$NAME_C" > $$_names; \
+	printf 'a=%s\nb=%s\n' "$$NAME_A" "$$NAME_B" > $$_names; \
 	echo ""; \
-	echo "==> Starting clusters + helm runner (a=$$NAME_A b=$$NAME_B c=$$NAME_C)..."; \
+	echo "==> Starting clusters + helm runner (a=$$NAME_A b=$$NAME_B)..."; \
 	$(COMPOSE) up -d; \
 	echo "Waiting for cluster-a API..."; \
 	until $(KUBECTL_A) get nodes &>/dev/null; do sleep 2; done; \
@@ -59,9 +57,6 @@ deploy: ## Full deploy: start clusters, build image, helm install all agents
 	echo "Waiting for cluster-b API..."; \
 	until $(KUBECTL_B) get nodes &>/dev/null; do sleep 2; done; \
 	echo "  cluster-b ready"; \
-	echo "Waiting for cluster-c API..."; \
-	until $(KUBECTL_C) get nodes &>/dev/null; do sleep 2; done; \
-	echo "  cluster-c ready"; \
 	echo ""; \
 	echo "==> Building porpulsion-agent image..."; \
 	docker build -t porpulsion-agent:local .; \
@@ -69,7 +64,6 @@ deploy: ## Full deploy: start clusters, build image, helm install all agents
 	echo "==> Loading image into clusters..."; \
 	docker save porpulsion-agent:local | docker exec -i $(CLUSTER_A) ctr images import -; \
 	docker save porpulsion-agent:local | docker exec -i $(CLUSTER_B) ctr images import -; \
-	docker save porpulsion-agent:local | docker exec -i $(CLUSTER_C) ctr images import -; \
 	echo ""; \
 	echo "==> Helm installing on cluster-a ($$NAME_A)..."; \
 	IP_A=$$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' $(CLUSTER_A)); \
@@ -111,39 +105,17 @@ deploy: ## Full deploy: start clusters, build image, helm install all agents
 			--wait --timeout 90s \
 	"; \
 	echo ""; \
-	echo "==> Helm installing on cluster-c ($$NAME_C)..."; \
-	IP_C=$$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' $(CLUSTER_C)); \
-	echo "  cluster-c IP: $$IP_C"; \
-	docker exec $(HELM) sh -c " \
-		docker exec $(CLUSTER_C) cat /etc/rancher/k3s/k3s.yaml \
-			| sed 's|127.0.0.1:[0-9]*|cluster-c:6445|g' \
-			> /tmp/kubeconfig-c.yaml && \
-		chmod 600 /tmp/kubeconfig-c.yaml && \
-		KUBECONFIG=/tmp/kubeconfig-c.yaml helm upgrade --install porpulsion /charts/porpulsion \
-			--create-namespace --namespace porpulsion \
-			--set agent.agentName=$$NAME_C \
-			--set agent.selfUrl=http://$$IP_C:30080 \
-			--set agent.image=porpulsion-agent:local \
-			--set agent.pullPolicy=Never \
-			--set service.type=NodePort \
-			--set service.nodePort=30080 \
-			--set networkPolicy.enabled=false \
-			--wait --timeout 90s \
-	"; \
-	echo ""; \
 	echo "============================================"; \
 	echo "  porpulsion is running!"; \
-	echo "  a=$$NAME_A  b=$$NAME_B  c=$$NAME_C"; \
+	echo "  a=$$NAME_A  b=$$NAME_B"; \
 	echo "============================================"; \
 	echo ""; \
 	echo "  cluster-a:  http://localhost:8001  (/ws on same port)"; \
 	echo "  cluster-b:  http://localhost:8002  (/ws on same port)"; \
-	echo "  cluster-c:  http://localhost:8003  (/ws on same port)"; \
 	echo ""; \
 	echo "  kubectl:"; \
 	echo "    docker exec $(CLUSTER_A) kubectl get pods -n porpulsion"; \
-	echo "    docker exec $(CLUSTER_B) kubectl get pods -n porpulsion"; \
-	echo "    docker exec $(CLUSTER_C) kubectl get pods -n porpulsion"
+	echo "    docker exec $(CLUSTER_B) kubectl get pods -n porpulsion"
 	@echo ""
 
 teardown: ## Destroy clusters and volumes
@@ -174,30 +146,16 @@ status: ## Show pods, deployments, and peer status
 	@echo ""
 	@echo "=== Cluster B ExecutingApps ==="
 	@$(KUBECTL_B) -n porpulsion get executingapps.porpulsion.io 2>/dev/null || echo "  not available"
-	@echo "-------------------------------------------------------------------------------"
-	@echo "=== Cluster C Pods ==="
-	@$(KUBECTL_C) -n porpulsion get pods 2>/dev/null || echo "  not available"
-	@echo ""
-	@echo "=== Cluster C Deployments ==="
-	@$(KUBECTL_C) -n porpulsion get deployments 2>/dev/null || echo "  not available"
-	@echo ""
-	@echo "=== Cluster C RemoteApps ==="
-	@$(KUBECTL_C) -n porpulsion get remoteapps.porpulsion.io 2>/dev/null || echo "  not available"
-	@echo ""
-	@echo "=== Cluster C ExecutingApps ==="
-	@$(KUBECTL_C) -n porpulsion get executingapps.porpulsion.io 2>/dev/null || echo "  not available"
 	@echo ""
 
 logs: ## Stream live logs from all clusters (Ctrl-C to stop)
 	@$(KUBECTL_A) -n porpulsion logs -l app=porpulsion-agent -f --tail=20 2>/dev/null | sed 's/^/\x1b[36m[A]\x1b[0m /' & \
 	$(KUBECTL_B) -n porpulsion logs -l app=porpulsion-agent -f --tail=20 2>/dev/null | sed 's/^/\x1b[33m[B]\x1b[0m /' & \
-	$(KUBECTL_C) -n porpulsion logs -l app=porpulsion-agent -f --tail=20 2>/dev/null | sed 's/^/\x1b[35m[C]\x1b[0m /' & \
 	trap 'kill 0' INT; wait
 
 clean-ns: ## Remove porpulsion namespace from all clusters (handles CRD finalizers)
 	@$(MAKE) --no-print-directory _clean-cluster KUBECTL="$(KUBECTL_A)" CLUSTER=$(CLUSTER_A) APIHOST=cluster-a:6443
 	@$(MAKE) --no-print-directory _clean-cluster KUBECTL="$(KUBECTL_B)" CLUSTER=$(CLUSTER_B) APIHOST=cluster-b:6444
-	@$(MAKE) --no-print-directory _clean-cluster KUBECTL="$(KUBECTL_C)" CLUSTER=$(CLUSTER_C) APIHOST=cluster-c:6445
 
 # Internal: clean one cluster's porpulsion namespace safely.
 # Caller must pass: KUBECTL, CLUSTER, APIHOST (e.g. cluster-a:6443)
@@ -294,3 +252,55 @@ status-single: ## Show pods and deployments for single cluster
 
 logs-single: ## Stream live logs from single cluster (Ctrl-C to stop)
 	$(KUBECTL_SINGLE) -n porpulsion logs -l app=porpulsion-agent -f --tail=50
+
+# ---------------------------------------------------------------------------
+# E2E test targets (containerised Cypress, uses main docker-compose.yml)
+# ---------------------------------------------------------------------------
+
+CYPRESS_IMAGE := porpulsion-cypress:local
+TEST_USERNAME := admin
+TEST_PASSWORD := adminpass1
+
+test: ## Deploy 2 clusters, run Cypress E2E suite, tear down (watch at http://localhost:6080/vnc.html)
+	@trap '$(MAKE) teardown' INT TERM EXIT; $(MAKE) _cypress-run; EXIT=$$?; trap - EXIT; $(MAKE) teardown; exit $$EXIT
+
+_cypress-run: ## Internal: build image, wait for agents, run Cypress
+	@$(MAKE) deploy; \
+	echo ""; \
+	echo "==> [test] Building Cypress image..."; \
+	docker build -f Dockerfile.cypress -t $(CYPRESS_IMAGE) .; \
+	echo ""; \
+	echo "==> [test] Waiting for agent-a (localhost:8001)..."; \
+	until curl -sf http://localhost:8001/ -o /dev/null; do sleep 2; done; \
+	echo "  agent-a ready"; \
+	echo "==> [test] Waiting for agent-b (localhost:8002)..."; \
+	until curl -sf http://localhost:8002/ -o /dev/null; do sleep 2; done; \
+	echo "  agent-b ready"; \
+	echo "==> [test] Waiting for local-path-provisioner on cluster-b..."; \
+	until $(KUBECTL_B) -n kube-system rollout status deployment/local-path-provisioner --timeout=5s &>/dev/null; do sleep 3; done; \
+	echo "  local-path-provisioner ready"; \
+	echo ""; \
+	echo "==> [test] Running Cypress — open http://localhost:6080/vnc.html to watch..."; \
+	DOCKER_NET=$$(docker inspect $(CLUSTER_A) \
+		--format '{{range $$k, $$v := .NetworkSettings.Networks}}{{$$k}}{{end}}' | head -1); \
+	docker run --rm \
+		--network "$$DOCKER_NET" \
+		-p 6080:6080 \
+		--add-host=host.docker.internal:host-gateway \
+		-e CYPRESS_BASE_URL=http://host.docker.internal:8001 \
+		-e CYPRESS_AGENT_A_URL=http://host.docker.internal:8001 \
+		-e CYPRESS_AGENT_B_URL=http://host.docker.internal:8002 \
+		-e CYPRESS_USERNAME=$(TEST_USERNAME) \
+		-e CYPRESS_PASSWORD=$(TEST_PASSWORD) \
+		-v "$$(pwd)/cypress/screenshots:/e2e/cypress/screenshots" \
+		$(CYPRESS_IMAGE); \
+	EXIT_CODE=$$?; \
+	if [ $$EXIT_CODE -eq 0 ]; then \
+		echo "  ✓ All tests passed"; \
+	else \
+		echo "  ✗ Tests failed (exit $$EXIT_CODE) — screenshots in cypress/screenshots/"; \
+		exit $$EXIT_CODE; \
+	fi
+
+test-teardown: ## Destroy clusters if make test was interrupted
+	$(MAKE) teardown

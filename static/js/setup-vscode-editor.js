@@ -331,6 +331,15 @@
     return fallbackEl ? fallbackEl.value : '';
   }
 
+  function setModalSpecEditorValue(hostId, fallbackId, value) {
+    if (_modalSpecEditors[hostId]) {
+      _modalSpecEditors[hostId].setValue(value);
+    } else {
+      var fallbackEl = el(fallbackId);
+      if (fallbackEl) { fallbackEl.value = value; fallbackEl.dispatchEvent(new Event('input', { bubbles: true })); }
+    }
+  }
+
   function getDeploySpecValue() {
     if (deploySpecEditor) return deploySpecEditor.getValue();
     var yamlEl = el('app-spec-yaml');
@@ -354,6 +363,7 @@
     registerYamlHints: registerYamlHints,
     initModalSpecEditor: initModalSpecEditor,
     disposeModalSpecEditor: disposeModalSpecEditor,
-    getModalSpecEditorValue: getModalSpecEditorValue
+    getModalSpecEditorValue: getModalSpecEditorValue,
+    setModalSpecEditorValue: setModalSpecEditorValue
   };
 })();

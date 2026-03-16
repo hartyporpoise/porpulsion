@@ -321,7 +321,6 @@ class PeerChannel:
 
         # Check against known peers or auto-register from hello CA
         existing = _state.peers.get(peer_name)
-        is_bidirectional_upgrade = False
         if existing:
             stored_fp    = tls.cert_fingerprint(existing.ca_pem) if existing.ca_pem else ""
             presented_fp = tls.cert_fingerprint(peer_ca_pem)
@@ -333,7 +332,6 @@ class PeerChannel:
             changed = False
             if existing.direction == "outgoing":
                 existing.direction = "bidirectional"
-                is_bidirectional_upgrade = True
                 changed = True
             if peer_self_url and not existing.url:
                 existing.url = peer_self_url
@@ -386,6 +384,9 @@ class PeerChannel:
         # ── Register in peer_channels now (before blocking recv loop) ─────
         # Must happen here so is_connected() returns True while the connection
         # is live. accept_channel() runs after attach_inbound returns (too late).
+        # Capture the existing outbound channel before replacing it, so we can
+        # send peer/bidirectional on it below (after replacement, peer_channels
+        # would point to self and the is-not-self guard would block the send).
         with _state.peer_channels_lock:
             old = _state.peer_channels.get(peer_name)
             if old and old is not self:
@@ -402,18 +403,15 @@ class PeerChannel:
         except Exception:
             pass
 
-        # If this inbound connection upgrades a previously outgoing-only peer to
-        # bidirectional, notify them over their outbound channel so they can update
-        # their direction too. We send on the outbound channel (not self, which is
-        # the inbound socket they just connected on — they already know about that).
-        if is_bidirectional_upgrade:
+        # Tell the connecting peer what IP we saw their connection from.
+        # Send directly on self (the inbound socket they just connected on)
+        # so this works regardless of whether we have an outbound channel open.
+        if self.peer_remote_addr:
             try:
-                outbound = _state.peer_channels.get(peer_name)
-                if outbound and outbound is not self:
-                    outbound.push("peer/bidirectional", {
-                        "name":        _state.AGENT_NAME,
-                        "remote_addr": self.peer_remote_addr,
-                    })
+                self.push("peer/bidirectional", {
+                    "name":        _state.AGENT_NAME,
+                    "remote_addr": self.peer_remote_addr,
+                })
             except Exception:
                 pass
 
@@ -751,9 +749,11 @@ def open_channel_to(peer_name: str, peer_url: str, ca_pem: str = "") -> "PeerCha
     from porpulsion import state
     with state.peer_channels_lock:
         old = state.peer_channels.get(peer_name)
+        prior_remote_addr = old.peer_remote_addr if old else ""
         if old:
             old.close()
         ch = PeerChannel(peer_name, peer_url, ca_pem)
+        ch.peer_remote_addr = prior_remote_addr
         _register_handlers(ch)
         state.peer_channels[peer_name] = ch
 
@@ -809,6 +809,7 @@ def _register_handlers(ch: "PeerChannel"):
         handle_remoteapp_exec,
         handle_remoteapp_exec_open,
         handle_remoteapp_exec_stdin,
+        handle_remoteapp_exec_resize,
         handle_remoteapp_exec_close,
         handle_remoteapp_exec_stdout,
         handle_remoteapp_restart,
@@ -837,6 +838,7 @@ def _register_handlers(ch: "PeerChannel"):
     ch.register("remoteapp/pods",          handle_remoteapp_pods)
     ch.register("remoteapp/exec",          handle_remoteapp_exec)
     ch.register("remoteapp/exec-stdin",    handle_remoteapp_exec_stdin)
+    ch.register("remoteapp/exec-resize",   handle_remoteapp_exec_resize)
     ch.register("remoteapp/exec-close",    handle_remoteapp_exec_close)
     ch.register("remoteapp/exec-stdout",   handle_remoteapp_exec_stdout)
     ch.register("remoteapp/restart",       handle_remoteapp_restart)

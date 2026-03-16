@@ -629,8 +629,8 @@ def run_workload(remote_app, callback_url, peer=None, cr_body=None):
 
         _report_status(remote_app, callback_url, "Running", peer=peer)
 
-        # -- Poll until ready
-        for _ in range(60):
+        # -- Poll until ready (up to 5 minutes — image pulls can be slow on first run)
+        for _ in range(150):
             if stop.is_set():
                 log.info("Watcher for %s cancelled (re-deploy)", remote_app.id)
                 return
@@ -803,12 +803,14 @@ _exec_sessions_lock = threading.Lock()
 _ALLOWED_SHELLS = {"/bin/sh", "/bin/bash"}
 
 
-def exec_open_session(remote_app, pod_name: str, on_stdout, shell: str = "/bin/sh", session_id: str = None) -> str:
+def exec_open_session(remote_app, pod_name: str, on_stdout, shell: str = "/bin/sh", session_id: str = None,
+                      cols: int = 80, rows: int = 24) -> str:
     """
     Start an interactive PTY session in a pod using the given shell. Returns a session_id.
     on_stdout(data: str) is called from a background thread whenever the shell
     produces output — the caller should forward it over the peer channel.
     If session_id is provided it will be used as-is; otherwise a new one is generated.
+    cols/rows set the initial PTY size before the shell reads it.
     Raises RuntimeError on failure.
     """
     from kubernetes.stream import stream as k8s_stream
@@ -836,6 +838,14 @@ def exec_open_session(remote_app, pod_name: str, on_stdout, shell: str = "/bin/s
         tty=True,
         _preload_content=False,
     )
+
+    # Send initial PTY size before the shell reads TIOCGWINSZ at startup.
+    # Without this, the shell starts at 0x0 and disables cursor-key/readline handling.
+    import json as _json
+    try:
+        exec_ws.write_channel(4, _json.dumps({"Width": cols, "Height": rows}))
+    except Exception:
+        pass
 
     import uuid as _uuid
     if not session_id:
@@ -879,6 +889,19 @@ def exec_send_stdin(session_id: str, data: str):
     if not session or session["stop"].is_set():
         raise RuntimeError("session not found or closed")
     session["exec_ws"].write_channel(0, data)
+
+
+def exec_resize_session(session_id: str, cols: int, rows: int):
+    """Send a PTY resize event to a running exec session."""
+    import json as _json
+    with _exec_sessions_lock:
+        session = _exec_sessions.get(session_id)
+    if not session or session["stop"].is_set():
+        return
+    try:
+        session["exec_ws"].write_channel(4, _json.dumps({"Width": cols, "Height": rows}))
+    except Exception:
+        pass
 
 
 def exec_close_session(session_id: str):

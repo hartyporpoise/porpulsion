@@ -7,7 +7,6 @@ services:
     environment:
       - K3S_TOKEN=porpulsion-token
     ports:
-      - "6443:6443"    # k8s API
       - "8001:30080"   # NodePort (UI + /ws + /status)
     networks:
       - porpulsion-net
@@ -20,21 +19,7 @@ services:
     environment:
       - K3S_TOKEN=porpulsion-token
     ports:
-      - "6444:6444"    # k8s API
       - "8002:30080"   # NodePort (UI + /ws + /status)
-    networks:
-      - porpulsion-net
-
-  # -- k3s cluster C
-  cluster-c:
-    image: rancher/k3s:v1.29.2-k3s1
-    command: server --disable traefik --tls-san cluster-c --https-listen-port 6445
-    privileged: true
-    environment:
-      - K3S_TOKEN=porpulsion-token
-    ports:
-      - "6445:6445"    # k8s API
-      - "8003:30080"   # NodePort (UI + /ws + /status)
     networks:
       - porpulsion-net
 
@@ -50,7 +35,6 @@ services:
     depends_on:
       - cluster-a
       - cluster-b
-      - cluster-c
 
 networks:
   porpulsion-net:

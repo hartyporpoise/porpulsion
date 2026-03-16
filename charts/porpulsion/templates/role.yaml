@@ -77,9 +77,7 @@ rules:
     resources: ["executingapps/status"]
     verbs: ["get", "update", "patch"]
 
-  {{- if .Values.agent.allowPvcs }}
-  # -- PersistentVolumeClaims  enabled via agent.allowPvcs
+  # -- PersistentVolumeClaims  (controlled at runtime via allow_pvcs setting in the UI)
   - apiGroups: [""]
     resources: ["persistentvolumeclaims"]
     verbs: ["get", "list", "create", "update", "patch", "delete"]
-  {{- end }}

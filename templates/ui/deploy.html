@@ -165,28 +165,9 @@
   <!-- ── YAML editor wrap ────────────────────────────────────────── -->
   <div id="deploy-yaml-wrap" style="display:none;">
 
-    <!-- Target + name (visible in yaml mode too) -->
-    <div class="card mb1">
-      <div class="card-header"><h2>Deploy RemoteApp</h2></div>
-      <div class="card-body">
-        <div class="form-row-2">
-          <div class="form-group mb0">
-            <label class="form-label" for="deploy-name-yaml">App name <span class="req">*</span></label>
-            <input type="text" id="deploy-name-yaml" placeholder="e.g. my-nginx" autocomplete="off" spellcheck="false">
-          </div>
-          <div class="form-group mb0">
-            <label class="form-label" for="deploy-target-peer-yaml">Target peer <span class="req">*</span></label>
-            <select id="deploy-target-peer-yaml">
-              <option value="" disabled hidden selected>— select peer —</option>
-            </select>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Monaco editor -->
+    <!-- Full CR editor -->
     <div class="card" style="margin-bottom:1rem;overflow:visible;">
-      <div class="card-header"><h2>Spec</h2></div>
+      <div class="card-header"><h2>RemoteApp CR</h2></div>
       <div class="card-body" style="padding:0;overflow:visible;">
         <!-- Backing textarea — always kept in sync by setup-vscode-editor.js -->
         <textarea id="app-spec-yaml" style="display:none;" aria-hidden="true"></textarea>
@@ -194,10 +175,10 @@
         <div id="app-spec-editor" style="height:60vh;min-height:400px;width:100%;"></div>
         <!-- Fallback textarea (shown if Monaco fails to load) -->
         <textarea id="app-spec-yaml-fallback"
-          rows="22"
+          rows="28"
           spellcheck="false"
           style="display:none;width:100%;box-sizing:border-box;background:var(--surface2);border:none;padding:1rem;font-family:monospace;font-size:0.8rem;color:var(--text);resize:vertical;outline:none;"
-          placeholder="image: nginx:latest&#10;replicas: 1&#10;ports:&#10;  - port: 80"></textarea>
+          placeholder="apiVersion: porpulsion.io/v1alpha1&#10;kind: RemoteApp&#10;metadata:&#10;  name: my-nginx&#10;spec:&#10;  image: nginx:latest&#10;  targetPeer: my-peer&#10;  replicas: 1"></textarea>
       </div>
     </div>
 
@@ -307,7 +288,7 @@
     _confirmedPeers = peers.filter(function (p) {
       return 'channel' in p && (p.direction === 'outgoing' || p.direction === 'bidirectional');
     });
-    ['deploy-target-peer', 'deploy-target-peer-yaml'].forEach(function (selId) {
+    ['deploy-target-peer'].forEach(function (selId) {
       var sel = el(selId);
       if (!sel) return;
       var toRemove = [];
@@ -697,11 +678,27 @@
     return lines.join('\n');
   }
 
-  // ── Very lightweight YAML→object parser (top-level keys only) ──
-  // Best-effort for round-tripping simple specs back to the form.
+  // ── Very lightweight YAML→object parser ──────────────────────
+  // Handles bare spec YAML or a full CR YAML (extracts spec: block first).
   function yamlToSpec(text) {
+    // If this looks like a full CR, extract and dedent the spec: block.
+    text = (text || '');
+    if (/^\s*apiVersion\s*:/m.test(text)) {
+      var specMatch = text.match(/^spec\s*:\s*\n([\s\S]*)$/m);
+      if (specMatch) {
+        // Keep only indented lines (drop sibling top-level CR keys like status:)
+        var specRaw = specMatch[1].split('\n').filter(function (l) {
+          return !l.length || l.charAt(0) === ' ';
+        }).join('\n');
+        // Dedent by 2 spaces (the standard CR spec indentation)
+        text = specRaw.replace(/^  /gm, '');
+      } else {
+        text = '';
+      }
+    }
+
     var spec = {};
-    var lines = (text || '').split('\n');
+    var lines = text.split('\n');
     var i = 0;
     function peek() { return i < lines.length ? lines[i] : null; }
     function consume() { return lines[i++]; }
@@ -720,6 +717,58 @@
       var n = Number(s);
       if (s !== '' && !isNaN(n)) return n;
       return s;
+    }
+    // Collect a block-scalar (|) value: gather continuation lines until indent drops
+    function collectBlockScalar(baseIndent) {
+      var parts = [];
+      var bodyIndent = -1;
+      while (i < lines.length) {
+        var bl = peek();
+        if (bl === null) break;
+        if (!bl.trim()) { consume(); parts.push(''); continue; }
+        if (indentOf(bl) <= baseIndent) break;
+        consume();
+        // Detect the body indent from the first non-blank content line
+        if (bodyIndent < 0) bodyIndent = indentOf(bl);
+        parts.push(bl.replace(new RegExp('^\\s{' + bodyIndent + '}'), ''));
+      }
+      // Trim trailing empty lines
+      while (parts.length && parts[parts.length-1] === '') parts.pop();
+      return parts.join('\n');
+    }
+    // Parse a flat map of key: value lines at a given minimum indent
+    function parseMap(minIndent) {
+      var obj = {};
+      while (i < lines.length) {
+        var ml = peek();
+        if (!ml || !ml.trim()) { consume(); continue; }
+        if (indentOf(ml) < minIndent) break;
+        consume();
+        if (ml.trim().charAt(0) === '#') continue;
+        var mci = ml.indexOf(':');
+        if (mci < 0) continue;
+        var mk = ml.slice(0, mci).trim();
+        var mv = ml.slice(mci + 1).trim();
+        if (mv === '|') {
+          obj[mk] = collectBlockScalar(indentOf(ml));
+        } else if (!mv) {
+          // nested map (e.g. data: \n  key: val)
+          var subIndent = -1;
+          for (var sp = i; sp < lines.length; sp++) {
+            if (!lines[sp].trim()) continue;
+            subIndent = indentOf(lines[sp]);
+            break;
+          }
+          if (subIndent > minIndent) {
+            obj[mk] = parseMap(subIndent);
+          } else {
+            obj[mk] = {};
+          }
+        } else {
+          obj[mk] = coerce(unquote(mv));
+        }
+      }
+      return obj;
     }
 
     while (i < lines.length) {
@@ -741,7 +790,6 @@
       if (!rest) {
         var blockIndent = -1;
         var isList = false;
-        // Peek ahead to determine list vs object
         for (var p = i; p < lines.length; p++) {
           var pl = lines[p];
           if (!pl.trim()) continue;
@@ -752,7 +800,7 @@
         if (blockIndent <= 0) continue; // empty block
 
         if (isList) {
-          // Parse block list (ports, env, configMaps, secrets, pvcs)
+          // Parse block list (ports, env, configMaps, secrets, pvcs, imagePullSecrets)
           var items = [];
           while (i < lines.length) {
             var nextLine = peek();
@@ -768,7 +816,7 @@
               } else if (itemRest) {
                 obj = unquote(itemRest);
               }
-              // sub-keys of this list item
+              // sub-keys of this list item (may include nested maps like data:)
               while (i < lines.length) {
                 var sub = peek();
                 if (!sub || indentOf(sub) <= blockIndent) break;
@@ -777,8 +825,26 @@
                 var sci = sub.indexOf(':');
                 if (sci < 0) continue;
                 var sk = sub.slice(0, sci).trim();
-                var sv = sub.slice(sci+1).trim();
-                if (typeof obj === 'object') obj[sk] = coerce(unquote(sv));
+                var sv = sub.slice(sci + 1).trim();
+                if (typeof obj !== 'object') continue;
+                if (sv === '|') {
+                  obj[sk] = collectBlockScalar(indentOf(sub));
+                } else if (!sv) {
+                  // nested map (e.g. data: <newline> key: val)
+                  var subMapIndent = -1;
+                  for (var smp = i; smp < lines.length; smp++) {
+                    if (!lines[smp].trim()) continue;
+                    subMapIndent = indentOf(lines[smp]);
+                    break;
+                  }
+                  if (subMapIndent > indentOf(sub)) {
+                    obj[sk] = parseMap(subMapIndent);
+                  } else {
+                    obj[sk] = {};
+                  }
+                } else {
+                  obj[sk] = coerce(unquote(sv));
+                }
               }
               items.push(obj);
             }
@@ -800,16 +866,16 @@
             if (!ov) {
               // one more nesting level (e.g. requests: / limits:)
               var subNested = {};
-              var subIndent = -1;
-              for (var sp = i; sp < lines.length; sp++) {
-                if (!lines[sp].trim()) continue;
-                subIndent = indentOf(lines[sp]);
+              var subIndent2 = -1;
+              for (var sp2 = i; sp2 < lines.length; sp2++) {
+                if (!lines[sp2].trim()) continue;
+                subIndent2 = indentOf(lines[sp2]);
                 break;
               }
-              while (subIndent > 0 && i < lines.length) {
+              while (subIndent2 > 0 && i < lines.length) {
                 var sl = peek();
                 if (!sl || !sl.trim()) { consume(); continue; }
-                if (indentOf(sl) < subIndent) break;
+                if (indentOf(sl) < subIndent2) break;
                 consume();
                 var sci2 = sl.indexOf(':');
                 if (sci2 < 0) continue;
@@ -835,34 +901,31 @@
   var _currentMode = 'form';
   var _editorInitialized = false;
 
+  function _buildCrYaml(name, peer, spec) {
+    var specYaml = specToYaml(spec);
+    var indented = specYaml.split('\n').map(function (l) { return '  ' + l; }).join('\n');
+    return 'apiVersion: porpulsion.io/v1alpha1\nkind: RemoteApp\nmetadata:\n  name: ' + (name || 'my-app') + '\nspec:\n  targetPeer: ' + (peer || '') + '\n' + indented;
+  }
+
   function switchToYaml() {
     _currentMode = 'yaml';
-    // Serialize form → YAML and put in editor
-    var yaml = specToYaml(buildSpec());
-    if (!yaml.trim()) yaml = 'image: nginx:latest\nreplicas: 1\nports:\n  - port: 80\n    name: http';
+    // Build full CR from current form state
+    var nameForm = (el('deploy-name') || {}).value || '';
+    var peerForm = (el('deploy-target-peer') || {}).value || '';
+    var crYaml = _buildCrYaml(nameForm, peerForm, buildSpec());
     var specEl = el('app-spec-yaml');
-    if (specEl) specEl.value = yaml;
+    if (specEl) specEl.value = crYaml;
 
     el('deploy-form-wrap').style.display = 'none';
     el('deploy-yaml-wrap').style.display = 'block';
-
-    // Sync name/peer from form fields
-    var nameForm = (el('deploy-name') || {}).value || '';
-    var peerForm = (el('deploy-target-peer') || {}).value || '';
-    if (el('deploy-name-yaml')) el('deploy-name-yaml').value = nameForm;
-    if (el('deploy-target-peer-yaml')) {
-      el('deploy-target-peer-yaml').value = peerForm;
-      if (typeof el('deploy-target-peer-yaml')._ddRebuild === 'function') el('deploy-target-peer-yaml')._ddRebuild();
-    }
 
     // Init Monaco (idempotent); always push current yaml into editor
     var VSE = window.PorpulsionVscodeEditor;
     if (!_editorInitialized) {
       _editorInitialized = true;
       if (VSE) VSE.initDeploySpecEditor();
-      // initDeploySpecEditor reads #app-spec-yaml (set above) for initial value
     } else {
-      if (VSE) VSE.setDeploySpecValue(yaml);
+      if (VSE) VSE.setDeploySpecValue(crYaml);
     }
     requestAnimationFrame(function () { if (VSE) VSE.layoutDeployEditor(); });
   }
@@ -872,20 +935,20 @@
     el('deploy-form-wrap').style.display = 'block';
     el('deploy-yaml-wrap').style.display = 'none';
 
-    // Sync name/peer back
-    var nameYaml = (el('deploy-name-yaml') || {}).value || '';
-    var peerYaml = (el('deploy-target-peer-yaml') || {}).value || '';
-    if (nameYaml && el('deploy-name')) el('deploy-name').value = nameYaml;
-    if (peerYaml && el('deploy-target-peer')) {
-      el('deploy-target-peer').value = peerYaml;
-      if (typeof el('deploy-target-peer')._ddRebuild === 'function') el('deploy-target-peer')._ddRebuild();
-    }
-
-    // Best-effort YAML → form hydration
+    // Best-effort: parse spec block out of CR YAML and hydrate form
     var VSE = window.PorpulsionVscodeEditor;
-    var yaml = VSE ? VSE.getDeploySpecValue() : ((el('app-spec-yaml') || {}).value || '');
-    if (yaml.trim()) {
-      try { hydrateForm(yamlToSpec(yaml)); } catch(e) { /* best effort */ }
+    var crYaml = VSE ? VSE.getDeploySpecValue() : ((el('app-spec-yaml') || {}).value || '');
+    if (crYaml.trim()) {
+      try {
+        var nameMatch = crYaml.match(/^\s*name\s*:\s*(\S+)/m);
+        var peerMatch = crYaml.match(/^\s*targetPeer\s*:\s*(\S+)/m);
+        if (nameMatch && el('deploy-name')) el('deploy-name').value = nameMatch[1].trim();
+        if (peerMatch && el('deploy-target-peer')) {
+          el('deploy-target-peer').value = peerMatch[1].trim();
+          if (typeof el('deploy-target-peer')._ddRebuild === 'function') el('deploy-target-peer')._ddRebuild();
+        }
+        hydrateForm(yamlToSpec(crYaml));
+      } catch(e) { /* best effort */ }
     }
   }
 
@@ -940,6 +1003,13 @@
       spec.pvcs.forEach(function (p) { addVolItem('pvc', p.name, p.mountPath, null, p.storage, p.accessMode); });
     }
 
+    // Registry proxy toggle
+    var proxyChk = el('deploy-registry-proxy');
+    if (proxyChk) {
+      var hasProxy = Array.isArray(spec.imagePullSecrets) &&
+                     spec.imagePullSecrets.indexOf('porpulsion-image-proxy') >= 0;
+      proxyChk.checked = hasProxy;
+    }
   }
 
   // ── Mode toggle buttons ──────────────────────────────────────
@@ -955,24 +1025,12 @@
   });
 
   // ── Submit ────────────────────────────────────────────────────
-  function getNameAndPeer() {
-    var name, peer;
-    if (_currentMode === 'yaml') {
-      name = ((el('deploy-name-yaml') || {}).value || '').trim();
-      peer = ((el('deploy-target-peer-yaml') || {}).value || '').trim();
-    } else {
-      name = ((el('deploy-name') || {}).value || '').trim();
-      peer = ((el('deploy-target-peer') || {}).value || '').trim();
-    }
-    return {name: name, peer: peer};
-  }
-
-  function getYaml() {
+  function getCrYaml() {
     var VSE = window.PorpulsionVscodeEditor;
     return VSE ? VSE.getDeploySpecValue() : ((el('app-spec-yaml') || {}).value || '');
   }
 
-  function doSubmit(name, targetPeer, payload) {
+  function doSubmit(payload) {
     var btns = [el('deploy-submit-btn'), el('deploy-submit-btn-yaml')];
     btns.forEach(function (b) { if (b) { b.disabled = true; b.textContent = 'Deploying…'; } });
     P.createRemoteApp(payload).then(function (res) {
@@ -987,21 +1045,26 @@
   }
 
   function handleSubmit() {
-    var np = getNameAndPeer();
-    if (!np.name) { toast('App name is required', 'error'); return; }
-    if (!np.peer) { toast('Select a target peer', 'error'); return; }
-    var payload = {name: np.name, target_peer: np.peer};
     if (_currentMode === 'yaml') {
-      var yaml = getYaml();
-      if (!yaml.trim()) { toast('Spec YAML is required', 'error'); return; }
-      if (!/^\s*image\s*:/m.test(yaml)) { toast('Image is required', 'error'); return; }
-      payload.spec_yaml = yaml;
+      var crYaml = getCrYaml();
+      if (!crYaml.trim()) { toast('CR YAML is required', 'error'); return; }
+      // Parse name and targetPeer out of the CR YAML
+      var nameMatch = crYaml.match(/^\s*name\s*:\s*(\S+)/m);
+      var peerMatch = crYaml.match(/^\s*targetPeer\s*:\s*(\S+)/m);
+      var name = nameMatch ? nameMatch[1].trim() : '';
+      var peer = peerMatch ? peerMatch[1].trim() : '';
+      if (!name) { toast('CR must have metadata.name', 'error'); return; }
+      if (!peer) { toast('CR spec must include targetPeer', 'error'); return; }
+      if (!/^\s*image\s*:/m.test(crYaml)) { toast('CR spec must include image', 'error'); return; }
+      doSubmit({ name: name, target_peer: peer, cr_yaml: crYaml });
     } else {
+      var np = { name: ((el('deploy-name') || {}).value || '').trim(), peer: ((el('deploy-target-peer') || {}).value || '').trim() };
+      if (!np.name) { toast('App name is required', 'error'); return; }
+      if (!np.peer) { toast('Select a target peer', 'error'); return; }
       var spec = buildSpec();
       if (!spec.image) { toast('Image is required', 'error'); return; }
-      payload.spec = spec;
+      doSubmit({ name: np.name, target_peer: np.peer, spec: spec });
     }
-    doSubmit(np.name, np.peer, payload);
   }
 
   el('deploy-submit-btn').addEventListener('click', handleSubmit);

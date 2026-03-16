@@ -6,7 +6,7 @@
 # -- Agent
 agent:
   # -- Container image for the porpulsion agent.
-  image: ghcr.io/hartyporpoise/porpulsion:1.1.3
+  image: ghcr.io/hartyporpoise/porpulsion:1.2.0
 
   # -- Image pull policy. Use `Always` when pushing to a remote registry.
   pullPolicy: IfNotPresent
@@ -17,11 +17,6 @@ agent:
   # -- Human-readable name for this agent, shown in the dashboard and used
   #    during peer handshakes. Defaults to the hostname if unset.
   agentName: ""
-
-  # -- Allow inbound RemoteApps to request PersistentVolumeClaims.
-  #    When true, the Role gains PVC create/delete permissions.
-  #    Defaults to false  enable only on clusters where you trust peers to claim storage.
-  allowPvcs: false
 
   # -- CPU/memory requests and limits for the agent container.
   resources:
