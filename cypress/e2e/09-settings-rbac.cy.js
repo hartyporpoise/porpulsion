@@ -14,7 +14,7 @@ describe('Settings & RBAC', () => {
   before(() => {
     const waitForPeer = (attempts = 0) => {
       cy.apiRequest('GET', `${AGENT_A}/api/peers`).then((resp) => {
-        const peer = resp.body.find((p) => p.channel === 'connected') || resp.body[0];
+        const peer = resp.body[0];
         if (peer?.name) { PEER_B_NAME = peer.name; return; }
         if (attempts >= 10) throw new Error('No peer found on Agent A after waiting');
         cy.wait(3000).then(() => waitForPeer(attempts + 1));

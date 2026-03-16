@@ -64,6 +64,20 @@ describe('Peering', () => {
       });
     });
 
+    it('Agent A sees Agent B as an outgoing peer', () => {
+      cy.apiRequest('GET', Cypress.config('baseUrl') + '/api/peers').then((resp) => {
+        expect(resp.body).to.be.an('array').with.length.greaterThan(0);
+        expect(resp.body[0].direction).to.eq('outgoing');
+      });
+    });
+
+    it('Agent B sees Agent A as an incoming peer', () => {
+      cy.apiRequest('GET', `${AGENT_B}/api/peers`).then((resp) => {
+        expect(resp.body).to.be.an('array').with.length.greaterThan(0);
+        expect(resp.body[0].direction).to.eq('incoming');
+      });
+    });
+
     it('rejects a duplicate connect attempt', () => {
       cy.loginTo();
       cy.visit('/peers');
@@ -74,6 +88,41 @@ describe('Peering', () => {
       cy.get('#toast', { timeout: 8000 })
         .should('have.class', 'show')
         .and('satisfy', ($el) => /already|peered|409|exists/i.test($el.text()));
+    });
+  });
+
+  context('Upgrade to bidirectional — B connects back to A', () => {
+    let bundleA;
+
+    before(() => {
+      // Fetch Agent A's invite bundle so B can connect back
+      cy.apiRequest('GET', Cypress.config('baseUrl') + '/api/invite').then((resp) => {
+        expect(resp.status).to.eq(200);
+        bundleA = resp.body.bundle;
+        expect(bundleA).to.be.a('string').and.have.length.greaterThan(10);
+      });
+    });
+
+    it('pastes Agent A bundle into Agent B connect form and submits', () => {
+      cy.loginTo(AGENT_B);
+      cy.visit(`${AGENT_B}/peers`);
+      cy.get('#new-peer-bundle').should('be.visible').type(bundleA, { delay: 0 });
+      cy.get('#connect-peer-form button[type="submit"]').click();
+      cy.get('#all-peers-body tr', { timeout: 20000 }).should('have.length.greaterThan', 0);
+    });
+
+    it('Agent A direction upgrades to bidirectional', () => {
+      cy.apiRequest('GET', Cypress.config('baseUrl') + '/api/peers').then((resp) => {
+        expect(resp.body).to.be.an('array').with.length.greaterThan(0);
+        expect(resp.body[0].direction).to.eq('bidirectional');
+      });
+    });
+
+    it('Agent B direction upgrades to bidirectional', () => {
+      cy.apiRequest('GET', `${AGENT_B}/api/peers`).then((resp) => {
+        expect(resp.body).to.be.an('array').with.length.greaterThan(0);
+        expect(resp.body[0].direction).to.eq('bidirectional');
+      });
     });
   });
 });

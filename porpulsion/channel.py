@@ -403,10 +403,12 @@ class PeerChannel:
         except Exception:
             pass
 
-        # Tell the connecting peer what IP we saw their connection from.
-        # Send directly on self (the inbound socket they just connected on)
-        # so this works regardless of whether we have an outbound channel open.
-        if self.peer_remote_addr:
+        # Only send peer/bidirectional if this inbound completed a bidirectional pair
+        # (i.e. we had an outgoing channel and they connected back to us). Do not send
+        # it for a plain incoming connection — that would incorrectly upgrade the
+        # connecting peer's direction from "outgoing" to "bidirectional".
+        peer_in_state = _state.peers.get(peer_name)
+        if self.peer_remote_addr and peer_in_state and peer_in_state.direction == "bidirectional":
             try:
                 self.push("peer/bidirectional", {
                     "name":        _state.AGENT_NAME,
