@@ -46,6 +46,9 @@ settings: AgentSettings = AgentSettings()
 peer_channels: "dict[str, PeerChannel]" = {}
 peer_channels_lock: threading.Lock = threading.Lock()
 
+# App IDs for which proxy auth bypass is enabled (auth OFF for those IDs)
+proxy_auth_disabled: set[str] = set()
+
 # In-app notifications - newest first, capped at 50
 notifications: list[dict] = []
 

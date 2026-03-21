@@ -388,7 +388,11 @@ def reject_remoteapp(app_id):
                             "executing": {"type": "array", "items": REF_REMOTE_APP}},
          }}}}})
 def list_remoteapps():
-    submitted  = [cr_to_dict(cr, "submitted")  for cr in list_remoteapp_crs(state.NAMESPACE)]
+    submitted = []
+    for cr in list_remoteapp_crs(state.NAMESPACE):
+        d = cr_to_dict(cr, "submitted")
+        d["proxy_require_auth"] = d["id"] not in state.proxy_auth_disabled
+        submitted.append(d)
     executing  = [cr_to_dict(cr, "executing")  for cr in list_executingapp_crs(state.NAMESPACE)]
     return jsonify({"submitted": submitted, "executing": executing})
 
@@ -410,6 +414,7 @@ def delete_remoteapp(app_id):
         # Delete the CR - the CR watcher (DELETED) notifies the peer to delete its EA CR,
         # which then triggers workload cleanup on the executing side
         delete_remoteapp_cr(state.NAMESPACE, cr_name)
+        state.proxy_auth_disabled.discard(app_id)
         return jsonify({"ok": True})
 
     if side == "executing":
@@ -902,3 +907,36 @@ def patch_app_secret(app_id, name):
         except Exception as e:
             return jsonify({"error": str(e)}), 500
     return jsonify({"error": "app not found"}), 404
+
+
+@bp.route("/remoteapp/<app_id>/proxy-auth", methods=["POST"])
+@api_doc("Toggle proxy auth", tags=["RemoteApps"],
+         description="Enable or disable authentication for the proxy tunnel of a submitted app. Auth is ON by default.",
+         parameters=[{"name": "app_id", "in": "path", "required": True, "schema": {"type": "string"}}],
+         request_body={"required": True, "content": {"application/json": {"schema": {
+             "type": "object", "required": ["require_auth"],
+             "properties": {"require_auth": {"type": "boolean"}},
+         }}}},
+         responses={"200": {"description": "OK"},
+                    "400": {"description": "require_auth is required"},
+                    "404": {"description": "App not found"}})
+def set_proxy_auth(app_id):
+    data = request.json or {}
+    if "require_auth" not in data:
+        return jsonify({"error": "require_auth is required"}), 400
+    require_auth = bool(data["require_auth"])
+
+    cr, side = get_cr_by_app_id(state.NAMESPACE, app_id)
+    if cr is None or side != "submitted":
+        return jsonify({"error": "app not found"}), 404
+
+    if require_auth:
+        state.proxy_auth_disabled.discard(app_id)
+    else:
+        state.proxy_auth_disabled.add(app_id)
+
+    tls.save_state_configmap(
+        state.NAMESPACE, state.settings, state.pending_approval,
+        proxy_auth_disabled=state.proxy_auth_disabled,
+    )
+    return jsonify({"ok": True, "proxy_require_auth": require_auth})
