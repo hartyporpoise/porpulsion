@@ -13,7 +13,6 @@ import hashlib
 import logging
 import os
 import pathlib
-import socket
 import threading
 
 from flask import Flask, Response, jsonify, request
@@ -43,25 +42,22 @@ log = logging.getLogger("porpulsion.agent")
 
 state.AGENT_NAME = os.environ.get("AGENT_NAME", "porpulsion-agent")
 
-_self_url_env = os.environ.get("SELF_URL", "")
-if _self_url_env:
-    state.SELF_URL = _self_url_env
-else:
-    try:
-        _s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        _s.connect(("8.8.8.8", 80))
-        _detected_ip = _s.getsockname()[0]
-        _s.close()
-    except Exception:
-        _detected_ip = "127.0.0.1"
-    state.SELF_URL = f"http://{_detected_ip}:8000"
-    log.warning(
-        "SELF_URL not set - auto-detected as %s. "
-        "This is a pod-internal IP and will cause peering to fail across clusters. "
-        "Set agent.selfUrl in your Helm values to the externally reachable URL for "
-        "this agent (e.g. https://porpulsion.example.com).",
-        state.SELF_URL
+_ws_domain = os.environ.get("WS_DOMAIN", "").strip().rstrip("/")
+_api_domain = os.environ.get("API_DOMAIN", "").strip().rstrip("/")
+
+if not _ws_domain:
+    raise RuntimeError(
+        "WS_DOMAIN env var is not set. Set agent.websocketDomain in your Helm values "
+        "(e.g. https://porpulsion.example.com)."
     )
+if not _api_domain:
+    raise RuntimeError(
+        "API_DOMAIN env var is not set. Set agent.apiDomain in your Helm values "
+        "(e.g. https://porpulsion.example.com)."
+    )
+
+state.SELF_URL = _ws_domain
+state.API_URL = _api_domain
 
 # Load CA cert + key from k8s Secret (generate if absent).
 # The CA cert is included in signed invite bundles and used to verify peer/hello
@@ -89,7 +85,7 @@ def _compute_version_hash() -> str:
     return h.hexdigest()[:16]
 
 state.VERSION_HASH = _compute_version_hash()
-log.info("SELF_URL=%s  VERSION_HASH=%s", state.SELF_URL, state.VERSION_HASH)
+log.info("WS_DOMAIN=%s  API_DOMAIN=%s  VERSION_HASH=%s", state.SELF_URL, state.API_URL, state.VERSION_HASH)
 
 # -- Restore persisted state
 
@@ -131,7 +127,7 @@ log.info("Restored %d peer(s), %d pending approval(s) from persistent storage",
 if state.settings.registry_pull_enabled:
     try:
         from porpulsion.k8s.registry_proxy import ensure_registry_setup
-        ensure_registry_setup(state.NAMESPACE, state.SELF_URL)
+        ensure_registry_setup(state.NAMESPACE)
     except Exception as _rp_exc:
         log.warning("Could not set up registry proxy: %s", _rp_exc)
 
@@ -418,6 +414,65 @@ def _csrf_context():
     return {"csrf_token": _csrf_generate}
 
 _CSRF_PROTECTED_PATHS = ("/login", "/logout", "/users/add", "/users/edit", "/users/remove", "/signup")
+
+
+@app.before_request
+def _vhost_proxy_dispatch():
+    """
+    Route requests arriving on a proxy vhost subdomain directly to the tunnel handler.
+
+    The proxy domain is the hostname portion of API_URL (agent.apiDomain).
+    Any request whose Host header matches {anything}.{proxy_domain} is treated
+    as a proxy request with subdomain format {app_name}-{port}.
+
+    Users add one wildcard CNAME:
+      *.{api_hostname}  ->  {api_hostname}
+
+    Requests require authentication via session cookie or HTTP Basic Auth.
+    """
+    if not state.API_URL:
+        return
+    from urllib.parse import urlparse
+    proxy_domain = urlparse(state.API_URL).netloc
+    if not proxy_domain:
+        return
+    host = request.host.split(":")[0]
+    if not host.endswith("." + proxy_domain) or host == proxy_domain:
+        return
+
+    # Auth: session cookie or HTTP Basic Auth
+    from flask import session
+    if not session.get("user"):
+        import base64 as _b64
+        auth_header = request.headers.get("Authorization", "")
+        authed = False
+        if auth_header.startswith("Basic "):
+            ip = request.remote_addr or "unknown"
+            from porpulsion.routes.auth import (
+                _load_users, _verify_password, _is_rate_limited, _record_failure, _clear_failures,
+            )
+            if _is_rate_limited(ip):
+                return jsonify({"error": "too many failed attempts"}), 429
+            try:
+                username, password = _b64.b64decode(auth_header[6:]).decode().split(":", 1)
+                users = _load_users()
+                if username in users and _verify_password(password, users[username]["hash"]):
+                    _clear_failures(ip)
+                    authed = True
+            except Exception:
+                pass
+            if not authed:
+                _record_failure(ip)
+        if not authed:
+            return Response(
+                "Unauthorized", status=401,
+                headers={"WWW-Authenticate": 'Basic realm="porpulsion"'},
+            )
+
+    subdomain = host[: -(len(proxy_domain) + 1)]
+    from porpulsion.routes.tunnels import handle_vhost_proxy
+    return handle_vhost_proxy(subdomain)
+
 
 @app.before_request
 def _ensure_csrf_token():

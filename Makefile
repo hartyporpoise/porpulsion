@@ -76,7 +76,8 @@ deploy: ## Full deploy: start clusters, build image, helm install all agents
 		KUBECONFIG=/tmp/kubeconfig-a.yaml helm upgrade --install porpulsion /charts/porpulsion \
 			--create-namespace --namespace porpulsion \
 			--set agent.agentName=$$NAME_A \
-			--set agent.selfUrl=http://$$IP_A:30080 \
+			--set agent.websocketDomain=http://$$IP_A:30080 \
+			--set agent.apiDomain=http://$$IP_A:30080 \
 			--set agent.image=porpulsion-agent:local \
 			--set agent.pullPolicy=Never \
 			--set service.type=NodePort \
@@ -96,7 +97,8 @@ deploy: ## Full deploy: start clusters, build image, helm install all agents
 		KUBECONFIG=/tmp/kubeconfig-b.yaml helm upgrade --install porpulsion /charts/porpulsion \
 			--create-namespace --namespace porpulsion \
 			--set agent.agentName=$$NAME_B \
-			--set agent.selfUrl=http://$$IP_B:30080 \
+			--set agent.websocketDomain=http://$$IP_B:30080 \
+			--set agent.apiDomain=http://$$IP_B:30080 \
 			--set agent.image=porpulsion-agent:local \
 			--set agent.pullPolicy=Never \
 			--set service.type=NodePort \
@@ -217,7 +219,8 @@ deploy-single: ## Start a single k3s cluster, build image, helm install
 		KUBECONFIG=/tmp/kubeconfig-single.yaml helm upgrade --install porpulsion /charts/porpulsion \
 			--create-namespace --namespace porpulsion \
 			--set agent.agentName=$$NAME \
-			--set agent.selfUrl=http://$$IP:30080 \
+			--set agent.websocketDomain=http://$$IP:30080 \
+			--set agent.apiDomain=http://$$IP:30080 \
 			--set agent.image=porpulsion-agent:local \
 			--set agent.pullPolicy=Never \
 			--set service.type=NodePort \

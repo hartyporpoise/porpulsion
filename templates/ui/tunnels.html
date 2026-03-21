@@ -11,24 +11,24 @@
       <div class="proxy-how-steps">
         <div class="proxy-how-step">
           <div class="proxy-how-num">1</div>
-          <div class="proxy-how-text">Deploy a RemoteApp with ports configured</div>
+          <div class="proxy-how-text">Set <span class="mono">apiDomain</span> in your Helm values</div>
         </div>
         <div class="proxy-how-arrow">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
         </div>
         <div class="proxy-how-step">
           <div class="proxy-how-num">2</div>
-          <div class="proxy-how-text">App appears here once Running or Ready</div>
+          <div class="proxy-how-text">Add one wildcard CNAME: <strong>*.{apiDomain}</strong> pointing at this agent</div>
         </div>
         <div class="proxy-how-arrow">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
         </div>
         <div class="proxy-how-step">
           <div class="proxy-how-num">3</div>
-          <div class="proxy-how-text">Click <strong>Open</strong> — tunnelled over the encrypted peer channel</div>
+          <div class="proxy-how-text">Each app port gets a dedicated hostname — works with browsers, CLIs, and WebSockets</div>
         </div>
       </div>
-      <a href="/settings" class="btn-sm proxy-settings-link">Tunnel settings</a>
+      <a href="/settings" class="btn-sm proxy-settings-link">Proxy settings</a>
     </div>
   </section>
 

@@ -206,6 +206,11 @@
       <div class="stg-panel" id="settings-panel-tunnels" role="tabpanel">
 
         <div class="stg-section">
+          <div class="stg-section-label">Proxy domain</div>
+          <p class="stg-hint">Derived from the <span class="mono">apiDomain</span> Helm value. Apps are reachable at <span class="mono">{app}-{port}.{proxy_domain}</span>. Add one wildcard CNAME: <span class="mono">*.<span id="setting-proxy-domain-display">...</span></span> pointing at this agent's hostname.</p>
+        </div>
+
+        <div class="stg-section">
           <div class="stg-section-label">Access</div>
           <div class="stg-group">
             <div class="stg-row stg-row-toggle stg-row-last">
@@ -249,17 +254,8 @@
           </div>
         </div>
 
-        <div class="stg-section">
-          <div class="stg-section-label">API URL override</div>
-          <div class="stg-group stg-group-form">
-            <div class="form-group" style="margin-bottom:0;">
-              <input type="text" id="setting-registry-api-url" placeholder="defaults to agent selfUrl" autocomplete="off" spellcheck="false">
-              <span class="form-hint">Override the URL used in the imagePullSecret server field. Use this if your API endpoint is reachable at a different address than the WebSocket endpoint — for example in split-ingress setups where <span class="mono">/ws</span> is public but <span class="mono">/api</span> is internal only.</span>
-            </div>
-          </div>
-          <div class="stg-footer">
-            <button type="button" id="setting-registry-save" class="btn-sm">Save</button>
-          </div>
+        <div class="stg-footer">
+          <button type="button" id="setting-registry-save" class="btn-sm">Save</button>
         </div>
 
       </div><!-- /registry -->

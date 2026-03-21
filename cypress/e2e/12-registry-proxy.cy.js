@@ -111,27 +111,5 @@ describe('Registry pull-through proxy', () => {
       });
     });
 
-    it('saving a registry_api_url via the UI form persists to the API', () => {
-      // First enable registry pull so the URL field is relevant
-      cy.apiRequest('POST', `${AGENT_B}/api/settings`, { registry_pull_enabled: true });
-
-      cy.loginTo(AGENT_B);
-      cy.visit(`${AGENT_B}/settings`);
-      cy.get('.stg-tab[data-section="registry"]').click();
-      cy.get('#setting-registry-api-url').clear().type('https://registry.example.internal');
-      cy.get('#setting-registry-save').click();
-      cy.get('#toast', { timeout: 5000 }).should('have.class', 'show')
-        .and('satisfy', ($el) => /saved|registry/i.test($el.text()));
-
-      cy.apiRequest('GET', `${AGENT_B}/api/settings`).then((r) => {
-        expect(r.body.registry_api_url).to.eq('https://registry.example.internal');
-      });
-
-      // Clean up the url field
-      cy.apiRequest('POST', `${AGENT_B}/api/settings`, {
-        registry_pull_enabled: false,
-        registry_api_url: '',
-      });
-    });
   });
 });

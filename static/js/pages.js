@@ -19,6 +19,8 @@
   var _lastSubmitted = [];
   var _lastExecuting = [];
 
+  var _proxyDomain = '';
+
   function initDeploySpecEditor() {
     if (window.PorpulsionVscodeEditor && typeof window.PorpulsionVscodeEditor.initDeploySpecEditor === 'function') {
       window.PorpulsionVscodeEditor.initDeploySpecEditor();
@@ -237,6 +239,20 @@
     }).join('');
   }
 
+  function _proxySetupInstructions(appName, port) {
+    return '<div class="proxy-setup-instructions">' +
+      '<div class="proxy-setup-section">' +
+        '<div class="proxy-setup-heading">Standard DNS (one wildcard CNAME)</div>' +
+        '<code class="proxy-setup-code mono">*.' + _esc(_proxyDomain) + '  CNAME  ' + _esc(_proxyDomain) + '</code>' +
+      '</div>' +
+      '<div class="proxy-setup-section">' +
+        '<div class="proxy-setup-heading">Cloudflare Tunnel</div>' +
+        '<div class="proxy-setup-cf">In your CF Tunnel config, add a Public Hostname:</div>' +
+        '<code class="proxy-setup-code mono">Subdomain: ' + _esc(appName + '-' + port) + '<br>Domain: ' + _esc(_proxyDomain) + '<br>Service: http://localhost:8000</code>' +
+      '</div>' +
+    '</div>';
+  }
+
   function renderProxyApps(submitted) {
     var listEl = el('proxy-apps-list');
     if (!listEl) return;
@@ -248,22 +264,33 @@
     var ICON_COPY = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
     var ICON_OPEN = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>';
     var ICON_DETAIL = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="8.5"/><line x1="12" y1="12" x2="12" y2="16"/></svg>';
+    var noDomain = !_proxyDomain;
     listEl.innerHTML = active.map(function (a) {
       var isDead = a.status === 'Deleted' || a.status === 'Failed' || a.status === 'Timeout';
       var ports = (a.spec && Array.isArray(a.spec.ports) && a.spec.ports.length) ? a.spec.ports : [{ port: (a.spec && a.spec.port) || 80 }];
-      var portLinks = ports.map(function (p) {
+      var portRows = ports.map(function (p) {
         var portNum = typeof p === 'object' ? (p.port || 80) : p;
         var portLabel = (p.name ? p.name : 'Port ' + portNum);
-        var proxyUrl = window.location.origin + API_BASE + '/remoteapp/' + a.id + '/proxy/' + portNum;
+        var setupId = 'proxy-setup-' + a.id + '-' + portNum;
+        if (noDomain) {
+          return '<div class="proxy-port-row">' +
+            '<span class="proxy-port-label">' + _esc(portLabel) + ' <span class="mono" style="font-size:0.7rem;color:var(--muted2);">:' + portNum + '</span></span>' +
+            '<span class="proxy-port-url text-muted" style="font-size:0.7rem;">Set <span class="mono">apiDomain</span> in Helm values to enable CNAME access</span>' +
+            '</div>';
+        }
+        var hostname = a.name + '-' + portNum + '.' + _proxyDomain;
         var copyId = 'proxy-url-' + a.id + '-' + portNum;
         var openBtn = !isDead
-          ? '<a href="' + _esc(proxyUrl) + '" target="_blank" rel="noopener" class="btn-sm proxy-open-btn" title="Open :' + portNum + '">' + ICON_OPEN + ' Open</a>'
+          ? '<a href="' + _esc('https://' + hostname) + '" target="_blank" rel="noopener" class="btn-sm proxy-open-btn" title="Open :' + portNum + '">' + ICON_OPEN + ' Open</a>'
           : '';
         return '<div class="proxy-port-row">' +
           '<span class="proxy-port-label">' + _esc(portLabel) + ' <span class="mono" style="font-size:0.7rem;color:var(--muted2);">:' + portNum + '</span></span>' +
-          '<span id="' + copyId + '" class="proxy-port-url mono" style="font-size:0.7rem;color:var(--muted);" title="' + _esc(proxyUrl) + '">' + _esc(proxyUrl) + '</span>' +
-          '<button type="button" class="btn-icon" title="Copy URL" aria-label="Copy URL" data-copy-el="' + copyId + '">' + ICON_COPY + '</button>' +
-          openBtn + '</div>';
+          '<span id="' + copyId + '" class="proxy-port-url mono" style="font-size:0.7rem;color:var(--muted);" title="' + _esc(hostname) + '">' + _esc(hostname) + '</span>' +
+          '<button type="button" class="btn-icon" title="Copy hostname" aria-label="Copy hostname" data-copy-el="' + copyId + '">' + ICON_COPY + '</button>' +
+          openBtn +
+          '<button type="button" class="btn-sm proxy-setup-toggle" aria-expanded="false" data-target="' + setupId + '" style="margin-left:0.25rem;">Setup</button>' +
+          '</div>' +
+          '<div id="' + setupId + '" class="proxy-setup-wrap" style="display:none;">' + _proxySetupInstructions(a.name, portNum) + '</div>';
       }).join('');
       return '<div class="proxy-app-entry">' +
         '<div class="proxy-app-name">' +
@@ -271,8 +298,22 @@
         statusBadge(a.status) +
         '<span class="text-muted text-sm" style="margin-left:auto;font-size:0.75rem;">' + _esc(a.target_peer || '') + '</span>' +
         '<button type="button" class="btn-icon app-detail-btn" title="Detail" aria-label="Detail" data-app-id="' + _esc(a.id) + '">' + ICON_DETAIL + '</button>' +
-        '</div>' + portLinks + '</div>';
+        '</div>' + portRows + '</div>';
     }).join('');
+
+    // Wire setup toggle buttons
+    var toggles = listEl.querySelectorAll('.proxy-setup-toggle');
+    for (var i = 0; i < toggles.length; i++) {
+      toggles[i].addEventListener('click', function () {
+        var targetId = this.getAttribute('data-target');
+        var wrap = el(targetId);
+        if (!wrap) return;
+        var open = wrap.style.display !== 'none';
+        wrap.style.display = open ? 'none' : 'block';
+        this.setAttribute('aria-expanded', open ? 'false' : 'true');
+        this.textContent = open ? 'Setup' : 'Hide';
+      });
+    }
   }
 
   function renderApproval(list) {
@@ -548,9 +589,11 @@
       setChk('setting-allow-pvcs',          s.allow_pvcs);
       setVal('setting-max-pvc-per',         s.max_pvc_storage_per_pvc_gb);
       setVal('setting-max-pvc-total',       s.max_pvc_storage_total_gb);
+      _proxyDomain = s.proxy_domain || '';
+      var domainDisplay = document.getElementById('setting-proxy-domain-display');
+      if (domainDisplay) domainDisplay.textContent = _proxyDomain || '(not configured)';
       setChk('setting-inbound-tunnels',     s.allow_inbound_tunnels);
       setChk('setting-registry-pull-enabled', s.registry_pull_enabled);
-      setVal('setting-registry-api-url',      s.registry_api_url || '');
       setVal('setting-allowed-peers',       s.allowed_source_peers);
       setVal('setting-allowed-images',      s.allowed_images);
       setVal('setting-blocked-images',      s.blocked_images);
@@ -1616,18 +1659,29 @@
       }
 
       if ((spec.ports || []).length) {
-        overviewHtml += '<div class="app-proxy-urls"><div class="app-proxy-urls-label">Proxy URLs</div>';
+        overviewHtml += '<div class="app-proxy-urls"><div class="app-proxy-urls-label">Proxy</div>';
         (spec.ports || []).forEach(function (p) {
           var portNum = p.port || 80;
-          var proxyUrl = window.location.origin + P.API_BASE + '/remoteapp/' + app.id + '/proxy/' + portNum;
-          overviewHtml +=
-            '<div class="app-proxy-url-row">' +
-              '<span class="app-proxy-port-badge">' + portNum + (p.name ? ' · ' + _esc(p.name) : '') + '</span>' +
-              '<code class="app-proxy-url-val mono" id="proxy-url-' + portNum + '">' + _esc(proxyUrl) + '</code>' +
-              '<button type="button" class="app-proxy-copy btn-icon" data-url="' + _esc(proxyUrl) + '" title="Copy URL" aria-label="Copy proxy URL">' +
-                '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>' +
-              '</button>' +
-            '</div>';
+          var setupId = 'modal-proxy-setup-' + portNum;
+          if (!_proxyDomain) {
+            overviewHtml +=
+              '<div class="app-proxy-url-row">' +
+                '<span class="app-proxy-port-badge">' + portNum + (p.name ? ' · ' + _esc(p.name) : '') + '</span>' +
+                '<span class="text-muted" style="font-size:0.8rem;">Set <span class="mono">apiDomain</span> in Helm values to enable CNAME access</span>' +
+              '</div>';
+          } else {
+            var hostname = app.name + '-' + portNum + '.' + _proxyDomain;
+            overviewHtml +=
+              '<div class="app-proxy-url-row">' +
+                '<span class="app-proxy-port-badge">' + portNum + (p.name ? ' · ' + _esc(p.name) : '') + '</span>' +
+                '<code class="app-proxy-url-val mono" id="modal-proxy-url-' + portNum + '">' + _esc(hostname) + '</code>' +
+                '<button type="button" class="app-proxy-copy btn-icon" data-url="' + _esc(hostname) + '" title="Copy hostname" aria-label="Copy proxy hostname">' +
+                  '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>' +
+                '</button>' +
+                '<button type="button" class="btn-sm proxy-setup-toggle" aria-expanded="false" data-target="' + setupId + '" style="margin-left:0.25rem;">Setup</button>' +
+              '</div>' +
+              '<div id="' + setupId + '" class="proxy-setup-wrap" style="display:none;">' + _proxySetupInstructions(app.name, portNum) + '</div>';
+          }
         });
         overviewHtml += '</div>';
       }
@@ -1737,6 +1791,23 @@
       initCustomDropdowns();
       initExecDropdowns();
       initNumSpinners();
+
+      // Wire proxy setup toggle buttons in the overview panel
+      var overviewPanel = body.querySelector('[data-panel="overview"]');
+      if (overviewPanel) {
+        var modalToggles = overviewPanel.querySelectorAll('.proxy-setup-toggle');
+        for (var mi = 0; mi < modalToggles.length; mi++) {
+          modalToggles[mi].addEventListener('click', function () {
+            var targetId = this.getAttribute('data-target');
+            var wrap = el(targetId);
+            if (!wrap) return;
+            var open = wrap.style.display !== 'none';
+            wrap.style.display = open ? 'none' : 'block';
+            this.setAttribute('aria-expanded', open ? 'false' : 'true');
+            this.textContent = open ? 'Setup' : 'Hide';
+          });
+        }
+      }
 
       // Wire up config KV editors after DOM is built
       (spec.configMaps || []).forEach(function (cm, i) {
@@ -2438,9 +2509,8 @@
     var regSaveBtn = el('setting-registry-save');
     if (regSaveBtn) {
       regSaveBtn.addEventListener('click', function () {
-        var url = ((el('setting-registry-api-url') || {}).value || '').trim();
         regSaveBtn.disabled = true; regSaveBtn.textContent = 'Saving…';
-        P.updateSettings({ registry_api_url: url })
+        P.updateSettings({ registry_pull_enabled: (el('setting-registry-pull-enabled') || {}).checked || false })
           .then(function () {
             regSaveBtn.disabled = false; regSaveBtn.textContent = 'Save';
             toast('Registry proxy settings saved', 'ok');

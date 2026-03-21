@@ -61,7 +61,8 @@ helm upgrade --install porpulsion oci://ghcr.io/hartyporpoise/charts/porpulsion 
   --create-namespace \
   --namespace porpulsion \
   --set agent.agentName=my-cluster \
-  --set agent.selfUrl=https://porpulsion.example.com
+  --set agent.websocketDomain=https://porpulsion.example.com \
+  --set agent.apiDomain=https://porpulsion.example.com
 ```
 
 ### Port exposure
@@ -83,7 +84,8 @@ kubectl port-forward svc/porpulsion 8000:8000 -n porpulsion
 | Value | Default | Description |
 |-------|---------|-------------|
 | `agent.agentName` | `""` | Human-readable name shown in the dashboard and used during peering |
-| `agent.selfUrl` | `""` | Externally reachable URL for this agent. Peers use it for the WebSocket channel. Set to your Ingress hostname. |
+| `agent.websocketDomain` | required | Externally reachable URL for the peer WebSocket channel and peering handshake (e.g. `https://porpulsion.example.com`) |
+| `agent.apiDomain` | required | Externally reachable URL for the HTTP API and image registry proxy. Usually the same as `websocketDomain`; set differently for split-ingress deployments |
 | `agent.image` | `ghcr.io/hartyporpoise/porpulsion:...` | Container image |
 | `agent.pullPolicy` | `IfNotPresent` | Image pull policy |
 | `agent.allowPvcs` | `false` | Allow inbound apps to request PersistentVolumeClaims |

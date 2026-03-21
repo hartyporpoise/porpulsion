@@ -23,7 +23,8 @@ def _detect_namespace() -> str:
         return "default"
 
 NAMESPACE: str = _detect_namespace()
-SELF_URL:      str   = ""
+SELF_URL:     str   = ""   # WebSocket/peering URL (from WS_DOMAIN / agent.websocketDomain)
+API_URL:      str   = ""   # HTTP API and image registry URL (from API_DOMAIN / agent.apiDomain)
 AGENT_CA_PEM:     bytes = b""
 AGENT_CA_KEY_PEM: bytes = b""   # CA private key — used to sign invite bundles and hello challenges
 VERSION_HASH: str = ""          # SHA-256 of key protocol files, first 16 hex chars
@@ -52,10 +53,9 @@ notifications: list[dict] = []
 def registry_proxy_url() -> str:
     """
     Return the full URL for this agent's image proxy endpoint.
-    Uses registry_api_url override if set (split-ingress), otherwise SELF_URL.
+    Uses API_URL (from agent.apiDomain Helm value).
     Returns "" if registry_pull_enabled is False.
     """
     if not settings.registry_pull_enabled:
         return ""
-    base = (settings.registry_api_url or "").strip().rstrip("/") or SELF_URL.rstrip("/")
-    return base if base else ""
+    return API_URL.rstrip("/") if API_URL else ""
