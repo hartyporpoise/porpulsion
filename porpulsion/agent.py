@@ -13,6 +13,7 @@ import hashlib
 import logging
 import os
 import pathlib
+import re
 import threading
 
 from flask import Flask, Response, jsonify, request
@@ -30,6 +31,7 @@ from porpulsion.routes import ui as ui_bp
 from porpulsion.routes import auth as auth_bp
 from porpulsion.routes import image_proxy as image_proxy_bp
 from porpulsion.routes.ws import peer_ws
+from porpulsion.routes.tunnels import handle_vhost_proxy
 
 logging.basicConfig(
     level=logging.INFO,
@@ -93,7 +95,7 @@ from porpulsion.models import Peer  # noqa: E402
 
 # Load and cache the RemoteApp spec schema from the baked-in schema.yaml.
 # Must run before any RemoteAppSpec.from_dict() call.
-from porpulsion.k8s.store import load_spec_schema as _load_spec_schema  # noqa: E402
+from porpulsion.k8s.store import load_spec_schema as _load_spec_schema, list_remoteapp_crs, cr_to_dict  # noqa: E402
 _load_spec_schema()
 
 for _p in tls.load_peers(state.NAMESPACE):
@@ -113,6 +115,8 @@ if "settings" in _saved:
 for _entry in _saved.get("pending_approval", []):
     if _entry.get("id"):
         state.pending_approval[_entry["id"]] = _entry
+for _app_id in _saved.get("proxy_auth_disabled", []):
+    state.proxy_auth_disabled.add(_app_id)
 
 log.info("Restored %d peer(s), %d pending approval(s) from persistent storage",
          len(state.peers), len(state.pending_approval))
@@ -440,6 +444,19 @@ def _vhost_proxy_dispatch():
     if not host.endswith("." + proxy_domain) or host == proxy_domain:
         return
 
+    # Per-app proxy auth bypass: skip auth if this app has it disabled
+    subdomain = host[: -(len(proxy_domain) + 1)]
+    m = re.match(r'^(.+)-(\d+)$', subdomain)
+    if m:
+        app_name = m.group(1)
+        try:
+            for cr in list_remoteapp_crs(state.NAMESPACE):
+                d = cr_to_dict(cr, "submitted")
+                if d["name"] == app_name and d["id"] in state.proxy_auth_disabled:
+                    return handle_vhost_proxy(subdomain)
+        except Exception:
+            pass
+
     # Auth: session cookie or HTTP Basic Auth
     from flask import session
     if not session.get("user"):
@@ -469,8 +486,6 @@ def _vhost_proxy_dispatch():
                 headers={"WWW-Authenticate": 'Basic realm="porpulsion"'},
             )
 
-    subdomain = host[: -(len(proxy_domain) + 1)]
-    from porpulsion.routes.tunnels import handle_vhost_proxy
     return handle_vhost_proxy(subdomain)
 
 
@@ -496,6 +511,13 @@ def _require_api_auth():
     _GUARDED = ("/api/", "/static/js/", "/v2/")
     if not any(request.path.startswith(p) for p in _GUARDED):
         return
+    # Per-app proxy auth bypass: /api/remoteapp/<app_id>/proxy/<port>[/...]
+    if request.path.startswith("/api/remoteapp/") and "/proxy/" in request.path:
+        _parts = request.path.split("/")
+        if len(_parts) > 3:
+            _app_id = _parts[3]
+            if _app_id in state.proxy_auth_disabled:
+                return
     # Session cookie (browser)
     if session.get("user"):
         return

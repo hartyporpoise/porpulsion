@@ -314,15 +314,23 @@ _STATE_CONFIGMAP = "porpulsion-state"
 
 
 def save_state_configmap(namespace: str, settings,
-                         pending_approval: dict | None = None) -> None:
+                         pending_approval: dict | None = None,
+                         proxy_auth_disabled: set | None = None) -> None:
     """
-    Persist settings and pending_approval to the porpulsion-state ConfigMap
-    (fire-and-forget thread).
+    Persist settings, pending_approval, and proxy_auth_disabled to the
+    porpulsion-state ConfigMap (fire-and-forget thread).
     """
     from kubernetes import client as k8s_client
 
     settings_json = json.dumps(settings.to_dict())
     pending_json  = json.dumps(list((pending_approval or {}).values()))
+
+    data: dict = {
+        "settings": settings_json,
+        "pending_approval": pending_json,
+    }
+    if proxy_auth_disabled is not None:
+        data["proxy_auth_disabled"] = json.dumps(list(proxy_auth_disabled))
 
     def _write():
         try:
@@ -330,10 +338,7 @@ def save_state_configmap(namespace: str, settings,
             cm = k8s_client.V1ConfigMap(
                 metadata=k8s_client.V1ObjectMeta(
                     name=_STATE_CONFIGMAP, namespace=namespace),
-                data={
-                    "settings": settings_json,
-                    "pending_approval": pending_json,
-                },
+                data=data,
             )
             try:
                 core_v1.patch_namespaced_config_map(_STATE_CONFIGMAP, namespace, cm)
@@ -363,6 +368,8 @@ def load_state_configmap(namespace: str) -> dict:
             result["settings"] = json.loads(cm.data["settings"])
         if cm.data and "pending_approval" in cm.data:
             result["pending_approval"] = json.loads(cm.data["pending_approval"])
+        if cm.data and "proxy_auth_disabled" in cm.data:
+            result["proxy_auth_disabled"] = json.loads(cm.data["proxy_auth_disabled"])
         _log.info("Loaded %d pending approval(s) + settings from ConfigMap",
                   len(result.get("pending_approval", [])))
         return result

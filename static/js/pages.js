@@ -292,13 +292,25 @@
           '</div>' +
           '<div id="' + setupId + '" class="proxy-setup-wrap" style="display:none;">' + _proxySetupInstructions(a.name, portNum, _proxyDomain) + '</div>';
       }).join('');
+      var requireAuth = a.proxy_require_auth !== false;
+      var toggleId = 'proxy-auth-toggle-' + a.id;
+      var authToggle = '<div class="proxy-auth-row">' +
+        '<label class="toggle-switch" title="' + (requireAuth ? 'Auth required — click to disable' : 'Auth disabled — click to enable') + '">' +
+        '<input type="checkbox" id="' + toggleId + '" class="proxy-auth-chk" data-app-id="' + _esc(a.id) + '"' + (requireAuth ? ' checked' : '') + ' aria-label="Require authentication">' +
+        '<span class="toggle-track"></span>' +
+        '<span class="toggle-thumb"></span>' +
+        '</label>' +
+        '<span class="proxy-auth-label">' + (requireAuth ? 'Auth required' : 'Auth disabled') + '</span>' +
+        '</div>';
       return '<div class="proxy-app-entry">' +
         '<div class="proxy-app-name">' +
         '<strong>' + _esc(a.name) + '</strong>' +
         statusBadge(a.status) +
         '<span class="text-muted text-sm" style="margin-left:auto;font-size:0.75rem;">' + _esc(a.target_peer || '') + '</span>' +
         '<button type="button" class="btn-icon app-detail-btn" title="Detail" aria-label="Detail" data-app-id="' + _esc(a.id) + '">' + ICON_DETAIL + '</button>' +
-        '</div>' + portRows + '</div>';
+        '</div>' +
+        authToggle +
+        portRows + '</div>';
     }).join('');
 
     // Wire setup toggle buttons
@@ -758,6 +770,32 @@
       e.preventDefault();
       P.copyText(btn.dataset.copyEl, btn);
     }
+  });
+
+  document.addEventListener('change', function (e) {
+    var chk = e.target;
+    if (!chk || !chk.classList.contains('proxy-auth-chk')) return;
+    var appId = chk.dataset.appId;
+    if (!appId) return;
+    var requireAuth = chk.checked;
+    var row = chk.closest('.proxy-auth-row');
+    var labelEl = row && row.querySelector('.proxy-auth-label');
+    var toggleEl = chk.closest('.toggle-switch');
+    if (labelEl) labelEl.textContent = requireAuth ? 'Auth required' : 'Auth disabled';
+    if (toggleEl) toggleEl.title = requireAuth ? 'Auth required — click to disable' : 'Auth disabled — click to enable';
+    fetch(API_BASE + '/remoteapp/' + appId + '/proxy-auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ require_auth: requireAuth }),
+      credentials: 'same-origin',
+    }).then(function (r) {
+      if (!r.ok) throw new Error('Failed to update proxy auth');
+      toast('Proxy auth ' + (requireAuth ? 'enabled' : 'disabled'), 'ok');
+    }).catch(function (err) {
+      toast(err.message, 'error');
+      chk.checked = !requireAuth;
+      if (labelEl) labelEl.textContent = !requireAuth ? 'Auth required' : 'Auth disabled';
+    });
   });
 
   var deployForm = el('deploy-form');
