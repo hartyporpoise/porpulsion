@@ -476,6 +476,7 @@ jobs:
 
           base_app=$(git show "origin/${{ github.event.pull_request.base.ref }}:charts/porpulsion/Chart.yaml" | grep '^appVersion:' | sed 's/appVersion: *"\(.*\)"/\1/')
           pr_app=$(grep '^appVersion:' charts/porpulsion/Chart.yaml | sed 's/appVersion: *"\(.*\)"/\1/')
+          echo "rc_app_version=${pr_app}-rc" >> "$GITHUB_OUTPUT"
           if [ "$base_app" != "$pr_app" ]; then
             echo "app_bumped=true" >> "$GITHUB_OUTPUT"
           else
@@ -487,7 +488,7 @@ jobs:
           sed -i "s/^version: .*/version: ${{ steps.versions.outputs.rc_chart_version }}/" charts/porpulsion/Chart.yaml
           if [ "${{ steps.versions.outputs.app_bumped }}" = "true" ]; then
             IMAGE_REPO=$(grep 'image:' charts/porpulsion/values.yaml | head -1 | awk '{print $2}' | sed 's/:[^:]*$//')
-            sed -i "s|^  image: .*|  image: $IMAGE_REPO:${{ steps.versions.outputs.rc_chart_version }}|" charts/porpulsion/values.yaml
+            sed -i "s|^  image: .*|  image: $IMAGE_REPO:${{ steps.versions.outputs.rc_app_version }}|" charts/porpulsion/values.yaml
           fi
           helm package charts/porpulsion --destination .cr-rc-packages
 
