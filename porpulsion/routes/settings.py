@@ -99,12 +99,9 @@ def update_settings():
             except (ValueError, TypeError):
                 return jsonify({"error": f"{fld} must be an integer"}), 400
 
-    # If registry proxy settings changed, push updated proxy URL to all connected peers
-    if "registry_pull_enabled" in data:
-        _push_info_to_peers()
-
     log.info("Settings updated: %s", state.settings.to_dict())
     tls.save_state_configmap(state.NAMESPACE, state.settings, state.pending_approval)
+    _push_info_to_peers()
     return jsonify(state.settings.to_dict())
 
 
