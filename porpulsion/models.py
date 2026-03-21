@@ -200,6 +200,10 @@ class Peer:
     # Full registry proxy URL (e.g. https://peer.example.com/api/image-proxy).
     # Populated from hello/hello-ack and updated via peer/info-update messages.
     registry_proxy_url: str = ""
+    # Full API URL of this peer (the value of their apiDomain Helm setting).
+    # Used by the submitting side to construct proxy hostnames for executing apps.
+    # Populated via peer/info-update on connect.
+    api_url: str = ""
 
     def can_deploy(self) -> bool:
         """True when we have an outbound channel to this peer (can submit workloads)."""
@@ -212,6 +216,8 @@ class Peer:
             d["crd_diff"] = self.crd_diff
         if self.registry_proxy_url:
             d["registry_proxy_url"] = self.registry_proxy_url
+        if self.api_url:
+            d["api_url"] = self.api_url
         return d
 
 

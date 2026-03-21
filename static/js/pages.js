@@ -21,6 +21,15 @@
 
   var _proxyDomain = '';
 
+  function _peerProxyDomain(peerName) {
+    var peers = window._lastPeers || [];
+    var peer = peers.filter(function (p) { return p.name === peerName; })[0];
+    if (peer && peer.api_url) {
+      try { return new URL(peer.api_url).hostname; } catch (e) {}
+    }
+    return _proxyDomain;
+  }
+
   function initDeploySpecEditor() {
     if (window.PorpulsionVscodeEditor && typeof window.PorpulsionVscodeEditor.initDeploySpecEditor === 'function') {
       window.PorpulsionVscodeEditor.initDeploySpecEditor();
@@ -239,16 +248,16 @@
     }).join('');
   }
 
-  function _proxySetupInstructions(appName, port) {
+  function _proxySetupInstructions(appName, port, domain) {
     return '<div class="proxy-setup-instructions">' +
       '<div class="proxy-setup-section">' +
         '<div class="proxy-setup-heading">Standard DNS (one wildcard CNAME)</div>' +
-        '<code class="proxy-setup-code mono">*.' + _esc(_proxyDomain) + '  CNAME  ' + _esc(_proxyDomain) + '</code>' +
+        '<code class="proxy-setup-code mono">*.' + _esc(domain) + '  CNAME  ' + _esc(domain) + '</code>' +
       '</div>' +
       '<div class="proxy-setup-section">' +
         '<div class="proxy-setup-heading">Cloudflare Tunnel</div>' +
         '<div class="proxy-setup-cf">In your CF Tunnel config, add a Public Hostname:</div>' +
-        '<code class="proxy-setup-code mono">Subdomain: ' + _esc(appName + '-' + port) + '<br>Domain: ' + _esc(_proxyDomain) + '<br>Service: http://localhost:8000</code>' +
+        '<code class="proxy-setup-code mono">Subdomain: ' + _esc(appName + '-' + port) + '<br>Domain: ' + _esc(domain) + '<br>Service: http://localhost:8000</code>' +
       '</div>' +
     '</div>';
   }
@@ -264,21 +273,21 @@
     var ICON_COPY = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
     var ICON_OPEN = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>';
     var ICON_DETAIL = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="8.5"/><line x1="12" y1="12" x2="12" y2="16"/></svg>';
-    var noDomain = !_proxyDomain;
     listEl.innerHTML = active.map(function (a) {
       var isDead = a.status === 'Deleted' || a.status === 'Failed' || a.status === 'Timeout';
+      var appProxyDomain = _peerProxyDomain(a.target_peer);
       var ports = (a.spec && Array.isArray(a.spec.ports) && a.spec.ports.length) ? a.spec.ports : [{ port: (a.spec && a.spec.port) || 80 }];
       var portRows = ports.map(function (p) {
         var portNum = typeof p === 'object' ? (p.port || 80) : p;
         var portLabel = (p.name ? p.name : 'Port ' + portNum);
         var setupId = 'proxy-setup-' + a.id + '-' + portNum;
-        if (noDomain) {
+        if (!appProxyDomain) {
           return '<div class="proxy-port-row">' +
             '<span class="proxy-port-label">' + _esc(portLabel) + ' <span class="mono" style="font-size:0.7rem;color:var(--muted2);">:' + portNum + '</span></span>' +
             '<span class="proxy-port-url text-muted" style="font-size:0.7rem;">Set <span class="mono">apiDomain</span> in Helm values to enable CNAME access</span>' +
             '</div>';
         }
-        var hostname = a.name + '-' + portNum + '.' + _proxyDomain;
+        var hostname = a.name + '-' + portNum + '.' + appProxyDomain;
         var copyId = 'proxy-url-' + a.id + '-' + portNum;
         var openBtn = !isDead
           ? '<a href="' + _esc('https://' + hostname) + '" target="_blank" rel="noopener" class="btn-sm proxy-open-btn" title="Open :' + portNum + '">' + ICON_OPEN + ' Open</a>'
@@ -290,7 +299,7 @@
           openBtn +
           '<button type="button" class="btn-sm proxy-setup-toggle" aria-expanded="false" data-target="' + setupId + '" style="margin-left:0.25rem;">Setup</button>' +
           '</div>' +
-          '<div id="' + setupId + '" class="proxy-setup-wrap" style="display:none;">' + _proxySetupInstructions(a.name, portNum) + '</div>';
+          '<div id="' + setupId + '" class="proxy-setup-wrap" style="display:none;">' + _proxySetupInstructions(a.name, portNum, appProxyDomain) + '</div>';
       }).join('');
       return '<div class="proxy-app-entry">' +
         '<div class="proxy-app-name">' +
@@ -1660,17 +1669,18 @@
 
       if ((spec.ports || []).length) {
         overviewHtml += '<div class="app-proxy-urls"><div class="app-proxy-urls-label">Proxy</div>';
+        var modalProxyDomain = _peerProxyDomain(app.target_peer);
         (spec.ports || []).forEach(function (p) {
           var portNum = p.port || 80;
           var setupId = 'modal-proxy-setup-' + portNum;
-          if (!_proxyDomain) {
+          if (!modalProxyDomain) {
             overviewHtml +=
               '<div class="app-proxy-url-row">' +
                 '<span class="app-proxy-port-badge">' + portNum + (p.name ? ' · ' + _esc(p.name) : '') + '</span>' +
                 '<span class="text-muted" style="font-size:0.8rem;">Set <span class="mono">apiDomain</span> in Helm values to enable CNAME access</span>' +
               '</div>';
           } else {
-            var hostname = app.name + '-' + portNum + '.' + _proxyDomain;
+            var hostname = app.name + '-' + portNum + '.' + modalProxyDomain;
             overviewHtml +=
               '<div class="app-proxy-url-row">' +
                 '<span class="app-proxy-port-badge">' + portNum + (p.name ? ' · ' + _esc(p.name) : '') + '</span>' +
@@ -1680,7 +1690,7 @@
                 '</button>' +
                 '<button type="button" class="btn-sm proxy-setup-toggle" aria-expanded="false" data-target="' + setupId + '" style="margin-left:0.25rem;">Setup</button>' +
               '</div>' +
-              '<div id="' + setupId + '" class="proxy-setup-wrap" style="display:none;">' + _proxySetupInstructions(app.name, portNum) + '</div>';
+              '<div id="' + setupId + '" class="proxy-setup-wrap" style="display:none;">' + _proxySetupInstructions(app.name, portNum, modalProxyDomain) + '</div>';
           }
         });
         overviewHtml += '</div>';

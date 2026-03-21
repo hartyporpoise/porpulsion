@@ -101,15 +101,15 @@ def update_settings():
 
     # If registry proxy settings changed, push updated proxy URL to all connected peers
     if "registry_pull_enabled" in data:
-        _push_registry_info_to_peers()
+        _push_info_to_peers()
 
     log.info("Settings updated: %s", state.settings.to_dict())
     tls.save_state_configmap(state.NAMESPACE, state.settings, state.pending_approval)
     return jsonify(state.settings.to_dict())
 
 
-def _push_registry_info_to_peers():
-    """Push our current registry_proxy_url to all connected peers via peer/info-update."""
+def _push_info_to_peers():
+    """Push current agent info to all connected peers via peer/info-update."""
     try:
         from porpulsion.channel import get_channel
         proxy_url = state.registry_proxy_url()
@@ -118,8 +118,9 @@ def _push_registry_info_to_peers():
                 get_channel(peer_name, wait=0).push("peer/info-update", {
                     "name":               state.AGENT_NAME,
                     "registry_proxy_url": proxy_url,
+                    "api_url":            state.API_URL,
                 })
             except Exception as exc:
                 log.debug("Could not push info-update to %s: %s", peer_name, exc)
     except Exception as exc:
-        log.debug("_push_registry_info_to_peers failed: %s", exc)
+        log.debug("_push_info_to_peers failed: %s", exc)
