@@ -192,7 +192,7 @@ The peer channel status badge shows text based on connection type, not the liter
 
 ### Custom Dropdown Overlay
 
-`#deploy-target-peer` is a native `<select>` visually replaced by a custom JavaScript dropdown. Cypress cannot interact with the hidden native element using `.select()` without `{ force: true }`. Use the `cy.selectTargetPeer()` custom command which waits for the option to be populated (async API call) then force-selects it.
+`#deploy-target-peer` is a native `<select>` visually replaced by a custom JavaScript dropdown. Use `page.selectOption('#deploy-target-peer', peerName, { force: true })` after waiting for the option to exist. The `selectTargetPeer(page, peerName)` helper in `playwright/tests/helpers.js` handles this.
 
 ### Monaco / Spec Editor
 
@@ -211,97 +211,108 @@ Logs and terminal output are rendered with **xterm.js**, not as plain DOM text. 
 
 ---
 
-## Cypress E2E Tests
+## Playwright E2E Tests
 
 ### Test Suite Order
 
-Tests run in filename order. Each spec can depend on the previous ones completing successfully.
+Tests run in filename order (workers: 1). Each spec can depend on the previous ones completing successfully.
 
 ```
-00-setup.cy.js          Create admin users on both agents (browser UI, handles CSRF)
-01-auth.cy.js           Login, logout, user management
-02-peering.cy.js        Connect A to B via invite bundle UI
-03-workloads.cy.js      Deploy, YAML roundtrip, spec edit, ConfigMap, delete
-04-settings.cy.js       Settings page content
-05-logs.cy.js           Deploy log-emitting app, verify Logs tab renders xterm
-06-terminal.cy.js       Deploy long-running container, verify Terminal tab + shell selector
-07-peer-disconnect.cy.js  Peer persistence: channel status badge, info modal, count badge
-08-api-health.cy.js     Authenticated API smoke tests on both agents
+auth.setup.js           Create admin users + save storageState for A and B (runs before all)
+01-auth.spec.js         Login, logout, user management
+02-peering.spec.js      Connect A to B via invite bundle UI
+03-workloads.spec.js    Deploy, YAML roundtrip, spec edit, ConfigMap, delete
+04-settings.spec.js     Settings page content
+05-logs.spec.js         Deploy log-emitting app, verify Logs tab renders xterm
+06-terminal.spec.js     Deploy long-running container, verify Terminal tab + shell selector
+07-peer-disconnect.spec.js  Peer persistence: channel status badge, info modal, count badge
+08-api-health.spec.js   Authenticated API smoke tests on both agents
+09-settings-rbac.spec.js    Settings toggles: inbound, RBAC, image policy, PVCs
+10-secrets-configmaps.spec.js  Config tab: plaintext decode, API round-trip
+11-pvc-persistence.spec.js     PVC: write via terminal, restart, verify persistence
+12-registry-proxy.spec.js      OCI /v2/ endpoint, registry toggle
+13-approval-flow.spec.js       Approval and reject flows
 ```
 
-### Rule: New Features Must Have Cypress Tests
+### Rule: New Features Must Have Playwright Tests
 
-**Every new user-visible feature or API endpoint must have corresponding Cypress test coverage.** Add tests to the most relevant existing spec file, or create a new numbered spec if the feature is substantial enough to warrant its own file.
+**Every new user-visible feature or API endpoint must have corresponding Playwright test coverage.** Add tests to the most relevant existing spec file, or create a new numbered spec if the feature is substantial enough to warrant its own file.
 
-### Custom Commands (cypress/support/e2e.js)
+### Fixtures and Helpers
 
-| Command | Purpose |
+All specs import from `playwright/tests/fixtures.js` and `playwright/tests/helpers.js`.
+
+**Fixtures** (from `fixtures.js`):
+| Fixture | Purpose |
 |---------|---------|
-| `cy.loginUI(user?, pass?)` | Browser login via `/login` form. Uses `cy.session` for caching (no cross-spec caching). |
-| `cy.loginTo(agentUrl, user?, pass?)` | Cross-origin browser login via `cy.origin`. |
-| `cy.apiRequest(method, url, body?)` | HTTP Basic Auth request to `/api/*` endpoints. |
-| `cy.selectTargetPeer(peerName)` | Wait for peer option to populate in `#deploy-target-peer`, then force-select it. |
-| `cy.openAppModal(appName)` | Click `.app-detail-btn` in the submitted table row, wait for `#app-modal.open`. |
-| `cy.appModalTab(tabKey)` | Click a tab in the app modal (`overview/logs/terminal/config/edit`). |
-| `cy.confirmDialog()` | Click the OK button (last child) in `#dialog-actions`. |
-| `cy.waitForAppPhase(agentUrl, name, phase, attempts?, interval?)` | Poll `/api/remoteapps` (spreads `submitted + executing`) until app reaches phase. |
+| `pageA` | Page pre-authenticated to Agent A (storageState loaded once per test) |
+| `pageB` | Page pre-authenticated to Agent B (storageState loaded once per test) |
+| `apiA` | Basic-Auth API helper bound to Agent A |
+| `apiB` | Basic-Auth API helper bound to Agent B |
+
+**Helpers** (from `helpers.js`):
+| Helper | Purpose |
+|--------|---------|
+| `openAppModal(page, name)` | Click `.app-detail-btn` in submitted table row, wait for `#app-modal.open` |
+| `appModalTab(page, tabKey)` | Click a tab in the app modal (`overview/logs/terminal/config/edit`) |
+| `confirmDialog(page)` | Click the OK button (last child) in `#dialog-actions` |
+| `selectTargetPeer(page, peerName)` | Wait for option to populate in `#deploy-target-peer`, force-select |
+| `setDeploySpecValue(page, yaml)` | Set YAML via `window.PorpulsionVscodeEditor.setDeploySpecValue()` |
+| `waitForAppPhase(request, agentUrl, name, phase)` | Poll `/api/remoteapps` until app reaches phase |
+| `waitForExecutingApp(request, name, phase)` | Poll Agent B until executing app reaches phase |
+| `waitForSubmittedAppReady(request, name)` | Poll Agent A until submitted app is Ready/Running |
+| `deleteApps(request, agentUrl, names[])` | Delete apps by name via API |
+| `resolvePeerBName(request)` | Return first peer name visible on Agent A |
 
 ### Authentication in Tests
 
-- **Browser UI interactions:** use `cy.loginUI()` (stores session cookie via `cy.session`)
-- **Cross-origin agent UI:** use `cy.loginTo(agentUrl)` (uses `cy.origin`)
-- **API calls (any agent):** use `cy.apiRequest()` (HTTP Basic Auth, no CSRF needed)
-- **Never** use raw `cy.request` to POST `/login` - it will return 403 (CSRF protected)
-- **Never** assume API endpoints are unauthenticated - all `/api/*` routes require auth
+Session cookies are saved **once** per run via `auth.setup.js` and reused by every test via the `pageA`/`pageB` fixtures. No per-test logins.
+
+- **Browser UI (Agent A):** use `pageA` fixture
+- **Browser UI (Agent B):** use `pageB` fixture
+- **API calls:** use `apiA` / `apiB` fixtures (HTTP Basic Auth, no CSRF needed)
+- **Never** POST to `/login` directly — CSRF protected
+- **Never** assume API endpoints are unauthenticated — all `/api/*` routes require auth
 
 ### YAML in Tests
 
-When setting YAML in the deploy form, always use:
+When setting YAML in the deploy form, use the helper:
 ```js
-cy.window().then((win) => {
-  win.PorpulsionVscodeEditor.setDeploySpecValue(yamlString);
-});
+await setDeploySpecValue(page, yamlString);
 ```
 
-When reading YAML from the deploy form, use `cy.get('#app-spec-yaml').invoke('val')`. Do not use `#app-spec-yaml-fallback` - it is only shown when Monaco fails to load.
+When reading YAML from the deploy form, use `page.locator('#app-spec-yaml').inputValue()`. Do not use `#app-spec-yaml-fallback` - it is only shown when Monaco fails to load.
 
 ### Working with remoteapps API in Tests
 
 `/api/remoteapps` returns `{ submitted: [...], executing: [...] }`, not a plain array. Always combine both lists when searching:
 
 ```js
-cy.apiRequest('GET', `${AGENT_A}/api/remoteapps`).then((resp) => {
-  const all = [...(resp.body?.submitted || []), ...(resp.body?.executing || [])];
-  const app = all.find((a) => a.name === 'my-app');
-});
+const resp = await apiA.get('/api/remoteapps');
+const body = await resp.json();
+const all = [...(body.submitted || []), ...(body.executing || [])];
+const app = all.find((a) => a.name === 'my-app');
 ```
 
-The `cy.waitForAppPhase` command handles this internally.
+`waitForAppPhase` and `deleteApps` helpers handle this internally.
 
 ### Cleanup Pattern
 
-**Cleanups must happen in `after()`, never in `before()` of the next spec.** Cleaning up in `before()` deletes apps or resets settings that the current spec's own tests may still depend on, causing cascade failures.
+**Cleanups must happen in `test.afterAll()`, never in `beforeAll()` of the next spec.**
 
 Each spec is responsible for cleaning up what it creates:
 
 ```js
-after(() => {
-  cy.apiRequest('GET', `${AGENT_A}/api/remoteapps`).then((resp) => {
-    const all = [...(resp.body?.submitted || []), ...(resp.body?.executing || [])];
-    ['app-name-1', 'app-name-2'].forEach((name) => {
-      const app = all.find((a) => a.name === name);
-      const id = app?.app_id || app?.id;
-      if (id) cy.apiRequest('DELETE', `${AGENT_A}/api/remoteapp/${id}`);
-    });
-  });
+test.afterAll(async ({ request }) => {
+  await deleteApps(request, AGENT_A, ['app-name-1', 'app-name-2']);
 });
 ```
 
-Settings changed during a spec must also be restored in `after()`, using the API directly (more reliable than UI clicks in teardown):
+Settings changed during a spec must also be restored in `afterAll()`:
 
 ```js
-after(() => {
-  cy.apiRequest('POST', `${AGENT_B}/api/settings`, { require_remoteapp_approval: false });
+test.afterAll(async ({ apiB }) => {
+  await apiB.post('/api/settings', { require_remoteapp_approval: false });
 });
 ```
 
@@ -354,11 +365,11 @@ UI + peer: `http://localhost:8080`
 ### E2E Tests
 
 ```bash
-make test          # Deploy 2 clusters, run full Cypress suite, tear down
+make test          # Deploy 2 clusters, run full Playwright suite, tear down (watch at http://localhost:6080)
 make test-teardown # Destroy clusters if make test was interrupted
 ```
 
-Screenshots on failure: `cypress/screenshots/`
+HTML report on failure: `playwright/playwright-report/`
 
 ### selfUrl Notes
 

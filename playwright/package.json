@@ -1,0 +1,13 @@
+{
+  "name": "porpulsion-playwright",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "test": "playwright test --project=e2e",
+    "test:setup": "playwright test --project=setup-a --project=setup-b",
+    "test:report": "playwright show-report playwright-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.58.2"
+  }
+}
