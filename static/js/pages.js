@@ -571,8 +571,7 @@
     var logLevelCtrl = el('setting-log-level');
     var inboundApps = el('setting-inbound-apps');
     var healthGrid = el('health-grid');
-    if (!logLevelCtrl && !inboundApps && !healthGrid) return;
-    P.getSettings().then(function (s) {
+    return P.getSettings().then(function (s) {
       var level = (s.log_level || 'INFO').toUpperCase();
       if (logLevelCtrl) {
         var btns = logLevelCtrl.querySelectorAll('button[data-val]');
@@ -2576,12 +2575,12 @@
     showConfirm: showConfirm
   };
 
-  refresh();
+  loadSettings().then(function () { refresh(); }).catch(function () { refresh(); });
   loadInvite();
-  loadSettings();
   initNumSpinners();
   initCustomDropdowns();
   setInterval(refresh, 3000);
+  setInterval(loadSettings, 30000);
   setInterval(loadInvite, 5000);
 })();
 })();
