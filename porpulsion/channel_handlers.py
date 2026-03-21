@@ -560,28 +560,18 @@ def handle_peer_bidirectional(payload: dict):
 
 
 def handle_peer_info_update(payload: dict):
-    """Peer is pushing updated info (registry_proxy_url, api_url, etc.)."""
+    """Peer is pushing updated info (e.g. registry_proxy_url changed)."""
     from porpulsion import state, tls
 
     peer_name          = payload.get("name", "")
     registry_proxy_url = payload.get("registry_proxy_url", "")
-    api_url            = payload.get("api_url", "")
     if not peer_name:
         return
     peer = state.peers.get(peer_name)
-    if not peer:
-        return
-    changed = False
-    if registry_proxy_url and peer.registry_proxy_url != registry_proxy_url:
+    if peer and peer.registry_proxy_url != registry_proxy_url:
         peer.registry_proxy_url = registry_proxy_url
-        changed = True
-        log.info("Peer %s updated registry_proxy_url: %r", peer_name, registry_proxy_url)
-    if api_url and peer.api_url != api_url:
-        peer.api_url = api_url
-        changed = True
-        log.info("Peer %s updated api_url: %r", peer_name, api_url)
-    if changed:
         tls.save_peers(state.NAMESPACE, state.peers)
+        log.info("Peer %s updated registry_proxy_url: %r", peer_name, registry_proxy_url)
 
 
 def handle_peer_disconnect(payload: dict):

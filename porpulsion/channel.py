@@ -407,7 +407,6 @@ class PeerChannel:
             self.push("peer/info-update", {
                 "name":               _state.AGENT_NAME,
                 "registry_proxy_url": _state.registry_proxy_url(),
-                "api_url":            _state.API_URL,
             })
         except Exception:
             pass

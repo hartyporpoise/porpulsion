@@ -115,7 +115,6 @@ def _push_info_to_peers():
                 get_channel(peer_name, wait=0).push("peer/info-update", {
                     "name":               state.AGENT_NAME,
                     "registry_proxy_url": proxy_url,
-                    "api_url":            state.API_URL,
                 })
             except Exception as exc:
                 log.debug("Could not push info-update to %s: %s", peer_name, exc)
