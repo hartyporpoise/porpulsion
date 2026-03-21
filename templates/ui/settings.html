@@ -207,7 +207,16 @@
 
         <div class="stg-section">
           <div class="stg-section-label">Proxy domain</div>
-          <p class="stg-hint">Derived from the <span class="mono">apiDomain</span> Helm value. Apps are reachable at <span class="mono">{app}-{port}.{proxy_domain}</span>. Add one wildcard CNAME: <span class="mono">*.<span id="setting-proxy-domain-display">...</span></span> pointing at this agent's hostname.</p>
+          <p class="stg-hint" style="margin-bottom:0.75rem;">Derived from <span class="mono">apiDomain</span>. Apps are reachable at <span class="mono">{app}-{port}.<span id="setting-proxy-domain-display">...</span></span>.</p>
+          <div class="proxy-dns-card">
+            <div class="proxy-dns-card-label">Add one wildcard CNAME</div>
+            <div class="proxy-dns-card-row">
+              <code class="proxy-dns-card-record mono" id="setting-proxy-cname-record">...</code>
+              <button type="button" class="btn-icon" title="Copy CNAME record" aria-label="Copy CNAME record" id="setting-proxy-cname-copy">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              </button>
+            </div>
+          </div>
         </div>
 
         <div class="stg-section">

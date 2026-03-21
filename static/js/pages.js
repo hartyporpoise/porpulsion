@@ -591,6 +591,15 @@
       _proxyDomain = s.proxy_domain || '';
       var domainDisplay = document.getElementById('setting-proxy-domain-display');
       if (domainDisplay) domainDisplay.textContent = _proxyDomain || '(not configured)';
+      var cnameRecord = document.getElementById('setting-proxy-cname-record');
+      if (cnameRecord) cnameRecord.textContent = _proxyDomain ? '*.' + _proxyDomain + '  CNAME  ' + _proxyDomain : '(apiDomain not configured)';
+      var cnameCopyBtn = document.getElementById('setting-proxy-cname-copy');
+      if (cnameCopyBtn) {
+        cnameCopyBtn.onclick = function () {
+          var txt = _proxyDomain ? '*.' + _proxyDomain + '  CNAME  ' + _proxyDomain : '';
+          if (txt) navigator.clipboard.writeText(txt).catch(function () {});
+        };
+      }
       setChk('setting-inbound-tunnels',     s.allow_inbound_tunnels);
       setChk('setting-registry-pull-enabled', s.registry_pull_enabled);
       setVal('setting-allowed-peers',       s.allowed_source_peers);

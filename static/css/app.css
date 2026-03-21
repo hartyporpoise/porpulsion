@@ -3509,3 +3509,36 @@ button:focus-visible, a:focus-visible {
   .proxy-how-steps { gap: 6px; }
   .proxy-how-arrow { display: none; }
 }
+
+/* ── Proxy DNS card (settings tunnels tab) ───────────────────── */
+.proxy-dns-card {
+  background: var(--surface2, var(--surface));
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.75rem 1rem;
+}
+.proxy-dns-card-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin-bottom: 0.5rem;
+}
+.proxy-dns-card-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.proxy-dns-card-record {
+  flex: 1;
+  font-size: 0.8rem;
+  color: var(--text);
+  background: var(--surface3, var(--bg));
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.4rem 0.65rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
