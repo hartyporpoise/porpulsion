@@ -5,12 +5,14 @@ name: CI
 #   PR labels -> bump jobs
 #     bump:app:patch/minor/major   - bumps appVersion in Chart.yaml + image tag in values.yaml
 #     bump:chart:patch/minor/major - bumps chart version in Chart.yaml
-#     release-candidate            - builds + pushes rc-X.X.X image to GHCR
+#     release-candidate            - builds + pushes rc-X.X.X Docker image to GHCR
+#                                    and publishes rc-X.X.X Helm chart to GHCR
 #
 #   PR checks (always run on push/label):
-#     validate-schema-bump - fails if schema.yaml changed but no bump:app:* label present
-#     validate-chart-bump  - fails if bump:app:* label present but no bump:chart:* label present
-#     build-and-publish    - builds RC image if release-candidate label present, otherwise no-op
+#     validate-schema-bump         - fails if schema.yaml changed but no bump:app:* label present
+#     validate-chart-bump          - fails if bump:app:* label present but no bump:chart:* label present
+#     build-and-publish            - builds RC image if release-candidate label present, otherwise no-op
+#     publish-helm-chart-rc        - packages and pushes rc-X.X.X chart if release-candidate label present
 #
 #   push to main (chart version changed) -> publish-helm-chart
 #     Packages and pushes the Helm chart to GHCR.
@@ -441,6 +443,51 @@ jobs:
             git commit -m "chore: auto-upgrade pinned dependencies [skip ci]"
             git push origin "${{ github.head_ref }}"
           )
+
+  # ---------------------------------------------------------------------------
+  # PR: publish RC Helm chart when release-candidate label is present
+  # ---------------------------------------------------------------------------
+
+  publish-helm-chart-rc:
+    needs: [build-and-publish]
+    if: >
+      always() &&
+      github.event_name == 'pull_request' &&
+      (
+        contains(github.event.pull_request.labels.*.name, 'release-candidate') ||
+        github.event.label.name == 'release-candidate'
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+
+      - name: Read versions
+        id: versions
+        run: |
+          app_version=$(grep '^appVersion:' charts/porpulsion/Chart.yaml | sed 's/appVersion: *"\(.*\)"/\1/')
+          chart_version=$(grep '^version:' charts/porpulsion/Chart.yaml | awk '{print $2}')
+          echo "app_version=$app_version" >> "$GITHUB_OUTPUT"
+          echo "rc_chart_version=rc-$chart_version" >> "$GITHUB_OUTPUT"
+
+      - name: Package RC chart
+        run: |
+          sed -i "s/^version: .*/version: ${{ steps.versions.outputs.rc_chart_version }}/" charts/porpulsion/Chart.yaml
+          helm package charts/porpulsion --destination .cr-rc-packages
+
+      - name: Push RC chart to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io \
+            --username "${{ github.repository_owner }}" --password-stdin
+          for pkg in .cr-rc-packages/*.tgz; do
+            helm push "$pkg" oci://ghcr.io/${{ github.repository_owner }}/charts
+          done
 
   # ---------------------------------------------------------------------------
   # Main push: detect chart/appVersion changes
