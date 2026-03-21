@@ -5,8 +5,8 @@ name: CI
 #   PR labels -> bump jobs
 #     bump:app:patch/minor/major   - bumps appVersion in Chart.yaml + image tag in values.yaml
 #     bump:chart:patch/minor/major - bumps chart version in Chart.yaml
-#     release-candidate            - builds + pushes rc-X.X.X Docker image to GHCR
-#                                    and publishes rc-X.X.X Helm chart to GHCR
+#     release-candidate            - builds + pushes X.X.X-rc Docker image to GHCR
+#                                    and publishes X.X.X-rc Helm chart to GHCR
 #
 #   PR checks (always run on push/label):
 #     validate-schema-bump         - fails if schema.yaml changed but no bump:app:* label present
@@ -349,7 +349,7 @@ jobs:
             type=sha
             type=raw,value=latest,enable={{is_default_branch}}
             type=raw,value=${{ needs.detect-changes.outputs.app_version }},enable=${{ needs.detect-changes.outputs.app_version_changed == 'true' }}
-            type=raw,value=rc-${{ steps.chart.outputs.app_version }},enable=${{ github.event_name == 'pull_request' }}
+            type=raw,value=${{ steps.chart.outputs.app_version }}-rc,enable=${{ github.event_name == 'pull_request' }}
 
       - name: Build and push image
         if: >
@@ -471,10 +471,8 @@ jobs:
       - name: Read versions
         id: versions
         run: |
-          app_version=$(grep '^appVersion:' charts/porpulsion/Chart.yaml | sed 's/appVersion: *"\(.*\)"/\1/')
           chart_version=$(grep '^version:' charts/porpulsion/Chart.yaml | awk '{print $2}')
-          echo "app_version=$app_version" >> "$GITHUB_OUTPUT"
-          echo "rc_chart_version=rc-$chart_version" >> "$GITHUB_OUTPUT"
+          echo "rc_chart_version=${chart_version}-rc" >> "$GITHUB_OUTPUT"
 
       - name: Package RC chart
         run: |
