@@ -5,12 +5,24 @@
 <h1 align="center">Porpulsion</h1>
 
 <p align="center">
-  Peer-to-peer Kubernetes connector. Deploy workloads across clusters over mutual TLS. No VPN, no service mesh, no central control plane.
+  Peer-to-peer Kubernetes connector. Deploy workloads across clusters, open browser tunnels into remote ports, and proxy private images. No VPN, no service mesh, no central control plane.
 </p>
 
 ---
 
-Each cluster runs one porpulsion agent. Agents exchange self-signed CA certificates during a one-time peering handshake using a signed invite bundle. After peering, a persistent WebSocket channel carries all inter-agent traffic: RemoteApp submissions, status callbacks, and HTTP proxy tunnels. The channel reconnects automatically with exponential backoff if dropped.
+### Why porpulsion?
+
+Multi-cluster Kubernetes usually means picking between a complex service mesh, a VPN, or handing your credentials to a SaaS control plane. Porpulsion takes a different approach: each cluster runs one small agent pod, and agents talk directly to each other over a persistent mTLS WebSocket. No shared infrastructure to operate, no CNI changes, and it works through NAT and cloud load balancers.
+
+**Good fit for:**
+- Teams that need to burst workloads from one cluster to another without full mesh networking
+- Running jobs or services on a cluster you do not fully control (co-lo, edge, partner infra)
+- Accessing internal web UIs running on a remote cluster without a VPN or `kubectl port-forward`
+- Pulling private images from one cluster's registry to another without a public registry
+
+---
+
+Each cluster runs one porpulsion agent. Agents exchange self-signed CA certificates during a one-time peering handshake using a signed invite bundle. After peering, a persistent WebSocket channel carries all inter-agent traffic: RemoteApp submissions, status callbacks, HTTP proxy tunnels, and image pulls. The channel reconnects automatically with exponential backoff if dropped.
 
 ---
 
@@ -135,7 +147,21 @@ The CR is applied on the submitting cluster. A kopf watcher forwards it to the t
 
 ### 3. Access via HTTP proxy
 
-Navigate to the **Overview** tab on any running app. Click a port URL to reach the app through the WebSocket tunnel - no extra ports need to be opened on the executing cluster.
+Navigate to the **Overview** tab on any running app. Click a port URL to reach the app through the WebSocket tunnel. No extra ports need to be opened on the executing cluster. URL rewriting handles root-relative assets, so React, Next.js, and other SPA frameworks work without configuration.
+
+### 4. Stream logs and open a shell
+
+The **Logs** tab streams live pod logs directly from the executing cluster. The **Terminal** tab opens an interactive shell in a running pod (with a shell selector for containers that have multiple options). Both run over the same WebSocket channel, no `kubectl` access to the remote cluster needed.
+
+### 5. Control what runs on your cluster
+
+The executing cluster controls what it accepts. In **Settings** you can:
+
+- Require manual approval before any inbound workload starts
+- Set CPU, memory, and replica caps so inbound workloads cannot exceed cluster budget
+- Allow or block specific container images using glob patterns
+- Restrict tunnel access to specific peers
+- Enable PVC support (off by default)
 
 ---
 
