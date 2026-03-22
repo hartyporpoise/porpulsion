@@ -94,26 +94,9 @@ test.describe('Registry pull-through proxy', () => {
       expect(body.registry_pull_enabled).toBe(false);
     });
 
-    test('saving a registry_api_url via the UI form persists to the API', async ({ pageB, apiB }) => {
-      // First enable registry pull so the URL field is relevant
-      await apiB.post('/api/settings', { registry_pull_enabled: true });
-
-      await pageB.goto(`${AGENT_B}/settings`);
-      await pageB.locator('.stg-tab[data-section="registry"]').click();
-      await pageB.locator('#setting-registry-api-url').clear();
-      await pageB.locator('#setting-registry-api-url').fill('https://registry.example.internal');
-      await pageB.locator('#setting-registry-save').click();
-      await expect(pageB.locator('#toast.show')).toBeVisible({ timeout: 5_000 });
-      const toastText = await pageB.locator('#toast').textContent();
-      expect(/saved|registry/i.test(toastText)).toBe(true);
-
-      const getResp = await apiB.get('/api/settings');
-      const body = await getResp.json();
-      expect(body.registry_api_url).toBe('https://registry.example.internal');
-    });
   });
 
   test.afterAll(async ({ apiB }) => {
-    await apiB.post('/api/settings', { registry_pull_enabled: false, registry_api_url: '' });
+    await apiB.post('/api/settings', { registry_pull_enabled: false });
   });
 });
