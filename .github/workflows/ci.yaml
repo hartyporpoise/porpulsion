@@ -290,7 +290,15 @@ jobs:
 
   build-and-publish:
     needs: [detect-changes, apply-app-bump, apply-chart-bump]
-    if: always() && (github.event_name == 'push' || github.event_name == 'pull_request')
+    if: >
+      always() && (
+        github.event_name == 'push' || (
+          github.event_name == 'pull_request' && (
+            contains(github.event.pull_request.labels.*.name, 'release-candidate') ||
+            github.event.label.name == 'release-candidate'
+          )
+        )
+      )
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -363,13 +371,11 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=ref,event=branch
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=sha
             type=raw,value=latest,enable={{is_default_branch}}
             type=raw,value=${{ needs.detect-changes.outputs.app_version }},enable=${{ needs.detect-changes.outputs.app_version_changed == 'true' }}
-            type=raw,value=${{ steps.chart.outputs.app_version }}-rc,enable=${{ github.event_name == 'pull_request' && (contains(github.event.pull_request.labels.*.name, 'release-candidate') || github.event.label.name == 'release-candidate') }}
+            type=raw,value=${{ steps.chart.outputs.app_version }}-rc,enable=${{ github.event_name == 'pull_request' }}
 
       - name: Build and push image
         if: >
