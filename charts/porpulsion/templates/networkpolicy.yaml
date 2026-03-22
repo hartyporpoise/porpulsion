@@ -25,7 +25,7 @@ spec:
         - port: {{ .Values.service.port }}
           protocol: TCP
 
-  # Egress 
+  # Egress
   egress:
     - to:
         - podSelector: {}
@@ -96,4 +96,12 @@ spec:
               - 192.168.0.0/16
               - 169.254.0.0/16
               - 100.64.0.0/10
+{{- if .Values.networkPolicy.egressCIDRs }}
+    # User-supplied destination CIDR allowlist
+    - to:
+{{- range .Values.networkPolicy.egressCIDRs }}
+        - ipBlock:
+            cidr: {{ . }}
+{{- end }}
+{{- end }}
 {{- end }}

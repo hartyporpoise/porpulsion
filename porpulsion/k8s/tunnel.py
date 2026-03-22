@@ -9,11 +9,15 @@ Scope enforcement: Service is resolved from k8s at call time using the
 porpulsion.io/remote-app-id label, so the caller never supplies a target address.
 """
 import logging
+import time
 from porpulsion import state
 
 log = logging.getLogger("porpulsion.tunnel")
 
 NAMESPACE = state.NAMESPACE
+
+_SVC_HOST_TTL = 30.0  # seconds
+_svc_host_cache: dict[str, tuple[str, float]] = {}  # app_id -> (host, expiry)
 
 
 def _k8s_core_v1():
@@ -29,9 +33,14 @@ def resolve_service_host(remote_app_id: str) -> str:
     """
     Look up the Service name for a RemoteApp (same namespace).
     Returns host suitable for in-cluster HTTP: '<name>.<namespace>.svc.cluster.local'
-    or short form '<name>' when in same namespace.
     Raises ValueError if no Service is found.
+    Result is cached for 30 s to avoid a k8s round-trip on every proxied request.
     """
+    now = time.monotonic()
+    entry = _svc_host_cache.get(remote_app_id)
+    if entry and entry[1] > now:
+        return entry[0]
+
     core_v1 = _k8s_core_v1()
     services = core_v1.list_namespaced_service(
         namespace=NAMESPACE,
@@ -40,7 +49,9 @@ def resolve_service_host(remote_app_id: str) -> str:
     if not services.items:
         raise ValueError(f"no service for remote-app-id={remote_app_id}")
     name = services.items[0].metadata.name
-    return f"{name}.{NAMESPACE}.svc.cluster.local"
+    host = f"{name}.{NAMESPACE}.svc.cluster.local"
+    _svc_host_cache[remote_app_id] = (host, now + _SVC_HOST_TTL)
+    return host
 
 
 def proxy_request(remote_app_id: str, port: int,

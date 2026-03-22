@@ -5,12 +5,15 @@ name: CI
 #   PR labels -> bump jobs
 #     bump:app:patch/minor/major   - bumps appVersion in Chart.yaml + image tag in values.yaml
 #     bump:chart:patch/minor/major - bumps chart version in Chart.yaml
-#     release-candidate            - builds + pushes rc-X.X.X image to GHCR
+#     release-candidate            - builds + pushes X.X.X-rc Docker image to GHCR
+#                                    and publishes X.X.X-rc Helm chart to GHCR
 #
 #   PR checks (always run on push/label):
-#     validate-schema-bump - fails if schema.yaml changed but no bump:app:* label present
-#     validate-chart-bump  - fails if bump:app:* label present but no bump:chart:* label present
-#     build-and-publish    - builds RC image if release-candidate label present, otherwise no-op
+#     validate-schema-bump         - fails if schema.yaml changed but no bump:app:* label present
+#     validate-chart-bump          - fails if bump:app:* label present but no bump:chart:* label present
+#     build-and-publish            - builds RC image if release-candidate label present, otherwise no-op
+#     publish-helm-chart-rc        - packages and pushes rc-X.X.X chart if release-candidate label present
+#     e2e-tests                    - runs full Playwright suite (make test) if release-candidate label present
 #
 #   push to main (chart version changed) -> publish-helm-chart
 #     Packages and pushes the Helm chart to GHCR.
@@ -286,7 +289,7 @@ jobs:
   # ---------------------------------------------------------------------------
 
   build-and-publish:
-    needs: [detect-changes]
+    needs: [detect-changes, apply-app-bump, apply-chart-bump]
     if: always() && (github.event_name == 'push' || github.event_name == 'pull_request')
     runs-on: ubuntu-latest
     permissions:
@@ -318,6 +321,25 @@ jobs:
           app_version=$(grep '^appVersion:' charts/porpulsion/Chart.yaml | sed 's/appVersion: *"\(.*\)"/\1/')
           echo "app_version=$app_version" >> "$GITHUB_OUTPUT"
 
+      - name: Fetch latest branch head
+        if: >
+          github.event_name == 'pull_request' && (
+            contains(github.event.pull_request.labels.*.name, 'release-candidate') ||
+            github.event.label.name == 'release-candidate'
+          )
+        run: git fetch origin "${{ github.head_ref }}" && git checkout "origin/${{ github.head_ref }}" -- charts/porpulsion/Chart.yaml charts/porpulsion/values.yaml
+
+      - name: Re-read app version after fetch
+        if: >
+          github.event_name == 'pull_request' && (
+            contains(github.event.pull_request.labels.*.name, 'release-candidate') ||
+            github.event.label.name == 'release-candidate'
+          )
+        id: chart_fresh
+        run: |
+          app_version=$(grep '^appVersion:' charts/porpulsion/Chart.yaml | sed 's/appVersion: *"\(.*\)"/\1/')
+          echo "app_version=$app_version" >> "$GITHUB_OUTPUT"
+
       - name: Assert version bumped
         if: >
           github.event_name == 'pull_request' && (
@@ -326,7 +348,7 @@ jobs:
           )
         run: |
           BASE_APP=$(git show "origin/${{ github.event.pull_request.base.ref }}:charts/porpulsion/Chart.yaml" | grep '^appVersion:' | sed 's/appVersion: *"\(.*\)"/\1/')
-          PR_APP="${{ steps.chart.outputs.app_version }}"
+          PR_APP="${{ steps.chart_fresh.outputs.app_version }}"
           echo "base appVersion: $BASE_APP"
           echo "PR appVersion:   $PR_APP"
           if [ "$BASE_APP" = "$PR_APP" ]; then
@@ -347,7 +369,7 @@ jobs:
             type=sha
             type=raw,value=latest,enable={{is_default_branch}}
             type=raw,value=${{ needs.detect-changes.outputs.app_version }},enable=${{ needs.detect-changes.outputs.app_version_changed == 'true' }}
-            type=raw,value=rc-${{ steps.chart.outputs.app_version }},enable=${{ github.event_name == 'pull_request' }}
+            type=raw,value=${{ steps.chart.outputs.app_version }}-rc,enable=${{ github.event_name == 'pull_request' && (contains(github.event.pull_request.labels.*.name, 'release-candidate') || github.event.label.name == 'release-candidate') }}
 
       - name: Build and push image
         if: >
@@ -364,6 +386,54 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # ---------------------------------------------------------------------------
+  # PR: E2E tests when release-candidate label is present
+  # ---------------------------------------------------------------------------
+
+  e2e-tests:
+    needs: [build-and-publish]
+    if: >
+      always() &&
+      needs.build-and-publish.result == 'success' &&
+      github.event_name == 'pull_request' &&
+      (
+        contains(github.event.pull_request.labels.*.name, 'release-candidate') ||
+        github.event.label.name == 'release-candidate'
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Fetch latest branch head
+        run: git fetch origin "${{ github.head_ref }}" && git checkout "origin/${{ github.head_ref }}"
+
+      - name: Install make
+        run: sudo apt-get update -qq && sudo apt-get install -y make
+
+      - name: Run E2E suite
+        run: make test COMPOSE="docker compose"
+        env:
+          TEST_USERNAME: admin
+          TEST_PASSWORD: adminpass1
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright/playwright-report/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Tear down clusters on failure
+        if: failure()
+        run: make teardown || true
 
   # ---------------------------------------------------------------------------
   # PR: security scan (always, non-blocking)
@@ -441,6 +511,65 @@ jobs:
             git commit -m "chore: auto-upgrade pinned dependencies [skip ci]"
             git push origin "${{ github.head_ref }}"
           )
+
+  # ---------------------------------------------------------------------------
+  # PR: publish RC Helm chart when release-candidate label is present
+  # ---------------------------------------------------------------------------
+
+  publish-helm-chart-rc:
+    needs: [build-and-publish, apply-app-bump, apply-chart-bump]
+    if: >
+      always() &&
+      github.event_name == 'pull_request' &&
+      (
+        contains(github.event.pull_request.labels.*.name, 'release-candidate') ||
+        github.event.label.name == 'release-candidate'
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Fetch latest branch head
+        run: git fetch origin "${{ github.head_ref }}" && git checkout "origin/${{ github.head_ref }}" -- charts/porpulsion/Chart.yaml charts/porpulsion/values.yaml
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+
+      - name: Read versions
+        id: versions
+        run: |
+          chart_version=$(grep '^version:' charts/porpulsion/Chart.yaml | awk '{print $2}')
+          echo "rc_chart_version=${chart_version}-rc" >> "$GITHUB_OUTPUT"
+
+          base_app=$(git show "origin/${{ github.event.pull_request.base.ref }}:charts/porpulsion/Chart.yaml" | grep '^appVersion:' | sed 's/appVersion: *"\(.*\)"/\1/')
+          pr_app=$(grep '^appVersion:' charts/porpulsion/Chart.yaml | sed 's/appVersion: *"\(.*\)"/\1/')
+          echo "rc_app_version=${pr_app}-rc" >> "$GITHUB_OUTPUT"
+          if [ "$base_app" != "$pr_app" ]; then
+            echo "app_bumped=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "app_bumped=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package RC chart
+        run: |
+          sed -i "s/^version: .*/version: ${{ steps.versions.outputs.rc_chart_version }}/" charts/porpulsion/Chart.yaml
+          if [ "${{ steps.versions.outputs.app_bumped }}" = "true" ]; then
+            IMAGE_REPO=$(grep 'image:' charts/porpulsion/values.yaml | head -1 | awk '{print $2}' | sed 's/:[^:]*$//')
+            sed -i "s|^  image: .*|  image: $IMAGE_REPO:${{ steps.versions.outputs.rc_app_version }}|" charts/porpulsion/values.yaml
+          fi
+          helm package charts/porpulsion --destination .cr-rc-packages
+
+      - name: Push RC chart to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io \
+            --username "${{ github.repository_owner }}" --password-stdin
+          for pkg in .cr-rc-packages/*.tgz; do
+            helm push "$pkg" oci://ghcr.io/${{ github.repository_owner }}/charts
+          done
 
   # ---------------------------------------------------------------------------
   # Main push: detect chart/appVersion changes

@@ -1,0 +1,41 @@
+# Playwright test runner image — used by make test
+# Supports noVNC: watch the browser at http://localhost:6080 (auto-connects, no clicks needed)
+FROM mcr.microsoft.com/playwright:v1.58.2-jammy
+
+# noVNC: watch the browser at http://localhost:6080 (auto-connects, no clicks needed)
+RUN DEBIAN_FRONTEND=noninteractive apt-get update -qq && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends xvfb x11vnc x11-utils novnc websockify netcat-openbsd && \
+    rm -rf /var/lib/apt/lists/* && \
+    printf '<!DOCTYPE html><html><head><meta http-equiv="refresh" content="0;url=vnc_lite.html?resize=scale&scaling=local&autoconnect=1&reconnect=1"></head></html>\n' \
+        > /usr/share/novnc/index.html
+
+WORKDIR /e2e
+
+COPY playwright/package.json ./
+# Install @playwright/test locally — PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 because the
+# Microsoft base image already has all browsers installed at /ms-playwright.
+RUN PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install
+
+COPY playwright/ ./
+
+RUN printf '#!/bin/sh\n\
+set -e\n\
+Xvfb :99 -screen 0 1920x1080x24 -ac &\n\
+XVFB_PID=$!\n\
+export DISPLAY=:99\n\
+# Wait for Xvfb to be ready before starting x11vnc\n\
+for i in $(seq 1 40); do\n\
+  xdpyinfo -display :99 >/dev/null 2>&1 && break\n\
+  sleep 0.25\n\
+done\n\
+x11vnc -display :99 -nopw -forever -quiet &\n\
+# Wait for x11vnc to bind port 5900 before starting websockify\n\
+for i in $(seq 1 20); do\n\
+  nc -z localhost 5900 2>/dev/null && break\n\
+  sleep 0.5\n\
+done\n\
+websockify --web /usr/share/novnc 6080 localhost:5900 &\n\
+echo "[playwright] Watch at http://localhost:6080"\n\
+exec ./node_modules/.bin/playwright test --project=e2e --headed\n' > /entrypoint.sh && chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]

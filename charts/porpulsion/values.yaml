@@ -6,7 +6,7 @@
 # -- Agent
 agent:
   # -- Container image for the porpulsion agent.
-  image: ghcr.io/hartyporpoise/porpulsion:1.2.1
+  image: ghcr.io/hartyporpoise/porpulsion:1.3.0
 
   # -- Image pull policy. Use `Always` when pushing to a remote registry.
   pullPolicy: IfNotPresent
@@ -27,12 +27,23 @@ agent:
       cpu: 500m
       memory: 512Mi
 
-  # -- Externally reachable URL for this agent (e.g. https://porpulsion.example.com).
-  #    Peer agents use this address for the initial peering handshake and the
-  #    persistent WebSocket channel (/ws). Should be your Ingress or
-  #    LoadBalancer hostname. Auto-detected from the pod's default route if left
-  #    empty, but explicit is recommended in production.
-  selfUrl: ""
+  # -- Externally reachable URL for the WebSocket peer channel and peering handshake.
+  #    Peer agents connect here to open the persistent /agent/ws channel.
+  #    Must be set; there is no auto-detection fallback.
+  #    In most deployments this is the same as apiDomain.
+  #    Use a different value only for split-ingress setups where the WebSocket
+  #    endpoint is on a separate hostname (e.g. internal API, external WS).
+  #    Example: "https://porpulsion.example.com"
+  websocketDomain: ""
+
+  # -- Externally reachable URL for the HTTP API, dashboard, and image registry proxy.
+  #    Used as the base URL in pull secrets for the image pull-through proxy.
+  #    Must be set; there is no auto-detection fallback.
+  #    In most deployments this is the same as websocketDomain.
+  #    Use a different value only for split-ingress setups where the API is
+  #    on a separate hostname from the WebSocket endpoint.
+  #    Example: "https://porpulsion.example.com"
+  apiDomain: ""
 
 # -- Service
 # All traffic is served on a single port (8000):
@@ -58,3 +69,14 @@ service:
 networkPolicy:
   # -- Enable the NetworkPolicy. Set to false if your CNI does not support it.
   enabled: true
+
+  # -- Additional destination CIDRs that executing app pods are allowed to reach.
+  #    By default, executing apps can only egress to the public internet (private
+  #    RFC-1918 ranges are blocked). Add entries here to allow workloads to reach
+  #    private addresses, for example to proxy through a deployed pod to an
+  #    internal service or on-prem resource.
+  #    Example:
+  #      egressCIDRs:
+  #        - 10.20.0.0/16
+  #        - 172.31.5.42/32
+  egressCIDRs: []

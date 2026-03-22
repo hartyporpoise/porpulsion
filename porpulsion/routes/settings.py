@@ -20,7 +20,12 @@ def _apply_log_level(level_name: str):
          description="Current agent settings (approval mode, limits, image policy, etc.).",
          responses={"200": {"description": "OK", "content": {"application/json": {"schema": REF_SETTINGS}}}})
 def get_settings():
-    return jsonify(state.settings.to_dict())
+    from urllib.parse import urlparse
+    d = state.settings.to_dict()
+    d["namespace"] = state.NAMESPACE
+    parsed = urlparse(state.API_URL)
+    d["proxy_domain"] = parsed.netloc or ""
+    return jsonify(d)
 
 
 @bp.route("/settings", methods=["POST"])
@@ -65,7 +70,7 @@ def update_settings():
         if data["registry_pull_enabled"]:
             try:
                 from porpulsion.k8s.registry_proxy import ensure_registry_setup
-                ensure_registry_setup(state.NAMESPACE, state.SELF_URL)
+                ensure_registry_setup(state.NAMESPACE)
             except Exception as _exc:
                 log.warning("Could not set up registry proxy: %s", _exc)
         else:
@@ -80,7 +85,6 @@ def update_settings():
         "max_cpu_request_per_pod", "max_cpu_limit_per_pod",
         "max_memory_request_per_pod", "max_memory_limit_per_pod",
         "max_total_cpu_requests", "max_total_memory_requests",
-        "registry_api_url",
     )
     for fld in str_fields:
         if fld in data:
@@ -95,25 +99,39 @@ def update_settings():
             except (ValueError, TypeError):
                 return jsonify({"error": f"{fld} must be an integer"}), 400
 
-    # If registry_api_url changed while the proxy is enabled, rebuild the pull secret
-    if "registry_api_url" in data and state.settings.registry_pull_enabled:
-        try:
-            from porpulsion.k8s.registry_proxy import ensure_registry_setup
-            ensure_registry_setup(state.NAMESPACE, state.SELF_URL)
-        except Exception as _exc:
-            log.warning("Could not rebuild pull secret after api_url change: %s", _exc)
-
-    # If registry proxy settings changed, push updated proxy URL to all connected peers
-    if "registry_pull_enabled" in data or "registry_api_url" in data:
-        _push_registry_info_to_peers()
-
     log.info("Settings updated: %s", state.settings.to_dict())
     tls.save_state_configmap(state.NAMESPACE, state.settings, state.pending_approval)
+    _push_info_to_peers()
     return jsonify(state.settings.to_dict())
 
 
-def _push_registry_info_to_peers():
-    """Push our current registry_proxy_url to all connected peers via peer/info-update."""
+@bp.route("/proxy-dns-check")
+@api_doc("Proxy DNS check", tags=["Settings"],
+         description="Checks whether the wildcard proxy domain resolves from the agent. Returns ok=true if a test subdomain resolves.",
+         responses={"200": {"description": "OK", "content": {"application/json": {"schema": {
+             "type": "object", "properties": {"ok": {"type": "boolean"}, "domain": {"type": "string"}, "reason": {"type": "string"}}}}}}})
+def proxy_dns_check():
+    import socket
+    from urllib.parse import urlparse
+    parsed = urlparse(state.API_URL)
+    domain = parsed.netloc or ""
+    if not domain:
+        return jsonify({"ok": False, "domain": "", "reason": "apiDomain not configured"})
+    test_host = "_porpulsion-probe." + domain
+    try:
+        socket.getaddrinfo(test_host, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        return jsonify({"ok": True, "domain": domain})
+    except socket.gaierror:
+        # Wildcard not resolving; fall back to checking the base domain itself
+        try:
+            socket.getaddrinfo(domain, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+            return jsonify({"ok": False, "domain": domain, "reason": "wildcard not resolving"})
+        except socket.gaierror:
+            return jsonify({"ok": False, "domain": domain, "reason": "domain not resolving"})
+
+
+def _push_info_to_peers():
+    """Push current agent info to all connected peers via peer/info-update."""
     try:
         from porpulsion.channel import get_channel
         proxy_url = state.registry_proxy_url()
@@ -126,4 +144,4 @@ def _push_registry_info_to_peers():
             except Exception as exc:
                 log.debug("Could not push info-update to %s: %s", peer_name, exc)
     except Exception as exc:
-        log.debug("_push_registry_info_to_peers failed: %s", exc)
+        log.debug("_push_info_to_peers failed: %s", exc)
