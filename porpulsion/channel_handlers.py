@@ -500,6 +500,10 @@ def handle_image_proxy_request(payload: dict) -> dict:
     import urllib.error
     import urllib.request
 
+    from porpulsion import state
+    if not state.settings.registry_pull_enabled:
+        raise RuntimeError("image proxy is not enabled on this agent")
+
     method  = payload.get("method", "GET")
     url     = payload.get("url", "")
     headers = payload.get("headers", {})

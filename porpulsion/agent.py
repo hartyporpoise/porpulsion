@@ -511,13 +511,6 @@ def _require_api_auth():
     _GUARDED = ("/api/", "/static/js/", "/v2/")
     if not any(request.path.startswith(p) for p in _GUARDED):
         return
-    # Per-app proxy auth bypass: /api/remoteapp/<app_id>/proxy/<port>[/...]
-    if request.path.startswith("/api/remoteapp/") and "/proxy/" in request.path:
-        _parts = request.path.split("/")
-        if len(_parts) > 3:
-            _app_id = _parts[3]
-            if _app_id in state.proxy_auth_disabled:
-                return
     # Session cookie (browser)
     if session.get("user"):
         return
