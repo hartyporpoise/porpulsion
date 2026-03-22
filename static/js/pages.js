@@ -242,21 +242,14 @@
 
   function _proxySetupInstructions(appName, port, domain) {
     var hostname = _esc(appName + '-' + port + '.' + domain);
+    var wildcard = _esc('*.' + domain);
     return '<div class="proxy-setup-instructions">' +
-      '<div class="proxy-setup-tabs" role="tablist">' +
-        '<button type="button" class="proxy-setup-tab proxy-setup-tab-active" data-setup-tab="single" role="tab" aria-selected="true">Single ingress</button>' +
-        '<button type="button" class="proxy-setup-tab" data-setup-tab="split" role="tab" aria-selected="false">Split ingress</button>' +
-      '</div>' +
-      '<div class="proxy-setup-panel" data-setup-panel="single">' +
-        '<p class="proxy-setup-desc">Point a wildcard A record at your ingress or load balancer IP. All app subdomains resolve through the same ingress.</p>' +
-        '<div class="proxy-setup-row"><span class="proxy-setup-key">DNS record</span><code class="proxy-setup-code mono">*.' + _esc(domain) + '  A  &lt;ingress IP&gt;</code></div>' +
-        '<div class="proxy-setup-row"><span class="proxy-setup-key">App hostname</span><code class="proxy-setup-code mono">' + hostname + '</code></div>' +
-      '</div>' +
-      '<div class="proxy-setup-panel" data-setup-panel="split" style="display:none;">' +
-        '<p class="proxy-setup-desc">Use a tunnel proxy or split ingress where each public hostname routes to the agent port directly. No wildcard DNS needed.</p>' +
-        '<div class="proxy-setup-row"><span class="proxy-setup-key">Public hostname</span><code class="proxy-setup-code mono">' + hostname + '</code></div>' +
-        '<div class="proxy-setup-row"><span class="proxy-setup-key">Backend</span><code class="proxy-setup-code mono">http://&lt;agent-host&gt;:8000</code></div>' +
-        '<p class="proxy-setup-note">Add one entry per app port in your ingress or tunnel config, forwarding the public hostname to the agent on port 8000.</p>' +
+      '<div class="proxy-setup-panel">' +
+        '<p class="proxy-setup-desc">Add a wildcard DNS record for <code class="proxy-setup-inline-code mono">' + wildcard + '</code> using either option:</p>' +
+        '<div class="proxy-setup-row"><span class="proxy-setup-key">CNAME</span><code class="proxy-setup-code mono">' + wildcard + '  CNAME  ' + _esc(domain) + '</code></div>' +
+        '<div class="proxy-setup-row"><span class="proxy-setup-key">A record</span><code class="proxy-setup-code mono">' + wildcard + '  A  &lt;ingress IP&gt;</code></div>' +
+        '<p class="proxy-setup-note">If using an A record, also add <code class="proxy-setup-inline-code mono">' + wildcard + '</code> as a route in your load balancer or ingress forwarding to this agent.</p>' +
+        '<div class="proxy-setup-row" style="margin-top:0.5rem;"><span class="proxy-setup-key">App hostname</span><code class="proxy-setup-code mono">' + hostname + '</code></div>' +
       '</div>' +
     '</div>';
   }
@@ -333,21 +326,6 @@
         this.classList.toggle('proxy-setup-toggle-active', !open);
       });
     }
-    // Wire setup tab switchers
-    listEl.addEventListener('click', function (e) {
-      var tab = e.target.closest('.proxy-setup-tab');
-      if (!tab) return;
-      var panel = tab.closest('.proxy-setup-instructions');
-      if (!panel) return;
-      var key = tab.getAttribute('data-setup-tab');
-      panel.querySelectorAll('.proxy-setup-tab').forEach(function (t) {
-        t.classList.toggle('proxy-setup-tab-active', t === tab);
-        t.setAttribute('aria-selected', t === tab ? 'true' : 'false');
-      });
-      panel.querySelectorAll('.proxy-setup-panel').forEach(function (p) {
-        p.style.display = p.getAttribute('data-setup-panel') === key ? '' : 'none';
-      });
-    });
   }
 
   function renderApproval(list) {
@@ -625,32 +603,26 @@
       _proxyDomain = s.proxy_domain || '';
       var domainDisplay = document.getElementById('setting-proxy-domain-display');
       if (domainDisplay) domainDisplay.textContent = _proxyDomain || '(not configured)';
-      var splitDisplay = document.getElementById('setting-proxy-domain-split');
-      if (splitDisplay) splitDisplay.textContent = _proxyDomain || '...';
+      var wildcard = _proxyDomain ? '*.' + _proxyDomain : '';
       var cnameRecord = document.getElementById('setting-proxy-cname-record');
-      if (cnameRecord) cnameRecord.textContent = _proxyDomain ? '*.' + _proxyDomain + '  A  <ingress IP>' : '(apiDomain not configured)';
+      if (cnameRecord) cnameRecord.textContent = wildcard ? wildcard + '  CNAME  ' + _proxyDomain : '(apiDomain not configured)';
+      var aRecord = document.getElementById('setting-proxy-a-record');
+      if (aRecord) aRecord.textContent = wildcard ? wildcard + '  A  <ingress IP>' : '(apiDomain not configured)';
+      var wildcardNote = document.getElementById('setting-proxy-wildcard-note');
+      if (wildcardNote) wildcardNote.textContent = wildcard || '*.(domain)';
       var cnameCopyBtn = document.getElementById('setting-proxy-cname-copy');
       if (cnameCopyBtn) {
         cnameCopyBtn.onclick = function () {
-          var txt = _proxyDomain ? '*.' + _proxyDomain + '  A  <ingress IP>' : '';
+          var txt = wildcard ? wildcard + '  CNAME  ' + _proxyDomain : '';
           if (txt) navigator.clipboard.writeText(txt).catch(function () {});
         };
       }
-      // Wire DNS setup tab switcher in settings
-      var dnsCard = document.querySelector('.proxy-dns-card');
-      if (dnsCard) {
-        dnsCard.addEventListener('click', function (e) {
-          var tab = e.target.closest('.proxy-dns-tab');
-          if (!tab) return;
-          var key = tab.getAttribute('data-dns-tab');
-          dnsCard.querySelectorAll('.proxy-dns-tab').forEach(function (t) {
-            t.classList.toggle('proxy-dns-tab-active', t === tab);
-            t.setAttribute('aria-selected', t === tab ? 'true' : 'false');
-          });
-          dnsCard.querySelectorAll('.proxy-dns-tab-panel').forEach(function (p) {
-            p.style.display = p.getAttribute('data-dns-panel') === key ? '' : 'none';
-          });
-        });
+      var aCopyBtn = document.getElementById('setting-proxy-a-copy');
+      if (aCopyBtn) {
+        aCopyBtn.onclick = function () {
+          var txt = wildcard ? wildcard + '  A  <ingress IP>' : '';
+          if (txt) navigator.clipboard.writeText(txt).catch(function () {});
+        };
       }
       setChk('setting-inbound-tunnels',     s.allow_inbound_tunnels);
       setChk('setting-registry-pull-enabled', s.registry_pull_enabled);

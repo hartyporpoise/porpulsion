@@ -3022,7 +3022,9 @@ pre, .spec-pre {
   font-family: 'SF Mono', 'Menlo', 'Monaco', monospace;
   font-size: 0.8125rem;
   color: var(--accent);
-  word-break: break-all;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   text-decoration: none;
 }
 .proxy-port-url:hover { text-decoration: underline; }
@@ -3658,6 +3660,13 @@ button:focus-visible, a:focus-visible {
   margin: 0.5rem 0 0;
   line-height: 1.5;
 }
+.proxy-setup-inline-code {
+  font-size: 0.78rem;
+  background: var(--surface3, var(--bg));
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.1rem 0.3rem;
+}
 
 /* ── Proxy DNS card (settings tunnels tab) ───────────────────── */
 .proxy-dns-card {
@@ -3694,6 +3703,14 @@ button:focus-visible, a:focus-visible {
   font-size: 0.7rem;
   color: var(--muted);
   white-space: nowrap;
+  min-width: 4.5rem;
+  flex-shrink: 0;
+}
+.proxy-dns-card-note {
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin: 0.625rem 0 0;
+  line-height: 1.5;
 }
 .proxy-dns-card-label {
   font-size: 0.7rem;
