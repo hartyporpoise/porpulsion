@@ -292,7 +292,7 @@ jobs:
     needs: [detect-changes, apply-app-bump, apply-chart-bump]
     if: >
       always() && (
-        github.event_name == 'push' || (
+        (github.event_name == 'push' && needs.detect-changes.outputs.app_version_changed == 'true') || (
           github.event_name == 'pull_request' && (
             contains(github.event.pull_request.labels.*.name, 'release-candidate') ||
             github.event.label.name == 'release-candidate'
