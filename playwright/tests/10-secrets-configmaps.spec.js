@@ -22,6 +22,9 @@ let APP_ID;
 
 test.describe('Secrets & ConfigMaps', () => {
   test.beforeAll(async ({ request }) => {
+    // Clean up any stale app from a previous run
+    await deleteApps(request, AGENT_A, ['playwright-cfg-test']);
+
     const auth = 'Basic ' + Buffer.from(
       `${process.env.PLAYWRIGHT_USERNAME || 'admin'}:${process.env.PLAYWRIGHT_PASSWORD || 'adminpass1'}`
     ).toString('base64');
@@ -73,6 +76,7 @@ test.describe('Secrets & ConfigMaps', () => {
   });
 
   test('app reaches Ready on Agent B (up to 90s)', async ({ request }) => {
+    test.setTimeout(150_000);
     await waitForExecutingApp(request, 'playwright-cfg-test', ['Ready', 'Running'], 18, 5000);
   });
 

@@ -45,8 +45,13 @@ def _run_executingapp(body, meta, status, namespace):
 
     cr_name = meta["name"]
 
-    app_id = status.get("appId", "")
+    app_id = status.get("appId")
     if not app_id:
+        # If the CR has a porpulsion.io/app-id label, it was created programmatically
+        # and status.appId is just not visible yet (race between create and _patch_status).
+        # Retry so kopf re-invokes with the updated status rather than bootstrapping a wrong id.
+        if meta.get("labels", {}).get("porpulsion.io/app-id"):
+            raise kopf.TemporaryError("appId not in status yet, retrying", delay=1)
         app_id = bootstrap_cr_status(namespace, PLURAL_EA, cr_name, dict(status))
     if not app_id:
         raise kopf.TemporaryError("appId not set in status yet", delay=1)

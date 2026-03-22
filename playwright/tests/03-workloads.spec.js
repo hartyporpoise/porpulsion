@@ -22,10 +22,28 @@ let PEER_B_NAME;
 
 test.describe('Workloads', () => {
   test.beforeAll(async ({ request }) => {
-    // Reset Agent B settings (in case a prior run left them dirty)
     const auth = 'Basic ' + Buffer.from(
       `${process.env.PLAYWRIGHT_USERNAME || 'admin'}:${process.env.PLAYWRIGHT_PASSWORD || 'adminpass1'}`
     ).toString('base64');
+
+    // Clean up any stale apps from a previous run
+    await deleteApps(request, AGENT_A, ['playwright-nginx', 'playwright-busybox', 'playwright-cm-test']);
+
+    // Wait for Agent B to also clear the stale apps before proceeding
+    const staleNames = ['playwright-nginx', 'playwright-busybox', 'playwright-cm-test'];
+    const { expect: pwExpect } = require('@playwright/test');
+    await pwExpect.poll(
+      async () => {
+        const r = await request.get(`${AGENT_B}/api/remoteapps`, { headers: { Authorization: auth }, failOnStatusCode: false });
+        if (!r.ok()) return true;
+        const b = await r.json();
+        const all = [...(b.submitted || []), ...(b.executing || [])];
+        return staleNames.every((n) => !all.some((a) => a.name === n || a.name.endsWith('-' + n)));
+      },
+      { timeout: 30_000, intervals: [2000] }
+    ).toBe(true);
+
+    // Reset Agent B settings (in case a prior run left them dirty)
     await request.post(`${AGENT_B}/api/settings`, {
       headers: { Authorization: auth, 'Content-Type': 'application/json' },
       data: { allow_inbound_remoteapps: true, require_remoteapp_approval: false, blocked_images: '', allowed_images: '' },
@@ -193,11 +211,18 @@ test.describe('Workloads', () => {
   // ----------------------------------------------------------------
   test.describe('Scale', () => {
     test('scales playwright-nginx to 2 replicas via the API', async ({ apiA }) => {
-      const resp = await apiA.get('/api/remoteapps');
-      const body = await resp.json();
-      const app = (body.submitted || []).find((a) => a.name === 'playwright-nginx');
-      expect(app).toBeTruthy();
-      const id = app.app_id || app.id;
+      // Poll until the app has a non-empty id (status.appId may lag behind CR creation)
+      let id;
+      await expect.poll(
+        async () => {
+          const resp = await apiA.get('/api/remoteapps');
+          const body = await resp.json();
+          const app = (body.submitted || []).find((a) => a.name === 'playwright-nginx');
+          id = app?.app_id || app?.id;
+          return !!id;
+        },
+        { timeout: 15_000, intervals: [1000] }
+      ).toBe(true);
       const scaleResp = await apiA.post(`/api/remoteapp/${id}/scale`, { replicas: 2 });
       expect(scaleResp.status()).toBe(200);
     });
@@ -215,14 +240,19 @@ test.describe('Workloads', () => {
     });
 
     test('scales playwright-nginx back to 1 replica via the API', async ({ apiA }) => {
-      const resp = await apiA.get('/api/remoteapps');
-      const body = await resp.json();
-      const app = (body.submitted || []).find((a) => a.name === 'playwright-nginx');
-      const id = app?.app_id || app?.id;
-      if (id) {
-        const scaleResp = await apiA.post(`/api/remoteapp/${id}/scale`, { replicas: 1 });
-        expect(scaleResp.status()).toBe(200);
-      }
+      let id;
+      await expect.poll(
+        async () => {
+          const resp = await apiA.get('/api/remoteapps');
+          const body = await resp.json();
+          const app = (body.submitted || []).find((a) => a.name === 'playwright-nginx');
+          id = app?.app_id || app?.id;
+          return !!id;
+        },
+        { timeout: 15_000, intervals: [1000] }
+      ).toBe(true);
+      const scaleResp = await apiA.post(`/api/remoteapp/${id}/scale`, { replicas: 1 });
+      expect(scaleResp.status()).toBe(200);
     });
   });
 

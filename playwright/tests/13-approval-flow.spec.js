@@ -20,6 +20,9 @@ let PEER_B_NAME;
 
 test.describe('Approval flow', () => {
   test.beforeAll(async ({ request, apiB }) => {
+    // Clean up any stale apps from a previous run
+    await deleteApps(request, AGENT_A, ['playwright-approval', 'playwright-reject']);
+
     // Set Agent B to require approval before any tests run
     await apiB.post('/api/settings', {
       allow_inbound_remoteapps: true,

@@ -562,10 +562,10 @@ def patch_cr_volume_data(namespace: str, app_id: str, kind: str, vol_name: str,
 
     spec[field] = entries
     try:
-        existing = _crd_api.get_namespaced_custom_object(GROUP, VERSION, namespace, plural, cr_name)
-        body = dict(existing)
-        body["spec"] = spec
-        _crd_api.replace_namespaced_custom_object(GROUP, VERSION, namespace, plural, cr_name, body)
+        patch_body = {"spec": {field: entries}}
+        _crd_api.patch_namespaced_custom_object(
+            GROUP, VERSION, namespace, plural, cr_name, patch_body,
+        )
         log.info("Updated CR %s spec.%s[%s].data", cr_name, field, vol_name)
     except ApiException as e:
         log.warning("Failed to patch CR spec for %s: %s", cr_name, e)

@@ -24,6 +24,9 @@ test.describe('Per-app proxy auth toggle', () => {
   let appId;
 
   test.beforeAll(async ({ request }) => {
+    // Clean up any stale app from a previous run
+    await deleteApps(request, AGENT_A, [APP_NAME]);
+
     const peerBName = await resolvePeerBName(request);
     const auth = buildAuthHeader();
     const resp = await request.post(`${AGENT_A}/api/remoteapp`, {
@@ -98,6 +101,7 @@ test.describe('Per-app proxy auth toggle', () => {
 
   test('tunnels page shows the proxy-auth toggle for the app', async ({ pageA }) => {
     await pageA.goto(`${AGENT_A}/tunnels`);
-    await expect(pageA.locator('.proxy-auth-chk').first()).toBeVisible({ timeout: 10_000 });
+    // .proxy-auth-chk is a hidden native checkbox behind a custom toggle — check the row is visible
+    await expect(pageA.locator('.proxy-auth-row').first()).toBeVisible({ timeout: 10_000 });
   });
 });

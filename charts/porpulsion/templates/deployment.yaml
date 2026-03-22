@@ -46,6 +46,7 @@ spec:
               port: {{ .Values.service.port }}
             initialDelaySeconds: 15
             periodSeconds: 10
-            failureThreshold: 3
+            failureThreshold: 6
+            timeoutSeconds: 5
           resources:
             {{- toYaml .Values.agent.resources | nindent 12 }}

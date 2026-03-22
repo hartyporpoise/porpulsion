@@ -30,8 +30,8 @@ test.describe('Terminal (exec)', () => {
       failOnStatusCode: false,
     });
 
-    // Clean up leftovers
-    await deleteApps(request, AGENT_A, ['playwright-busybox', 'playwright-logs']);
+    // Clean up leftovers (including playwright-exec from a previous run)
+    await deleteApps(request, AGENT_A, ['playwright-busybox', 'playwright-logs', 'playwright-exec']);
 
     PEER_B_NAME = await resolvePeerBName(request);
   });

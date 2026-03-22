@@ -16,6 +16,7 @@ const {
   resolvePeerBName,
   waitForExecutingApp,
   waitForSubmittedAppReady,
+  buildAuthHeader,
 } = require('./helpers');
 
 let PEER_B_NAME;
@@ -25,6 +26,9 @@ const SENTINEL = 'porpulsion-pvc-ok';
 
 test.describe('PVC persistence', () => {
   test.beforeAll(async ({ request }) => {
+    // Clean up any stale app from a previous run before deploying fresh
+    await deleteApps(request, AGENT_A, ['playwright-pvc']);
+
     const auth = 'Basic ' + Buffer.from(
       `${process.env.PLAYWRIGHT_USERNAME || 'admin'}:${process.env.PLAYWRIGHT_PASSWORD || 'adminpass1'}`
     ).toString('base64');
@@ -120,36 +124,60 @@ test.describe('PVC persistence', () => {
     await expect(tab).not.toHaveClass(/modal-tab-disabled/);
   });
 
-  test('writes a sentinel file to /data via the exec terminal', async ({ pageA }) => {
+  test('writes a sentinel file to /data by typing into the terminal UI', async ({ pageA, apiA }) => {
+    // Resolve APP_ID for later tests
+    const appsResp = await apiA.get('/api/remoteapps');
+    const appsBody = await appsResp.json();
+    const app = (appsBody.submitted || []).find((a) => a.name === 'playwright-pvc');
+    expect(app).toBeTruthy();
+    APP_ID = app.app_id || app.id;
+
+    // Poll until the pod is Running and ready before opening the terminal
+    await expect.poll(async () => {
+      const r = await apiA.get(`/api/remoteapp/${APP_ID}/pods`);
+      const b = await r.json();
+      const pod = (b.pods || [])[0];
+      return pod && pod.ready === true && pod.phase === 'Running';
+    }, { timeout: 60_000, intervals: [3000] }).toBeTruthy();
+
+    // Open the terminal tab
     await pageA.goto('/workloads');
     await openAppModal(pageA, 'playwright-pvc');
-    await appModalTab(pageA, 'terminal');
 
-    // xterm container must be present
-    await expect(pageA.locator('#exec-terminal-wrap')).toBeAttached({ timeout: 10_000 });
+    // Alpine only has /bin/sh. The shell select is in the modal HTML (rendered at modal open),
+    // so set it BEFORE clicking the terminal tab so _initExecTab() picks it up on first connect.
+    await pageA.locator('#exec-shell-select').waitFor({ state: 'attached', timeout: 5_000 });
+    await pageA.locator('#exec-shell-select').selectOption('/bin/sh', { force: true });
 
-    // Select /bin/sh (available in alpine)
-    await pageA.selectOption('#exec-shell-select', '/bin/sh', { force: true });
+    await pageA.locator('#app-modal-tabs-bar [data-tab="terminal"]:not(.modal-tab-disabled)').click({ timeout: 15_000 });
+    await expect(pageA.locator('#app-modal-body [data-panel="terminal"].active')).toBeAttached({ timeout: 5_000 });
 
-    // Wait for the WebSocket to connect — status text changes to 'Connected'
-    await expect(
-      pageA.locator('#exec-status .exec-status-text')
-    ).toContainText('Connected', { timeout: 20_000 });
+    // Wait for the terminal to connect with /bin/sh
+    await expect(pageA.locator('#exec-status .exec-status-text')).toHaveText('Connected', { timeout: 30_000 });
 
-    // Type command via keyboard (xterm captures key events)
+    // Click to focus xterm, then type commands and press Enter
     await pageA.locator('#exec-terminal-wrap').click();
-    await pageA.waitForTimeout(800);
-    await pageA.keyboard.type(`echo ${SENTINEL} > /data/sentinel.txt`, { delay: 40 });
+    await pageA.keyboard.type(`echo ${SENTINEL} > /data/sentinel.txt`);
     await pageA.keyboard.press('Enter');
-    await pageA.waitForTimeout(500);
-    await pageA.keyboard.type('cat /data/sentinel.txt', { delay: 40 });
+    await pageA.waitForTimeout(1000);
+    await pageA.keyboard.type('echo done');
     await pageA.keyboard.press('Enter');
 
-    // Wait a moment then confirm the WebSocket is still open
+    // Give the shell a moment, then verify via API that the file was actually written to the PVC
     await pageA.waitForTimeout(1500);
-    await expect(
-      pageA.locator('#exec-status .exec-status-text')
-    ).toContainText('Connected');
+
+    const podsResp = await apiA.get(`/api/remoteapp/${APP_ID}/pods`);
+    const podsBody = await podsResp.json();
+    const pod = (podsBody.pods || [])[0];
+    expect(pod, 'pod must exist').toBeTruthy();
+
+    const readResp = await apiA.post(`/api/remoteapp/${APP_ID}/exec`, {
+      pod: pod.name,
+      command: 'cat /data/sentinel.txt',
+    });
+    expect(readResp.status()).toBe(200);
+    const readBody = await readResp.json();
+    expect(readBody.output || '').toContain(SENTINEL);
   });
 
   // ----------------------------------------------------------------
@@ -167,7 +195,19 @@ test.describe('PVC persistence', () => {
 
   test('app returns to Ready after restart (up to 90s)', async ({ request }) => {
     test.setTimeout(150_000);
-    await new Promise((r) => setTimeout(r, 5000)); // let the rollout begin
+    const auth = buildAuthHeader();
+    // Wait for rollout to begin — poll until not Ready, then wait for Ready again
+    await new Promise((r) => setTimeout(r, 8000));
+    for (let i = 0; i < 6; i++) {
+      const r = await request.get(`${AGENT_B}/api/remoteapps`, { headers: { Authorization: auth }, failOnStatusCode: false });
+      if (r.ok()) {
+        const b = await r.json();
+        const all = [...(b.submitted || []), ...(b.executing || [])];
+        const app = all.find((a) => a.name === 'playwright-pvc' || a.name.endsWith('-playwright-pvc'));
+        if (!app || (app.status !== 'Ready' && app.status !== 'Running')) break;
+      }
+      await new Promise((r) => setTimeout(r, 5000));
+    }
     await waitForExecutingApp(request, 'playwright-pvc', ['Ready', 'Running'], 24, 5000);
   });
 
