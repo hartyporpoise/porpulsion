@@ -3513,6 +3513,32 @@ button:focus-visible, a:focus-visible {
   border-top: var(--sep) solid var(--border);
 }
 
+/* ── Proxy DNS check banner ──────────────────────────────────── */
+.proxy-dns-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  margin: 0 0 0.75rem;
+  padding: 0.625rem 1rem;
+  background: color-mix(in srgb, #ff9f0a 10%, transparent);
+  border: 1px solid color-mix(in srgb, #ff9f0a 35%, transparent);
+  border-radius: 10px;
+  font-size: 0.8125rem;
+  color: var(--text);
+  line-height: 1.4;
+}
+.proxy-dns-banner svg { flex-shrink: 0; color: #ff9f0a; }
+.proxy-dns-banner span { flex: 1; }
+.proxy-dns-banner-link {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--accent);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.proxy-dns-banner-link:hover { text-decoration: underline; }
+
 /* ── Proxy how-it-works banner ───────────────────────────────── */
 .proxy-how-banner {
   display: flex;

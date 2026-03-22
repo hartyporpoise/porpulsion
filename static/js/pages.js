@@ -20,6 +20,8 @@
   var _lastExecuting = [];
 
   var _proxyDomain = '';
+  var _proxyDnsOk = null; // null=unknown, true=resolving, false=not resolving
+  var _proxyDnsCheckTimer = null;
 
 
   function initDeploySpecEditor() {
@@ -175,8 +177,8 @@
     var remoteAddrRow = p.remote_addr
       ? '<div class="detail-row"><span class="label">Public IP</span><span class="mono" style="font-size:0.85rem;">' + _esc(p.remote_addr) + '</span></div>'
       : '';
-    var proxyRow = p.registry_proxy_url
-      ? '<div class="detail-row"><span class="label">API Domain</span><span class="mono" style="font-size:0.82rem;word-break:break-all;">' + _esc(p.registry_proxy_url.replace(/^https?:\/\//, '')) + '</span></div>'
+    var proxyRow = (p.api_url || p.registry_proxy_url)
+      ? '<div class="detail-row"><span class="label">API Domain</span><span class="mono" style="font-size:0.82rem;word-break:break-all;">' + _esc((p.api_url || p.registry_proxy_url).replace(/^https?:\/\//, '')) + '</span></div>'
       : '';
 
     body.innerHTML =
@@ -240,18 +242,33 @@
     }).join('');
   }
 
-  function _proxySetupInstructions(appName, port, domain) {
-    var hostname = _esc(appName + '-' + port + '.' + domain);
-    var wildcard = _esc('*.' + domain);
-    return '<div class="proxy-setup-instructions">' +
-      '<div class="proxy-setup-panel">' +
-        '<p class="proxy-setup-desc">Add a wildcard DNS record for <code class="proxy-setup-inline-code mono">' + wildcard + '</code> using either option:</p>' +
-        '<div class="proxy-setup-row"><span class="proxy-setup-key">CNAME</span><code class="proxy-setup-code mono">' + wildcard + '  CNAME  ' + _esc(domain) + '</code></div>' +
-        '<div class="proxy-setup-row"><span class="proxy-setup-key">A record</span><code class="proxy-setup-code mono">' + wildcard + '  A  &lt;ingress IP&gt;</code></div>' +
-        '<p class="proxy-setup-note">If using an A record, also add <code class="proxy-setup-inline-code mono">' + wildcard + '</code> as a route in your load balancer or ingress forwarding to this agent.</p>' +
-        '<div class="proxy-setup-row" style="margin-top:0.5rem;"><span class="proxy-setup-key">App hostname</span><code class="proxy-setup-code mono">' + hostname + '</code></div>' +
-      '</div>' +
-    '</div>';
+  function _renderProxyDnsBanner(ok, domain) {
+    var banner = el('proxy-dns-banner');
+    if (!banner) return;
+    if (ok === null) { banner.style.display = 'none'; return; }
+    if (ok) {
+      banner.style.display = 'none';
+    } else {
+      var wildcard = domain ? '*.' + domain : '(domain)';
+      banner.innerHTML =
+        '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12" y2="16.5"/></svg>' +
+        '<span>Wildcard DNS not yet resolving for <code class="mono" style="font-size:0.8rem;">' + _esc(wildcard) + '</code>. Add a CNAME or A record to enable proxy access.</span>' +
+        '<a href="/settings#tunnels" class="proxy-dns-banner-link">Go to Proxy settings</a>';
+      banner.style.display = '';
+    }
+  }
+
+  function _checkProxyDns() {
+    P.getProxyDnsCheck().then(function (r) {
+      _proxyDnsOk = r.ok === true;
+      _renderProxyDnsBanner(_proxyDnsOk, r.domain || _proxyDomain);
+    }).catch(function () {});
+  }
+
+  function _startProxyDnsPolling() {
+    if (_proxyDnsCheckTimer) return;
+    _checkProxyDns();
+    _proxyDnsCheckTimer = setInterval(_checkProxyDns, 30000);
   }
 
   function renderProxyApps(submitted) {
@@ -265,22 +282,22 @@
     var ICON_COPY = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
     var ICON_OPEN = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>';
     var ICON_DETAIL = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="8.5"/><line x1="12" y1="12" x2="12" y2="16"/></svg>';
+
     listEl.innerHTML = active.map(function (a) {
       var isDead = a.status === 'Deleted' || a.status === 'Failed' || a.status === 'Timeout';
       var ports = (a.spec && Array.isArray(a.spec.ports) && a.spec.ports.length) ? a.spec.ports : [{ port: (a.spec && a.spec.port) || 80 }];
       var portRows = ports.map(function (p) {
         var portNum = typeof p === 'object' ? (p.port || 80) : p;
         var portLabel = (p.name ? p.name : 'Port ' + portNum);
-        var setupId = 'proxy-setup-' + a.id + '-' + portNum;
         if (!_proxyDomain) {
           return '<div class="proxy-port-row">' +
             '<span class="proxy-port-label">' + _esc(portLabel) + ' <span class="mono" style="font-size:0.7rem;color:var(--muted2);">:' + portNum + '</span></span>' +
-            '<span class="proxy-port-url text-muted" style="font-size:0.7rem;">Set <span class="mono">apiDomain</span> in Helm values to enable CNAME access</span>' +
+            '<span class="proxy-port-url text-muted" style="font-size:0.7rem;">Set <span class="mono">apiDomain</span> in Helm values to enable proxy access</span>' +
             '</div>';
         }
         var hostname = a.name + '-' + portNum + '.' + _proxyDomain;
         var copyId = 'proxy-url-' + a.id + '-' + portNum;
-        var openBtn = !isDead
+        var openBtn = (!isDead && _proxyDnsOk)
           ? '<a href="' + _esc('https://' + hostname) + '" target="_blank" rel="noopener" class="btn-sm proxy-open-btn" title="Open :' + portNum + '">' + ICON_OPEN + ' Open</a>'
           : '';
         return '<div class="proxy-port-row">' +
@@ -288,9 +305,7 @@
           '<span id="' + copyId + '" class="proxy-port-url mono" style="font-size:0.7rem;color:var(--muted);" title="' + _esc(hostname) + '">' + _esc(hostname) + '</span>' +
           '<button type="button" class="btn-icon" title="Copy hostname" aria-label="Copy hostname" data-copy-el="' + copyId + '">' + ICON_COPY + '</button>' +
           openBtn +
-          '<button type="button" class="proxy-setup-toggle" aria-expanded="false" data-target="' + setupId + '"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Setup</button>' +
-          '</div>' +
-          '<div id="' + setupId + '" class="proxy-setup-wrap" style="display:none;">' + _proxySetupInstructions(a.name, portNum, _proxyDomain) + '</div>';
+          '</div>';
       }).join('');
       var requireAuth = a.proxy_require_auth !== false;
       var toggleId = 'proxy-auth-toggle-' + a.id;
@@ -312,20 +327,6 @@
         authToggle +
         portRows + '</div>';
     }).join('');
-
-    // Wire setup toggle buttons
-    var toggles = listEl.querySelectorAll('.proxy-setup-toggle');
-    for (var i = 0; i < toggles.length; i++) {
-      toggles[i].addEventListener('click', function () {
-        var targetId = this.getAttribute('data-target');
-        var wrap = el(targetId);
-        if (!wrap) return;
-        var open = wrap.style.display !== 'none';
-        wrap.style.display = open ? 'none' : 'block';
-        this.setAttribute('aria-expanded', open ? 'false' : 'true');
-        this.classList.toggle('proxy-setup-toggle-active', !open);
-      });
-    }
   }
 
   function renderApproval(list) {
@@ -424,6 +425,7 @@
       renderApps(submitted, 'submitted-body', 'submitted-empty', 'submitted-count', false, 'submitted');
       renderApps(executing, 'executing-body', 'executing-empty', 'executing-count', true, 'executing');
       renderProxyApps(submitted);
+      if (el('proxy-dns-banner')) _startProxyDnsPolling();
 
       // If a modal is open, re-evaluate the config tab's disabled state
       if (_currentAppId) {

@@ -61,6 +61,7 @@
     getPendingApproval: function () { return getJson(API_BASE + '/remoteapp/pending-approval'); },
     getSettings: function () { return getJson(API_BASE + '/settings'); },
     getInvite: function () { return getJson(API_BASE + '/invite'); },
+    getProxyDnsCheck: function () { return getJson(API_BASE + '/proxy-dns-check'); },
 
     connectPeer: function (body) { return postJson(API_BASE + '/peers/connect', body); },
     createRemoteApp: function (body) { return postJson(API_BASE + '/remoteapp', body); },
