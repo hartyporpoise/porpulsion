@@ -155,9 +155,10 @@ test.describe('PVC persistence', () => {
     // Wait for the terminal to connect with /bin/sh
     await expect(pageA.locator('#exec-status .exec-status-text')).toHaveText('Connected', { timeout: 30_000 });
 
-    // Type the command — use tee instead of > to avoid the browser intercepting the > character
+    // Click to focus xterm and wait for it to be ready before typing
     await pageA.locator('#exec-terminal-wrap').click();
-    await pageA.keyboard.type(`echo ${SENTINEL} | tee /data/sentinel.txt`);
+    await pageA.waitForTimeout(1000);
+    await pageA.keyboard.type(`echo ${SENTINEL} > /data/sentinel.txt`);
     await pageA.keyboard.press('Enter');
     await pageA.waitForTimeout(2000);
 
