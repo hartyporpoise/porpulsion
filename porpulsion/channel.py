@@ -59,6 +59,7 @@ import logging
 import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 
 import websocket  # websocket-client
 
@@ -196,6 +197,7 @@ class PeerChannel:
         self.connected_event = threading.Event()   # set once the channel is ready to use
         self._ping_sent_at: float | None = None   # time.monotonic() when last ping was sent
         self._ping_gen: int = 0  # incremented on each new connection; old ping threads exit
+        self._executor = ThreadPoolExecutor(max_workers=8, thread_name_prefix=f"ch-{peer_name}")
 
     # -- Public API
 
@@ -234,6 +236,7 @@ class PeerChannel:
                 except Exception:
                     pass
                 self._ws = None
+        self._executor.shutdown(wait=False)
 
     def disconnect(self):
         """Drop the current socket without stopping the reconnect loop.
@@ -671,25 +674,27 @@ class PeerChannel:
             self._pending[msg_id]["event"].set()
             return
 
-        # Incoming request - find a handler and send a reply
+        # Incoming request - find a handler and send a reply (off recv thread)
         if msg_id:
             handler = self._handlers.get(msg_type)
             if handler:
-                try:
-                    result = handler(payload)
-                    self._send_raw({"id": msg_id, "type": "reply",
-                                    "ok": True, "payload": result or {}})
-                except Exception as exc:
-                    log.warning("Handler %s raised: %s", msg_type, exc)
-                    self._send_raw({"id": msg_id, "type": "reply",
-                                    "ok": False, "error": str(exc), "payload": {}})
+                def _run_request(h=handler, p=payload, mid=msg_id, mt=msg_type):
+                    try:
+                        result = h(p)
+                        self._send_raw({"id": mid, "type": "reply",
+                                        "ok": True, "payload": result or {}})
+                    except Exception as exc:
+                        log.warning("Handler %s raised: %s", mt, exc)
+                        self._send_raw({"id": mid, "type": "reply",
+                                        "ok": False, "error": str(exc), "payload": {}})
+                self._executor.submit(_run_request)
             else:
                 self._send_raw({"id": msg_id, "type": "reply",
                                 "ok": False, "error": f"unknown type: {msg_type}",
                                 "payload": {}})
             return
 
-        # Fire-and-forget push
+        # Fire-and-forget push — fast built-ins stay inline, slow handlers offloaded
         if msg_type == "ping":
             self.push("pong", {})
             return
@@ -711,10 +716,12 @@ class PeerChannel:
             return
         handler = self._handlers.get(msg_type)
         if handler:
-            try:
-                handler(payload)
-            except Exception as exc:
-                log.warning("Push handler %s raised: %s", msg_type, exc)
+            def _run_push(h=handler, p=payload, mt=msg_type):
+                try:
+                    h(p)
+                except Exception as exc:
+                    log.warning("Push handler %s raised: %s", mt, exc)
+            self._executor.submit(_run_push)
 
     def _send_raw(self, msg: dict):
         with self._lock:
