@@ -89,10 +89,12 @@ test.describe('PVC persistence', () => {
   });
 
   test('app reaches Ready on Agent B (up to 120s — PVC provisioning can be slow)', async ({ request }) => {
+    test.setTimeout(150_000);
     await waitForExecutingApp(request, 'playwright-pvc', ['Ready', 'Running'], 24, 5000);
   });
 
   test('app status propagates to Agent A (terminal tab becomes enabled)', async ({ request }) => {
+    test.setTimeout(150_000);
     await waitForSubmittedAppReady(request, 'playwright-pvc', 24, 5000);
   });
 
@@ -164,6 +166,7 @@ test.describe('PVC persistence', () => {
   });
 
   test('app returns to Ready after restart (up to 90s)', async ({ request }) => {
+    test.setTimeout(150_000);
     await new Promise((r) => setTimeout(r, 5000)); // let the rollout begin
     await waitForExecutingApp(request, 'playwright-pvc', ['Ready', 'Running'], 24, 5000);
   });

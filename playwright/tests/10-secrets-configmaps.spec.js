@@ -15,8 +15,6 @@ const {
   resolvePeerBName,
   waitForExecutingApp,
   waitForSubmittedAppReady,
-  waitForModalSpecEditor,
-  getModalSpecEditorValue,
 } = require('./helpers');
 
 let PEER_B_NAME;
@@ -79,6 +77,7 @@ test.describe('Secrets & ConfigMaps', () => {
   });
 
   test('app status propagates to Agent A (config tab becomes enabled)', async ({ request }) => {
+    test.setTimeout(150_000);
     await waitForSubmittedAppReady(request, 'playwright-cfg-test', 24, 5000);
   });
 
@@ -171,12 +170,14 @@ test.describe('Secrets & ConfigMaps', () => {
   // YAML tab: secrets appear base64-encoded in the raw CR
   // ----------------------------------------------------------------
   test('YAML tab shows secret values as base64 (not plaintext) in the CR', async ({ pageA }) => {
+    test.setTimeout(60_000);
     await pageA.goto('/workloads');
     await openAppModal(pageA, 'playwright-cfg-test');
     await appModalTab(pageA, 'edit');
 
-    await waitForModalSpecEditor(pageA);
-    const yaml = await getModalSpecEditorValue(pageA);
+    const textarea = pageA.locator('#modal-spec-textarea');
+    await textarea.waitFor({ timeout: 8_000 });
+    const yaml = await textarea.getAttribute('data-spec-yaml') || await textarea.inputValue();
     expect(yaml).toMatch(/secrets/);
     // Plain text values should NOT appear raw
     expect(yaml).not.toContain('super-secret-value');

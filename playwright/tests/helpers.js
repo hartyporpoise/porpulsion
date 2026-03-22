@@ -33,7 +33,8 @@ async function waitForAppPhase(request, agentUrl, appName, phase, opts = {}) {
     if (resp.ok()) {
       const body = await resp.json();
       const all = [...(body.submitted || []), ...(body.executing || [])];
-      const app = all.find((a) => a.name === appName);
+      // Submitted apps use the original name; executing apps use ea-{id}-{name}
+      const app = all.find((a) => a.name === appName || a.name.endsWith('-' + appName));
       const phases = Array.isArray(phase) ? phase : [phase];
       if (app && phases.some((p) => app.status === p || app.phase === p)) return app;
     }
@@ -55,7 +56,7 @@ async function deleteApps(request, agentUrl, appNames) {
   const body = await resp.json();
   const all = [...(body.submitted || []), ...(body.executing || [])];
   for (const name of appNames) {
-    const app = all.find((a) => a.name === name);
+    const app = all.find((a) => a.name === name || a.name.endsWith('-' + name));
     const id = app?.app_id || app?.id;
     if (id) {
       await request.delete(`${agentUrl}/api/remoteapp/${id}`, {
@@ -79,7 +80,7 @@ async function findApp(request, agentUrl, appName) {
   if (!resp.ok()) return undefined;
   const body = await resp.json();
   const all = [...(body.submitted || []), ...(body.executing || [])];
-  return all.find((a) => a.name === appName);
+  return all.find((a) => a.name === appName || a.name.endsWith('-' + appName));
 }
 
 /**
@@ -217,10 +218,9 @@ async function applyAgentBSettings(pageB, settings = {}) {
   async function setToggle(id, value) {
     const checked = await pageB.locator(id).isChecked();
     if (checked !== value) {
-      // Wait for any stale toast to clear
       await pageB.locator('#toast').evaluate((el) => el.classList.remove('show')).catch(() => {});
-      await pageB.locator(id).scrollIntoViewIfNeeded();
-      await pageB.locator(id).click({ force: true });
+      // Use JS click to bypass viewport constraints on toggles inside scrollable panels
+      await pageB.locator(id).evaluate((el) => el.click());
       await pageB.locator('#toast.show').waitFor({ timeout: 5_000 });
     }
   }

@@ -61,6 +61,7 @@ test.describe('Logs', () => {
   });
 
   test('logs tab in detail modal renders the xterm terminal (up to 90s)', async ({ pageA }) => {
+    test.setTimeout(150_000);
     await pageA.goto('/workloads');
     await openAppModal(pageA, 'playwright-logs');
     await appModalTab(pageA, 'logs');

@@ -81,6 +81,13 @@ const test = base.extend({
       baseURL: AGENT_A,
       colorScheme: 'dark',
     });
+    // Abort Monaco CDN requests so context.close() never blocks on an
+    // in-flight fetch. xterm.js and Alpine.js (also on unpkg.com) are
+    // allowed through — only monaco-editor is blocked.
+    await context.route('https://unpkg.com/**', (route) => {
+      if (route.request().url().includes('monaco-editor')) route.abort();
+      else route.continue();
+    });
     const page = await context.newPage();
     await use(page);
     await context.close();
@@ -92,6 +99,10 @@ const test = base.extend({
       storageState: AUTH_B,
       baseURL: AGENT_B,
       colorScheme: 'dark',
+    });
+    await context.route('https://unpkg.com/**', (route) => {
+      if (route.request().url().includes('monaco-editor')) route.abort();
+      else route.continue();
     });
     const page = await context.newPage();
     await use(page);

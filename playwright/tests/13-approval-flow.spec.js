@@ -103,10 +103,12 @@ test.describe('Approval flow', () => {
     expect(/approved/i.test(toastText)).toBe(true);
 
     // Wait for it to reach Ready on Agent B
+    test.setTimeout(150_000);
     await waitForExecutingApp(request, 'playwright-approval', ['Ready', 'Running'], 18, 5000);
   });
 
   test('app also shows as Running on Agent A submitted list', async ({ pageA, request }) => {
+    test.setTimeout(150_000);
     await waitForSubmittedAppReady(request, 'playwright-approval', 18, 5000);
     await pageA.goto('/workloads');
     const row = pageA.locator('#submitted-body tr').filter({ hasText: 'playwright-approval' });

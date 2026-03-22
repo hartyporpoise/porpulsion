@@ -30,6 +30,10 @@ module.exports = defineConfig({
     ignoreHTTPSErrors: true,
     // Force dark mode via emulation
     colorScheme: 'dark',
+    // Prevent Chromium from crashing inside Docker due to /dev/shm being too small
+    launchOptions: {
+      args: ['--disable-dev-shm-usage'],
+    },
   },
 
   projects: [

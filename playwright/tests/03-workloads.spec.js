@@ -10,8 +10,6 @@ const {
   confirmDialog,
   selectTargetPeer,
   setDeploySpecValue,
-  waitForModalSpecEditor,
-  getModalSpecEditorValue,
   setModalSpecEditorValue,
   resolvePeerBName,
   waitForExecutingApp,
@@ -161,8 +159,9 @@ test.describe('Workloads', () => {
       await pageA.goto('/workloads');
       await openAppModal(pageA, 'playwright-nginx');
       await appModalTab(pageA, 'edit');
-      await waitForModalSpecEditor(pageA);
-      const val = await getModalSpecEditorValue(pageA);
+      const textarea = pageA.locator('#modal-spec-textarea');
+      await textarea.waitFor({ timeout: 8_000 });
+      const val = await textarea.getAttribute('data-spec-yaml') || await textarea.inputValue();
       expect(val).toMatch(/apiVersion|RemoteApp/s);
     });
   });
@@ -171,6 +170,7 @@ test.describe('Workloads', () => {
   // App reaches Running on Agent B
   // ----------------------------------------------------------------
   test('playwright-nginx reaches Ready on Agent B (up to 5 minutes)', async ({ request }) => {
+    test.setTimeout(330_000);
     await waitForExecutingApp(request, 'playwright-nginx', ['Ready', 'Running'], 60, 5000);
   });
 
@@ -231,12 +231,14 @@ test.describe('Workloads', () => {
   // ----------------------------------------------------------------
   test.describe('Spec update via YAML editor', () => {
     test('edits the image tag in the YAML tab and saves', async ({ pageA }) => {
+      test.setTimeout(60_000);
       await pageA.goto('/workloads');
       await openAppModal(pageA, 'playwright-nginx');
       await appModalTab(pageA, 'edit');
 
-      await waitForModalSpecEditor(pageA);
-      const current = await getModalSpecEditorValue(pageA);
+      const textarea = pageA.locator('#modal-spec-textarea');
+      await textarea.waitFor({ timeout: 8_000 });
+      const current = await textarea.getAttribute('data-spec-yaml') || await textarea.inputValue();
       const updated = current.replace(/nginx:alpine/, 'nginx:1.25-alpine');
       await setModalSpecEditorValue(pageA, updated);
 

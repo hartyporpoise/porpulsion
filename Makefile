@@ -297,6 +297,7 @@ _playwright-run: ## Internal: build image, wait for agents, run Playwright
 	docker run --rm \
 		--network "$$DOCKER_NET" \
 		-p 6080:6080 \
+		--shm-size=256m \
 		--add-host=host.docker.internal:host-gateway \
 		-e PLAYWRIGHT_AGENT_A_URL=http://host.docker.internal:8001 \
 		-e PLAYWRIGHT_AGENT_B_URL=http://host.docker.internal:8002 \

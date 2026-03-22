@@ -59,10 +59,12 @@ test.describe('Terminal (exec)', () => {
   });
 
   test('app reaches Ready on Agent B (up to 120s)', async ({ request }) => {
+    test.setTimeout(150_000);
     await waitForExecutingApp(request, 'playwright-exec', ['Ready', 'Running'], 24, 5000);
   });
 
   test('app status propagates to Agent A (terminal tab becomes enabled)', async ({ request }) => {
+    test.setTimeout(150_000);
     await waitForSubmittedAppReady(request, 'playwright-exec', 24, 5000);
   });
 
