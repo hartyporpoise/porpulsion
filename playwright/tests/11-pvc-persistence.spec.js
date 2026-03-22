@@ -144,8 +144,8 @@ test.describe('PVC persistence', () => {
     await pageA.goto('/workloads');
     await openAppModal(pageA, 'playwright-pvc');
 
-    // Alpine only has /bin/sh. The shell select is in the modal HTML (rendered at modal open),
-    // so set it BEFORE clicking the terminal tab so _initExecTab() picks it up on first connect.
+    // Alpine only has /bin/sh. Set the shell select BEFORE clicking the terminal tab
+    // so _initExecTab() picks it up when it calls _execConnect on first load.
     await pageA.locator('#exec-shell-select').waitFor({ state: 'attached', timeout: 5_000 });
     await pageA.locator('#exec-shell-select').selectOption('/bin/sh', { force: true });
 
@@ -155,17 +155,13 @@ test.describe('PVC persistence', () => {
     // Wait for the terminal to connect with /bin/sh
     await expect(pageA.locator('#exec-status .exec-status-text')).toHaveText('Connected', { timeout: 30_000 });
 
-    // Click to focus xterm, then type commands and press Enter
+    // Type the command — use tee instead of > to avoid the browser intercepting the > character
     await pageA.locator('#exec-terminal-wrap').click();
-    await pageA.keyboard.type(`echo ${SENTINEL} > /data/sentinel.txt`);
+    await pageA.keyboard.type(`echo ${SENTINEL} | tee /data/sentinel.txt`);
     await pageA.keyboard.press('Enter');
-    await pageA.waitForTimeout(1000);
-    await pageA.keyboard.type('echo done');
-    await pageA.keyboard.press('Enter');
+    await pageA.waitForTimeout(2000);
 
-    // Give the shell a moment, then verify via API that the file was actually written to the PVC
-    await pageA.waitForTimeout(1500);
-
+    // Verify via API that the file was actually written to the PVC
     const podsResp = await apiA.get(`/api/remoteapp/${APP_ID}/pods`);
     const podsBody = await podsResp.json();
     const pod = (podsBody.pods || [])[0];
