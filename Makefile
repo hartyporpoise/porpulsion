@@ -257,21 +257,26 @@ logs-single: ## Stream live logs from single cluster (Ctrl-C to stop)
 	$(KUBECTL_SINGLE) -n porpulsion logs -l app=porpulsion-agent -f --tail=50
 
 # ---------------------------------------------------------------------------
-# E2E test targets (containerised Cypress, uses main docker-compose.yml)
+# E2E test targets (containerised Playwright, uses main docker-compose.yml)
 # ---------------------------------------------------------------------------
 
-CYPRESS_IMAGE := porpulsion-cypress:local
+PLAYWRIGHT_IMAGE := porpulsion-playwright:local
 TEST_USERNAME := admin
 TEST_PASSWORD := adminpass1
 
-test: ## Deploy 2 clusters, run Cypress E2E suite, tear down (watch at http://localhost:6080/vnc.html)
-	@trap '$(MAKE) teardown' INT TERM EXIT; $(MAKE) _cypress-run; EXIT=$$?; trap - EXIT; $(MAKE) teardown; exit $$EXIT
+test: ## Deploy 2 clusters, run Playwright E2E suite, tear down on success only (watch at http://localhost:6080)
+	@$(MAKE) _playwright-run && $(MAKE) teardown
 
-_cypress-run: ## Internal: build image, wait for agents, run Cypress
-	@$(MAKE) deploy; \
+_playwright-run: ## Internal: build image, wait for agents, run Playwright
+	@if $(KUBECTL_A) -n porpulsion get pods -l app=porpulsion-agent --field-selector=status.phase=Running 2>/dev/null | grep -q Running && \
+	    $(KUBECTL_B) -n porpulsion get pods -l app=porpulsion-agent --field-selector=status.phase=Running 2>/dev/null | grep -q Running; then \
+		echo "==> [test] Agents already running — skipping deploy"; \
+	else \
+		$(MAKE) deploy; \
+	fi; \
 	echo ""; \
-	echo "==> [test] Building Cypress image..."; \
-	docker build -f Dockerfile.cypress -t $(CYPRESS_IMAGE) .; \
+	echo "==> [test] Building Playwright image..."; \
+	docker build -f Dockerfile.playwright -t $(PLAYWRIGHT_IMAGE) .; \
 	echo ""; \
 	echo "==> [test] Waiting for agent-a (localhost:8001)..."; \
 	until curl -sf http://localhost:8001/ -o /dev/null; do sleep 2; done; \
@@ -283,25 +288,28 @@ _cypress-run: ## Internal: build image, wait for agents, run Cypress
 	until $(KUBECTL_B) -n kube-system rollout status deployment/local-path-provisioner --timeout=5s &>/dev/null; do sleep 3; done; \
 	echo "  local-path-provisioner ready"; \
 	echo ""; \
-	echo "==> [test] Running Cypress — open http://localhost:6080/vnc.html to watch..."; \
+	echo "==> [test] Clearing previous Playwright report..."; \
+	rm -rf playwright/playwright-report; \
+	echo ""; \
+	echo "==> [test] Running Playwright — open http://localhost:6080 to watch..."; \
 	DOCKER_NET=$$(docker inspect $(CLUSTER_A) \
 		--format '{{range $$k, $$v := .NetworkSettings.Networks}}{{$$k}}{{end}}' | head -1); \
 	docker run --rm \
 		--network "$$DOCKER_NET" \
 		-p 6080:6080 \
+		--shm-size=256m \
 		--add-host=host.docker.internal:host-gateway \
-		-e CYPRESS_BASE_URL=http://host.docker.internal:8001 \
-		-e CYPRESS_AGENT_A_URL=http://host.docker.internal:8001 \
-		-e CYPRESS_AGENT_B_URL=http://host.docker.internal:8002 \
-		-e CYPRESS_USERNAME=$(TEST_USERNAME) \
-		-e CYPRESS_PASSWORD=$(TEST_PASSWORD) \
-		-v "$$(pwd)/cypress/screenshots:/e2e/cypress/screenshots" \
-		$(CYPRESS_IMAGE); \
+		-e PLAYWRIGHT_AGENT_A_URL=http://host.docker.internal:8001 \
+		-e PLAYWRIGHT_AGENT_B_URL=http://host.docker.internal:8002 \
+		-e PLAYWRIGHT_USERNAME=$(TEST_USERNAME) \
+		-e PLAYWRIGHT_PASSWORD=$(TEST_PASSWORD) \
+		-v "$$(pwd)/playwright/playwright-report:/e2e/playwright-report" \
+		$(PLAYWRIGHT_IMAGE); \
 	EXIT_CODE=$$?; \
 	if [ $$EXIT_CODE -eq 0 ]; then \
 		echo "  ✓ All tests passed"; \
 	else \
-		echo "  ✗ Tests failed (exit $$EXIT_CODE) — screenshots in cypress/screenshots/"; \
+		echo "  ✗ Tests failed (exit $$EXIT_CODE) — report in playwright/playwright-report/"; \
 		exit $$EXIT_CODE; \
 	fi
 
