@@ -20,8 +20,6 @@
   var _lastExecuting = [];
 
   var _proxyDomain = '';
-  var _proxyDnsOk = null; // null=unknown, true=resolving, false=not resolving
-  var _proxyDnsCheckTimer = null;
 
 
   function initDeploySpecEditor() {
@@ -242,35 +240,6 @@
     }).join('');
   }
 
-  function _renderProxyDnsBanner(ok, domain) {
-    var banner = el('proxy-dns-banner');
-    if (!banner) return;
-    if (ok === null) { banner.style.display = 'none'; return; }
-    if (ok) {
-      banner.style.display = 'none';
-    } else {
-      var wildcard = domain ? '*.' + domain : '(domain)';
-      banner.innerHTML =
-        '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12" y2="16.5"/></svg>' +
-        '<span>Wildcard DNS not yet resolving for <code class="mono" style="font-size:0.8rem;">' + _esc(wildcard) + '</code>. Add a CNAME or A record to enable proxy access.</span>' +
-        '<a href="/settings#tunnels" class="proxy-dns-banner-link">Go to Proxy settings</a>';
-      banner.style.display = '';
-    }
-  }
-
-  function _checkProxyDns() {
-    P.getProxyDnsCheck().then(function (r) {
-      _proxyDnsOk = r.ok === true;
-      _renderProxyDnsBanner(_proxyDnsOk, r.domain || _proxyDomain);
-    }).catch(function () {});
-  }
-
-  function _startProxyDnsPolling() {
-    if (_proxyDnsCheckTimer) return;
-    _checkProxyDns();
-    _proxyDnsCheckTimer = setInterval(_checkProxyDns, 30000);
-  }
-
   function renderProxyApps(submitted) {
     var listEl = el('proxy-apps-list');
     if (!listEl) return;
@@ -297,7 +266,7 @@
         }
         var hostname = a.name + '-' + portNum + '.' + _proxyDomain;
         var copyId = 'proxy-url-' + a.id + '-' + portNum;
-        var openBtn = (!isDead && _proxyDnsOk)
+        var openBtn = !isDead
           ? '<a href="' + _esc('https://' + hostname) + '" target="_blank" rel="noopener" class="btn-sm proxy-open-btn" title="Open :' + portNum + '">' + ICON_OPEN + ' Open</a>'
           : '';
         return '<div class="proxy-port-row">' +
@@ -425,7 +394,6 @@
       renderApps(submitted, 'submitted-body', 'submitted-empty', 'submitted-count', false, 'submitted');
       renderApps(executing, 'executing-body', 'executing-empty', 'executing-count', true, 'executing');
       renderProxyApps(submitted);
-      if (el('proxy-dns-banner')) _startProxyDnsPolling();
 
       // If a modal is open, re-evaluate the config tab's disabled state
       if (_currentAppId) {

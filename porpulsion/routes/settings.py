@@ -105,30 +105,6 @@ def update_settings():
     return jsonify(state.settings.to_dict())
 
 
-@bp.route("/proxy-dns-check")
-@api_doc("Proxy DNS check", tags=["Settings"],
-         description="Checks whether the wildcard proxy domain resolves from the agent. Returns ok=true if a test subdomain resolves.",
-         responses={"200": {"description": "OK", "content": {"application/json": {"schema": {
-             "type": "object", "properties": {"ok": {"type": "boolean"}, "domain": {"type": "string"}, "reason": {"type": "string"}}}}}}})
-def proxy_dns_check():
-    import socket
-    from urllib.parse import urlparse
-    parsed = urlparse(state.API_URL)
-    domain = parsed.netloc or ""
-    if not domain:
-        return jsonify({"ok": False, "domain": "", "reason": "apiDomain not configured"})
-    test_host = "_porpulsion-probe." + domain
-    try:
-        socket.getaddrinfo(test_host, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
-        return jsonify({"ok": True, "domain": domain})
-    except socket.gaierror:
-        # Wildcard not resolving; fall back to checking the base domain itself
-        try:
-            socket.getaddrinfo(domain, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
-            return jsonify({"ok": False, "domain": domain, "reason": "wildcard not resolving"})
-        except socket.gaierror:
-            return jsonify({"ok": False, "domain": domain, "reason": "domain not resolving"})
-
 
 def _push_info_to_peers():
     """Push current agent info to all connected peers via peer/info-update."""
