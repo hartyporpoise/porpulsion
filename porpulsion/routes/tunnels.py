@@ -2,6 +2,7 @@ import base64
 import gzip
 import logging
 import re
+import time
 import zlib
 
 from flask import Blueprint, request, jsonify, Response
@@ -17,6 +18,9 @@ bp = Blueprint("tunnels", __name__)
 _HOP_BY_HOP = {"host", "transfer-encoding", "connection", "keep-alive",
                "proxy-authenticate", "proxy-authorization", "te", "trailers",
                "upgrade"}
+
+_VHOST_TTL = 10.0  # seconds
+_vhost_cache: dict[str, tuple[str, str, float]] = {}  # app_name -> (app_id, target_peer, expiry)
 
 
 def _decompress(body: bytes, content_encoding: str) -> bytes:
@@ -103,20 +107,27 @@ def handle_vhost_proxy(subdomain: str) -> Response:
         return jsonify({"error": "invalid proxy hostname"}), 400
     app_name_raw, port = m.group(1), int(m.group(2))
 
-    app_id = None
-    target_peer = None
-    try:
-        for cr in list_remoteapp_crs(state.NAMESPACE):
-            d = cr_to_dict(cr, "submitted")
-            if d["name"] == app_name_raw:
-                app_id = d["id"]
-                target_peer = d["target_peer"]
-                break
-    except Exception as exc:
-        log.warning("vhost proxy lookup failed: %s", exc)
-        return jsonify({"error": "lookup failed"}), 500
+    now = time.monotonic()
+    entry = _vhost_cache.get(app_name_raw)
+    if entry and entry[2] > now:
+        app_id, target_peer = entry[0], entry[1]
+    else:
+        app_id = None
+        target_peer = None
+        try:
+            for cr in list_remoteapp_crs(state.NAMESPACE):
+                d = cr_to_dict(cr, "submitted")
+                if d["name"] == app_name_raw:
+                    app_id = d["id"]
+                    target_peer = d["target_peer"]
+                    break
+        except Exception as exc:
+            log.warning("vhost proxy lookup failed: %s", exc)
+            return jsonify({"error": "lookup failed"}), 500
 
-    if not app_id:
-        return jsonify({"error": "app not found"}), 404
+        if not app_id:
+            return jsonify({"error": "app not found"}), 404
+
+        _vhost_cache[app_name_raw] = (app_id, target_peer, now + _VHOST_TTL)
 
     return _proxy_via_channel(app_id, target_peer, port)
