@@ -29,7 +29,7 @@ PULL_SECRET_NAME  = "porpulsion-image-proxy"
 _REGISTRY_USER    = "porpulsion-image-proxy"
 
 
-def ensure_registry_setup(namespace: str, self_url: str) -> bool:
+def ensure_registry_setup(namespace: str) -> bool:
     """
     Idempotently create the system registry user and imagePullSecret.
     Returns True if setup succeeded, False on error.
@@ -37,7 +37,7 @@ def ensure_registry_setup(namespace: str, self_url: str) -> bool:
     """
     try:
         password = _ensure_registry_user(namespace)
-        _ensure_pull_secret(namespace, self_url, password)
+        _ensure_pull_secret(namespace, password)
         return True
     except Exception as exc:
         log.warning("registry setup failed: %s", exc)
@@ -80,21 +80,18 @@ def _ensure_registry_user(namespace: str) -> str:
     return password
 
 
-def _ensure_pull_secret(namespace: str, self_url: str, password: str) -> None:
+def _ensure_pull_secret(namespace: str, password: str) -> None:
     """Create or update the porpulsion-image-proxy dockerconfigjson Secret."""
     import base64, json
     from kubernetes import client as k8s_client
     from porpulsion.tls import _k8s_core_v1
     from porpulsion import state
 
-    # Allow operators with split ingress (WS external, API internal) to override
-    # just the API-facing URL for the pull secret server field.
-    api_url = (state.settings.registry_api_url or "").strip().rstrip("/") or self_url.rstrip("/")
     # containerd/k3s resolves pull-secret credentials by bare hostname (no scheme).
     # The auths key must be "host" or "host:port", not "https://host".
     from urllib.parse import urlparse as _urlparse
-    _parsed = _urlparse(api_url)
-    server = _parsed.netloc or api_url  # "host" or "host:port"
+    _parsed = _urlparse(state.API_URL.rstrip("/"))
+    server = _parsed.netloc or state.API_URL  # "host" or "host:port"
     auth   = base64.b64encode(f"{_REGISTRY_USER}:{password}".encode()).decode()
     cfg    = {"auths": {server: {"username": _REGISTRY_USER, "password": password, "auth": auth}}}
     encoded = base64.b64encode(json.dumps(cfg).encode()).decode()

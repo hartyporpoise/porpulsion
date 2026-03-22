@@ -206,6 +206,31 @@
       <div class="stg-panel" id="settings-panel-tunnels" role="tabpanel">
 
         <div class="stg-section">
+          <div class="stg-section-label">Proxy domain</div>
+          <p class="stg-hint" style="margin-bottom:0.75rem;">Derived from <span class="mono">apiDomain</span>. Apps are reachable at <span class="mono">{app}-{port}.<span id="setting-proxy-domain-display">...</span></span>.</p>
+          <div class="proxy-dns-card">
+            <div class="proxy-dns-tab-panel">
+              <div class="proxy-dns-card-label">Add a wildcard DNS record using either option</div>
+              <div class="proxy-dns-card-row">
+                <span class="proxy-dns-card-hint">CNAME</span>
+                <code class="proxy-dns-card-record mono" id="setting-proxy-cname-record">...</code>
+                <button type="button" class="btn-icon" title="Copy CNAME record" aria-label="Copy CNAME record" id="setting-proxy-cname-copy">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                </button>
+              </div>
+              <div class="proxy-dns-card-row" style="margin-top:0.375rem;">
+                <span class="proxy-dns-card-hint">A record</span>
+                <code class="proxy-dns-card-record mono" id="setting-proxy-a-record">...</code>
+                <button type="button" class="btn-icon" title="Copy A record" aria-label="Copy A record" id="setting-proxy-a-copy">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                </button>
+              </div>
+              <p class="proxy-dns-card-note">If using an A record, also configure your load balancer or ingress to route <code class="mono" style="font-size:0.78rem;" id="setting-proxy-wildcard-note">*.(domain)</code> to this agent.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="stg-section">
           <div class="stg-section-label">Access</div>
           <div class="stg-group">
             <div class="stg-row stg-row-toggle stg-row-last">
@@ -249,17 +274,8 @@
           </div>
         </div>
 
-        <div class="stg-section">
-          <div class="stg-section-label">API URL override</div>
-          <div class="stg-group stg-group-form">
-            <div class="form-group" style="margin-bottom:0;">
-              <input type="text" id="setting-registry-api-url" placeholder="defaults to agent selfUrl" autocomplete="off" spellcheck="false">
-              <span class="form-hint">Override the URL used in the imagePullSecret server field. Use this if your API endpoint is reachable at a different address than the WebSocket endpoint — for example in split-ingress setups where <span class="mono">/ws</span> is public but <span class="mono">/api</span> is internal only.</span>
-            </div>
-          </div>
-          <div class="stg-footer">
-            <button type="button" id="setting-registry-save" class="btn-sm">Save</button>
-          </div>
+        <div class="stg-footer">
+          <button type="button" id="setting-registry-save" class="btn-sm">Save</button>
         </div>
 
       </div><!-- /registry -->

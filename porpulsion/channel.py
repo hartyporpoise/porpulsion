@@ -403,6 +403,15 @@ class PeerChannel:
         except Exception:
             pass
 
+        try:
+            self.push("peer/info-update", {
+                "name":               _state.AGENT_NAME,
+                "registry_proxy_url": _state.registry_proxy_url(),
+                "api_url":            _state.API_URL,
+            })
+        except Exception:
+            pass
+
         # Only send peer/bidirectional if this inbound completed a bidirectional pair
         # (i.e. we had an outgoing channel and they connected back to us). Do not send
         # it for a plain incoming connection — that would incorrectly upgrade the
@@ -552,6 +561,15 @@ class PeerChannel:
         # Announce our version so the peer can detect mismatches
         try:
             self.push("version/announce", {"version": state.VERSION_HASH})
+        except Exception:
+            pass
+
+        try:
+            self.push("peer/info-update", {
+                "name":               state.AGENT_NAME,
+                "registry_proxy_url": state.registry_proxy_url(),
+                "api_url":            state.API_URL,
+            })
         except Exception:
             pass
 

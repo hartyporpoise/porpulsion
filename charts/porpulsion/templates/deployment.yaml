@@ -29,8 +29,10 @@ spec:
           env:
             - name: AGENT_NAME
               value: {{ .Values.agent.agentName | quote }}
-            - name: SELF_URL
-              value: {{ .Values.agent.selfUrl | quote }}
+            - name: WS_DOMAIN
+              value: {{ required "agent.websocketDomain is required (e.g. https://porpulsion.example.com)" .Values.agent.websocketDomain | quote }}
+            - name: API_DOMAIN
+              value: {{ required "agent.apiDomain is required (e.g. https://porpulsion.example.com)" .Values.agent.apiDomain | quote }}
           readinessProbe:
             httpGet:
               path: /status
