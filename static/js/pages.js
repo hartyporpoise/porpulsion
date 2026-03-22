@@ -241,15 +241,22 @@
   }
 
   function _proxySetupInstructions(appName, port, domain) {
+    var hostname = _esc(appName + '-' + port + '.' + domain);
     return '<div class="proxy-setup-instructions">' +
-      '<div class="proxy-setup-section">' +
-        '<div class="proxy-setup-heading">Standard DNS (one wildcard CNAME)</div>' +
-        '<code class="proxy-setup-code mono">*.' + _esc(domain) + '  CNAME  ' + _esc(domain) + '</code>' +
+      '<div class="proxy-setup-tabs" role="tablist">' +
+        '<button type="button" class="proxy-setup-tab proxy-setup-tab-active" data-setup-tab="single" role="tab" aria-selected="true">Single ingress</button>' +
+        '<button type="button" class="proxy-setup-tab" data-setup-tab="split" role="tab" aria-selected="false">Split ingress</button>' +
       '</div>' +
-      '<div class="proxy-setup-section">' +
-        '<div class="proxy-setup-heading">Cloudflare Tunnel</div>' +
-        '<div class="proxy-setup-cf">In your CF Tunnel config, add a Public Hostname:</div>' +
-        '<code class="proxy-setup-code mono">Subdomain: ' + _esc(appName + '-' + port) + '<br>Domain: ' + _esc(domain) + '<br>Service: http://localhost:8000</code>' +
+      '<div class="proxy-setup-panel" data-setup-panel="single">' +
+        '<p class="proxy-setup-desc">Point a wildcard A record at your ingress or load balancer IP. All app subdomains resolve through the same ingress.</p>' +
+        '<div class="proxy-setup-row"><span class="proxy-setup-key">DNS record</span><code class="proxy-setup-code mono">*.' + _esc(domain) + '  A  &lt;ingress IP&gt;</code></div>' +
+        '<div class="proxy-setup-row"><span class="proxy-setup-key">App hostname</span><code class="proxy-setup-code mono">' + hostname + '</code></div>' +
+      '</div>' +
+      '<div class="proxy-setup-panel" data-setup-panel="split" style="display:none;">' +
+        '<p class="proxy-setup-desc">Use a tunnel proxy or split ingress where each public hostname routes to the agent port directly. No wildcard DNS needed.</p>' +
+        '<div class="proxy-setup-row"><span class="proxy-setup-key">Public hostname</span><code class="proxy-setup-code mono">' + hostname + '</code></div>' +
+        '<div class="proxy-setup-row"><span class="proxy-setup-key">Backend</span><code class="proxy-setup-code mono">http://&lt;agent-host&gt;:8000</code></div>' +
+        '<p class="proxy-setup-note">Add one entry per app port in your ingress or tunnel config, forwarding the public hostname to the agent on port 8000.</p>' +
       '</div>' +
     '</div>';
   }
@@ -288,7 +295,7 @@
           '<span id="' + copyId + '" class="proxy-port-url mono" style="font-size:0.7rem;color:var(--muted);" title="' + _esc(hostname) + '">' + _esc(hostname) + '</span>' +
           '<button type="button" class="btn-icon" title="Copy hostname" aria-label="Copy hostname" data-copy-el="' + copyId + '">' + ICON_COPY + '</button>' +
           openBtn +
-          '<button type="button" class="btn-sm proxy-setup-toggle" aria-expanded="false" data-target="' + setupId + '" style="margin-left:0.25rem;">Setup</button>' +
+          '<button type="button" class="proxy-setup-toggle" aria-expanded="false" data-target="' + setupId + '"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Setup</button>' +
           '</div>' +
           '<div id="' + setupId + '" class="proxy-setup-wrap" style="display:none;">' + _proxySetupInstructions(a.name, portNum, _proxyDomain) + '</div>';
       }).join('');
@@ -323,9 +330,24 @@
         var open = wrap.style.display !== 'none';
         wrap.style.display = open ? 'none' : 'block';
         this.setAttribute('aria-expanded', open ? 'false' : 'true');
-        this.textContent = open ? 'Setup' : 'Hide';
+        this.classList.toggle('proxy-setup-toggle-active', !open);
       });
     }
+    // Wire setup tab switchers
+    listEl.addEventListener('click', function (e) {
+      var tab = e.target.closest('.proxy-setup-tab');
+      if (!tab) return;
+      var panel = tab.closest('.proxy-setup-instructions');
+      if (!panel) return;
+      var key = tab.getAttribute('data-setup-tab');
+      panel.querySelectorAll('.proxy-setup-tab').forEach(function (t) {
+        t.classList.toggle('proxy-setup-tab-active', t === tab);
+        t.setAttribute('aria-selected', t === tab ? 'true' : 'false');
+      });
+      panel.querySelectorAll('.proxy-setup-panel').forEach(function (p) {
+        p.style.display = p.getAttribute('data-setup-panel') === key ? '' : 'none';
+      });
+    });
   }
 
   function renderApproval(list) {
@@ -603,14 +625,32 @@
       _proxyDomain = s.proxy_domain || '';
       var domainDisplay = document.getElementById('setting-proxy-domain-display');
       if (domainDisplay) domainDisplay.textContent = _proxyDomain || '(not configured)';
+      var splitDisplay = document.getElementById('setting-proxy-domain-split');
+      if (splitDisplay) splitDisplay.textContent = _proxyDomain || '...';
       var cnameRecord = document.getElementById('setting-proxy-cname-record');
-      if (cnameRecord) cnameRecord.textContent = _proxyDomain ? '*.' + _proxyDomain + '  CNAME  ' + _proxyDomain : '(apiDomain not configured)';
+      if (cnameRecord) cnameRecord.textContent = _proxyDomain ? '*.' + _proxyDomain + '  A  <ingress IP>' : '(apiDomain not configured)';
       var cnameCopyBtn = document.getElementById('setting-proxy-cname-copy');
       if (cnameCopyBtn) {
         cnameCopyBtn.onclick = function () {
-          var txt = _proxyDomain ? '*.' + _proxyDomain + '  CNAME  ' + _proxyDomain : '';
+          var txt = _proxyDomain ? '*.' + _proxyDomain + '  A  <ingress IP>' : '';
           if (txt) navigator.clipboard.writeText(txt).catch(function () {});
         };
+      }
+      // Wire DNS setup tab switcher in settings
+      var dnsCard = document.querySelector('.proxy-dns-card');
+      if (dnsCard) {
+        dnsCard.addEventListener('click', function (e) {
+          var tab = e.target.closest('.proxy-dns-tab');
+          if (!tab) return;
+          var key = tab.getAttribute('data-dns-tab');
+          dnsCard.querySelectorAll('.proxy-dns-tab').forEach(function (t) {
+            t.classList.toggle('proxy-dns-tab-active', t === tab);
+            t.setAttribute('aria-selected', t === tab ? 'true' : 'false');
+          });
+          dnsCard.querySelectorAll('.proxy-dns-tab-panel').forEach(function (p) {
+            p.style.display = p.getAttribute('data-dns-panel') === key ? '' : 'none';
+          });
+        });
       }
       setChk('setting-inbound-tunnels',     s.allow_inbound_tunnels);
       setChk('setting-registry-pull-enabled', s.registry_pull_enabled);
@@ -1724,7 +1764,7 @@
                 '<button type="button" class="app-proxy-copy btn-icon" data-url="' + _esc(hostname) + '" title="Copy hostname" aria-label="Copy proxy hostname">' +
                   '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>' +
                 '</button>' +
-                '<button type="button" class="btn-sm proxy-setup-toggle" aria-expanded="false" data-target="' + setupId + '" style="margin-left:0.25rem;">Setup</button>' +
+                '<button type="button" class="proxy-setup-toggle" aria-expanded="false" data-target="' + setupId + '"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Setup</button>' +
               '</div>' +
               '<div id="' + setupId + '" class="proxy-setup-wrap" style="display:none;">' + _proxySetupInstructions(app.name, portNum, _proxyDomain) + '</div>';
           }

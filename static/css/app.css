@@ -3567,12 +3567,133 @@ button:focus-visible, a:focus-visible {
   .proxy-how-arrow { display: none; }
 }
 
+/* ── Proxy setup toggle button ───────────────────────────────── */
+.proxy-setup-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.625rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--accent);
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.proxy-setup-toggle:hover,
+.proxy-setup-toggle-active {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+/* ── Proxy setup instructions panel ─────────────────────────── */
+.proxy-setup-wrap {
+  margin: 0.375rem 0 0.25rem;
+}
+.proxy-setup-instructions {
+  background: var(--surface2, var(--surface));
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.proxy-setup-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+}
+.proxy-setup-tab {
+  flex: 1;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+.proxy-setup-tab:hover { color: var(--text); }
+.proxy-setup-tab-active {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.proxy-setup-panel {
+  padding: 0.75rem 1rem;
+}
+.proxy-setup-desc {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin: 0 0 0.625rem;
+  line-height: 1.5;
+}
+.proxy-setup-row {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  margin-bottom: 0.375rem;
+}
+.proxy-setup-key {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  min-width: 5.5rem;
+  flex-shrink: 0;
+}
+.proxy-setup-code {
+  font-size: 0.78rem;
+  color: var(--text);
+  background: var(--surface3, var(--bg));
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 0.2rem 0.45rem;
+}
+.proxy-setup-note {
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin: 0.5rem 0 0;
+  line-height: 1.5;
+}
+
 /* ── Proxy DNS card (settings tunnels tab) ───────────────────── */
 .proxy-dns-card {
   background: var(--surface2, var(--surface));
   border: 1px solid var(--border);
   border-radius: 10px;
+  overflow: hidden;
+  padding: 0;
+}
+.proxy-dns-card-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+}
+.proxy-dns-tab {
+  flex: 1;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+.proxy-dns-tab:hover { color: var(--text); }
+.proxy-dns-tab-active {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.proxy-dns-tab-panel {
   padding: 0.75rem 1rem;
+}
+.proxy-dns-card-hint {
+  font-size: 0.7rem;
+  color: var(--muted);
+  white-space: nowrap;
 }
 .proxy-dns-card-label {
   font-size: 0.7rem;
