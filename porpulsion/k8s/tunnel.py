@@ -69,7 +69,8 @@ def proxy_request(remote_app_id: str, port: int,
 
     # Strip hop-by-hop headers that must not be forwarded
     _skip = {"host", "transfer-encoding", "connection", "keep-alive",
-              "proxy-authenticate", "proxy-authorization", "te", "trailers", "upgrade"}
+              "proxy-authenticate", "proxy-authorization", "te", "trailers", "upgrade",
+              "content-length"}
     fwd_headers = {k: v for k, v in headers.items() if k.lower() not in _skip}
 
     try:
