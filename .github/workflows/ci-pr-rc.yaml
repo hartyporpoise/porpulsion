@@ -70,8 +70,6 @@ jobs:
             echo "is_rc=true" >> "$GITHUB_OUTPUT"
           fi
 
-          echo "--- outputs ---"
-          cat "$GITHUB_OUTPUT"
 
   # ---------------------------------------------------------------------------
   # Apply version bumps (same-repo PRs only, when bump labels are present)
@@ -79,10 +77,7 @@ jobs:
 
   apply-bumps:
     needs: [check-labels]
-    if: >-
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      (fromJSON(needs['check-labels'].outputs.has_app_bump) == true ||
-      fromJSON(needs['check-labels'].outputs.has_chart_bump) == true)
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     permissions:
       contents: write
