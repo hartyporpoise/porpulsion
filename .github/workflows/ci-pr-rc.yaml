@@ -30,13 +30,13 @@ jobs:
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       (
-        contains(github.event.pull_request.labels.*.name, 'bump:app:patch') ||
-        contains(github.event.pull_request.labels.*.name, 'bump:app:minor') ||
-        contains(github.event.pull_request.labels.*.name, 'bump:app:major') ||
-        contains(github.event.pull_request.labels.*.name, 'bump:chart:patch') ||
-        contains(github.event.pull_request.labels.*.name, 'bump:chart:minor') ||
-        contains(github.event.pull_request.labels.*.name, 'bump:chart:major') ||
-        contains(github.event.pull_request.labels.*.name, 'release-candidate') ||
+        contains(toJson(github.event.pull_request.labels.*.name), 'bump:app:patch') ||
+        contains(toJson(github.event.pull_request.labels.*.name), 'bump:app:minor') ||
+        contains(toJson(github.event.pull_request.labels.*.name), 'bump:app:major') ||
+        contains(toJson(github.event.pull_request.labels.*.name), 'bump:chart:patch') ||
+        contains(toJson(github.event.pull_request.labels.*.name), 'bump:chart:minor') ||
+        contains(toJson(github.event.pull_request.labels.*.name), 'bump:chart:major') ||
+        contains(toJson(github.event.pull_request.labels.*.name), 'release-candidate') ||
         github.event.label.name == 'bump:app:patch' ||
         github.event.label.name == 'bump:app:minor' ||
         github.event.label.name == 'bump:app:major' ||
@@ -61,36 +61,12 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Apply app version bump
+      - name: Apply version bumps
         run: |
           LABELS='${{ toJson(github.event.pull_request.labels.*.name) }}'
-          LABEL='${{ github.event.label.name }}'
-
-          HAS_MAJOR=false
-          HAS_MINOR=false
-          HAS_PATCH=false
-
-          { echo "$LABELS" | grep -q '"bump:app:major"' || [ "$LABEL" = "bump:app:major" ]; } && HAS_MAJOR=true || true
-          { echo "$LABELS" | grep -q '"bump:app:minor"' || [ "$LABEL" = "bump:app:minor" ]; } && HAS_MINOR=true || true
-          { echo "$LABELS" | grep -q '"bump:app:patch"' || [ "$LABEL" = "bump:app:patch" ]; } && HAS_PATCH=true || true
-
-          if [ "$HAS_MAJOR" = "false" ] && [ "$HAS_MINOR" = "false" ] && [ "$HAS_PATCH" = "false" ]; then
-            echo "No bump:app:* label - skipping app bump"
-            exit 0
-          fi
-
-          if [ "$HAS_MAJOR" = "true" ]; then
-            LEVEL=major
-          elif [ "$HAS_MINOR" = "true" ]; then
-            LEVEL=minor
-          else
-            LEVEL=patch
-          fi
-
           CHART=charts/porpulsion/Chart.yaml
           VALUES=charts/porpulsion/values.yaml
           BASE_REF="origin/${{ github.event.pull_request.base.ref }}"
-          curr_app=$(git show "$BASE_REF:$CHART" | grep '^appVersion:' | sed 's/appVersion: *"\(.*\)"/\1/')
 
           bump_semver() {
             local ver=$1 level=$2
@@ -102,58 +78,47 @@ jobs:
             esac
           }
 
-          new_app=$(bump_semver "$curr_app" "$LEVEL")
-          IMAGE_REPO=$(grep 'image:' "$VALUES" | head -1 | awk '{print $2}' | sed 's/:[^:]*$//')
+          # App bump: only if current branch version matches base (not yet bumped)
+          base_app=$(git show "$BASE_REF:$CHART" | grep '^appVersion:' | sed 's/appVersion: *"\(.*\)"/\1/')
+          curr_app=$(grep '^appVersion:' "$CHART" | sed 's/appVersion: *"\(.*\)"/\1/')
 
-          sed -i "s/^appVersion: .*/appVersion: \"$new_app\"/" "$CHART"
-          sed -i "s|^  image: .*|  image: $IMAGE_REPO:$new_app|" "$VALUES"
+          if echo "$LABELS" | grep -qE '"bump:app:(major|minor|patch)"'; then
+            if [ "$curr_app" = "$base_app" ]; then
+              if echo "$LABELS" | grep -q '"bump:app:major"'; then LEVEL=major
+              elif echo "$LABELS" | grep -q '"bump:app:minor"'; then LEVEL=minor
+              else LEVEL=patch; fi
 
-          echo "Bumped appVersion: $curr_app -> $new_app"
-
-      - name: Apply chart version bump
-        run: |
-          LABELS='${{ toJson(github.event.pull_request.labels.*.name) }}'
-          LABEL='${{ github.event.label.name }}'
-
-          HAS_MAJOR=false
-          HAS_MINOR=false
-          HAS_PATCH=false
-
-          echo "$LABELS" | grep -q '"bump:chart:major"' || [ "$LABEL" = "bump:chart:major" ] && HAS_MAJOR=true || true
-          echo "$LABELS" | grep -q '"bump:chart:minor"' || [ "$LABEL" = "bump:chart:minor" ] && HAS_MINOR=true || true
-          echo "$LABELS" | grep -q '"bump:chart:patch"' || [ "$LABEL" = "bump:chart:patch" ] && HAS_PATCH=true || true
-
-          if [ "$HAS_MAJOR" = "false" ] && [ "$HAS_MINOR" = "false" ] && [ "$HAS_PATCH" = "false" ]; then
-            echo "No bump:chart:* label - skipping chart bump"
-            exit 0
-          fi
-
-          if [ "$HAS_MAJOR" = "true" ]; then
-            LEVEL=major
-          elif [ "$HAS_MINOR" = "true" ]; then
-            LEVEL=minor
+              new_app=$(bump_semver "$curr_app" "$LEVEL")
+              IMAGE_REPO=$(grep 'image:' "$VALUES" | head -1 | awk '{print $2}' | sed 's/:[^:]*$//')
+              sed -i "s/^appVersion: .*/appVersion: \"$new_app\"/" "$CHART"
+              sed -i "s|^  image: .*|  image: $IMAGE_REPO:$new_app|" "$VALUES"
+              echo "Bumped appVersion: $curr_app -> $new_app"
+            else
+              echo "appVersion already bumped ($base_app -> $curr_app) - skipping"
+            fi
           else
-            LEVEL=patch
+            echo "No bump:app:* label - skipping app bump"
           fi
 
-          CHART=charts/porpulsion/Chart.yaml
-          BASE_REF="origin/${{ github.event.pull_request.base.ref }}"
-          curr_chart=$(git show "$BASE_REF:$CHART" | grep '^version:' | awk '{print $2}')
+          # Chart bump: only if current branch version matches base (not yet bumped)
+          base_chart=$(git show "$BASE_REF:$CHART" | grep '^version:' | awk '{print $2}')
+          curr_chart=$(grep '^version:' "$CHART" | awk '{print $2}')
 
-          bump_semver() {
-            local ver=$1 level=$2
-            IFS='.' read -r maj min patch <<< "$ver"
-            case "$level" in
-              major) echo "$((maj+1)).0.0" ;;
-              minor) echo "${maj}.$((min+1)).0" ;;
-              patch) echo "${maj}.${min}.$((patch+1))" ;;
-            esac
-          }
+          if echo "$LABELS" | grep -qE '"bump:chart:(major|minor|patch)"'; then
+            if [ "$curr_chart" = "$base_chart" ]; then
+              if echo "$LABELS" | grep -q '"bump:chart:major"'; then LEVEL=major
+              elif echo "$LABELS" | grep -q '"bump:chart:minor"'; then LEVEL=minor
+              else LEVEL=patch; fi
 
-          new_chart=$(bump_semver "$curr_chart" "$LEVEL")
-          sed -i "s/^version: .*/version: $new_chart/" "$CHART"
-
-          echo "Bumped chart version: $curr_chart -> $new_chart"
+              new_chart=$(bump_semver "$curr_chart" "$LEVEL")
+              sed -i "s/^version: .*/version: $new_chart/" "$CHART"
+              echo "Bumped chart version: $curr_chart -> $new_chart"
+            else
+              echo "chart version already bumped ($base_chart -> $curr_chart) - skipping"
+            fi
+          else
+            echo "No bump:chart:* label - skipping chart bump"
+          fi
 
       - name: Commit and push
         run: |
@@ -161,14 +126,8 @@ jobs:
           if git diff --cached --exit-code; then
             echo "No changes to commit."
           else
-            LAST_MSG=$(git log -1 --format="%s")
-            if echo "$LAST_MSG" | grep -qE "^chore: bump (app|chart)="; then
-              git commit --amend --no-edit
-              git push --force-with-lease origin "${{ github.head_ref }}"
-            else
-              git commit -m "chore: bump versions [skip ci]"
-              git push origin "${{ github.head_ref }}"
-            fi
+            git commit -m "chore: bump versions [skip ci]"
+            git push origin "${{ github.head_ref }}"
           fi
 
   # ---------------------------------------------------------------------------
@@ -181,7 +140,7 @@ jobs:
       always() &&
       github.event_name == 'pull_request' &&
       (
-        contains(github.event.pull_request.labels.*.name, 'release-candidate') ||
+        contains(toJson(github.event.pull_request.labels.*.name), 'release-candidate') ||
         github.event.label.name == 'release-candidate'
       )
     runs-on: ubuntu-latest
@@ -263,7 +222,7 @@ jobs:
       needs.build-and-publish.result == 'success' &&
       github.event_name == 'pull_request' &&
       (
-        contains(github.event.pull_request.labels.*.name, 'release-candidate') ||
+        contains(toJson(github.event.pull_request.labels.*.name), 'release-candidate') ||
         github.event.label.name == 'release-candidate'
       )
     runs-on: ubuntu-latest
@@ -314,7 +273,7 @@ jobs:
       always() &&
       github.event_name == 'pull_request' &&
       (
-        contains(github.event.pull_request.labels.*.name, 'release-candidate') ||
+        contains(toJson(github.event.pull_request.labels.*.name), 'release-candidate') ||
         github.event.label.name == 'release-candidate'
       )
     runs-on: ubuntu-latest
