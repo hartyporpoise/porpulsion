@@ -1,0 +1,159 @@
+name: PR Checks
+
+# Runs on every PR push and label event.
+# Jobs: validate-schema-bump, validate-chart-bump, scan-dependencies, upgrade-dependencies
+
+on:
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened, labeled]
+
+concurrency:
+  group: ci-pr-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+
+  # Fail if schema.yaml was changed but no bump:app:* label is present.
+  validate-schema-bump:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Assert schema bump label
+        run: |
+          BASE="${{ github.event.pull_request.base.sha }}"
+          HEAD="${{ github.event.pull_request.head.sha }}"
+
+          SCHEMA_CHANGED=false
+          if git diff --name-only "$BASE".."$HEAD" | grep -q '^charts/porpulsion/files/schema.yaml$'; then
+            SCHEMA_CHANGED=true
+          fi
+
+          if [ "$SCHEMA_CHANGED" = "false" ]; then
+            echo "schema.yaml not changed - OK"
+            exit 0
+          fi
+
+          echo "schema.yaml was changed - checking for bump:app:* label..."
+
+          LABELS='${{ toJson(github.event.pull_request.labels.*.name) }}'
+          if echo "$LABELS" | grep -qE '"bump:app:(patch|minor|major)"'; then
+            echo "bump:app:* label present - OK"
+          else
+            echo "ERROR: schema.yaml changed but no bump:app:patch/minor/major label found."
+            echo "Schema changes affect the running agent and require an app version bump."
+            exit 1
+          fi
+
+  # Fail if bump:app:* label is present but no bump:chart:* label is present.
+  validate-chart-bump:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Assert chart bump label
+        run: |
+          LABELS='${{ toJson(github.event.pull_request.labels.*.name) }}'
+
+          HAS_APP_BUMP=false
+          HAS_CHART_BUMP=false
+
+          echo "$LABELS" | grep -qE '"bump:app:(patch|minor|major)"' && HAS_APP_BUMP=true
+          echo "$LABELS" | grep -qE '"bump:chart:(patch|minor|major)"' && HAS_CHART_BUMP=true
+
+          if [ "$HAS_APP_BUMP" = "false" ]; then
+            echo "No bump:app:* label - skipping chart bump check"
+            exit 0
+          fi
+
+          if [ "$HAS_CHART_BUMP" = "true" ]; then
+            echo "bump:app:* and bump:chart:* both present - OK"
+          else
+            echo "ERROR: bump:app:* label found but no bump:chart:patch/minor/major label."
+            echo "An app version bump should be accompanied by a chart version bump."
+            exit 1
+          fi
+
+  # Security scan (always, non-blocking).
+  scan-dependencies:
+    if: github.event_name == 'pull_request' && github.event.action != 'labeled'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pip-audit
+        run: pip install pip-audit
+
+      - name: Audit dependencies
+        run: pip-audit -r requirements.txt 2>&1 | tee pip-audit-report.txt || true
+
+      - name: Upload audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pip-audit-report
+          path: pip-audit-report.txt
+          if-no-files-found: ignore
+
+  # Auto-upgrade pinned dependencies (same-repo PRs only, skipped on label events).
+  upgrade-dependencies:
+    if: >
+      github.event_name == 'pull_request' &&
+      github.event.action != 'labeled' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Upgrade dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install --upgrade $(grep -v '^\s*#' requirements.txt | sed 's/[>=<!=].*//' | tr '\n' ' ')
+
+      - name: Pin upgraded requirements
+        run: |
+          pip freeze | grep -F -i -f <(grep -v '^\s*#' requirements.txt | sed 's/[>=<!=].*//') > requirements.txt.new
+          mv requirements.txt.new requirements.txt
+
+      - name: Commit and push
+        run: |
+          git diff --exit-code requirements.txt && echo "No dependency updates." || (
+            git add requirements.txt
+            git commit -m "chore: auto-upgrade pinned dependencies [skip ci]"
+            git push origin "${{ github.head_ref }}"
+          )

@@ -1,39 +1,16 @@
-name: CI
+name: PR Release Candidate
 
-# Label-driven CI/CD:
-#
-#   PR labels -> bump jobs
-#     bump:app:patch/minor/major   - bumps appVersion in Chart.yaml + image tag in values.yaml
-#     bump:chart:patch/minor/major - bumps chart version in Chart.yaml
-#     release-candidate            - builds + pushes X.X.X-rc Docker image to GHCR
-#                                    and publishes X.X.X-rc Helm chart to GHCR
-#
-#   PR checks (always run on push/label):
-#     validate-schema-bump         - fails if schema.yaml changed but no bump:app:* label present
-#     validate-chart-bump          - fails if bump:app:* label present but no bump:chart:* label present
-#     build-and-publish            - builds RC image if release-candidate label present, otherwise no-op
-#     publish-helm-chart-rc        - packages and pushes rc-X.X.X chart if release-candidate label present
-#     e2e-tests                    - runs full Playwright suite (make test) if release-candidate label present
-#
-#   push to main (chart version changed) -> publish-helm-chart
-#     Packages and pushes the Helm chart to GHCR.
-#
-#   push to main (appVersion changed) -> create-release + build-and-publish
-#     Creates a git tag + GitHub release, builds and publishes the Docker image.
+# Triggered by bump:app/chart labels and the release-candidate label on PRs.
+# Jobs: apply-app-bump, apply-chart-bump, build-and-publish (RC), e2e-tests, publish-helm-chart-rc
 
 on:
-  push:
-    branches:
-      - main
-    tags:
-      - 'v*'
   pull_request:
     branches:
       - main
     types: [opened, synchronize, reopened, labeled]
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-pr-rc-${{ github.ref }}
   cancel-in-progress: false
 
 env:
@@ -43,80 +20,13 @@ env:
 jobs:
 
   # ---------------------------------------------------------------------------
-  # PR checks -- run on every push and label event
-  # ---------------------------------------------------------------------------
-
-  # Fail if schema.yaml was changed but no bump:app:* label is present.
-  validate-schema-bump:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Assert schema bump label
-        run: |
-          BASE="${{ github.event.pull_request.base.sha }}"
-          HEAD="${{ github.event.pull_request.head.sha }}"
-
-          SCHEMA_CHANGED=false
-          if git diff --name-only "$BASE".."$HEAD" | grep -q '^charts/porpulsion/files/schema.yaml$'; then
-            SCHEMA_CHANGED=true
-          fi
-
-          if [ "$SCHEMA_CHANGED" = "false" ]; then
-            echo "schema.yaml not changed - OK"
-            exit 0
-          fi
-
-          echo "schema.yaml was changed - checking for bump:app:* label..."
-
-          LABELS='${{ toJson(github.event.pull_request.labels.*.name) }}'
-          if echo "$LABELS" | grep -qE '"bump:app:(patch|minor|major)"'; then
-            echo "bump:app:* label present - OK"
-          else
-            echo "ERROR: schema.yaml changed but no bump:app:patch/minor/major label found."
-            echo "Schema changes affect the running agent and require an app version bump."
-            exit 1
-          fi
-
-  # Fail if bump:app:* label is present but no bump:chart:* label is present.
-  validate-chart-bump:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Assert chart bump label
-        run: |
-          LABELS='${{ toJson(github.event.pull_request.labels.*.name) }}'
-
-          HAS_APP_BUMP=false
-          HAS_CHART_BUMP=false
-
-          echo "$LABELS" | grep -qE '"bump:app:(patch|minor|major)"' && HAS_APP_BUMP=true
-          echo "$LABELS" | grep -qE '"bump:chart:(patch|minor|major)"' && HAS_CHART_BUMP=true
-
-          if [ "$HAS_APP_BUMP" = "false" ]; then
-            echo "No bump:app:* label - skipping chart bump check"
-            exit 0
-          fi
-
-          if [ "$HAS_CHART_BUMP" = "true" ]; then
-            echo "bump:app:* and bump:chart:* both present - OK"
-          else
-            echo "ERROR: bump:app:* label found but no bump:chart:patch/minor/major label."
-            echo "An app version bump should be accompanied by a chart version bump."
-            exit 1
-          fi
-
-  # ---------------------------------------------------------------------------
-  # PR bump jobs -- triggered by label events only
+  # Version bump jobs (same-repo PRs only, triggered by bump:* labels)
   # ---------------------------------------------------------------------------
 
   apply-app-bump:
     if: >
       github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
       (
         contains(github.event.pull_request.labels.*.name, 'bump:app:patch') ||
         contains(github.event.pull_request.labels.*.name, 'bump:app:minor') ||
@@ -205,6 +115,7 @@ jobs:
     if: >
       always() &&
       github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
       (
         contains(github.event.pull_request.labels.*.name, 'bump:chart:patch') ||
         contains(github.event.pull_request.labels.*.name, 'bump:chart:minor') ||
@@ -285,19 +196,17 @@ jobs:
           fi
 
   # ---------------------------------------------------------------------------
-  # PR + main: build and publish Docker image
+  # RC image build (release-candidate label only)
   # ---------------------------------------------------------------------------
 
   build-and-publish:
-    needs: [detect-changes, apply-app-bump, apply-chart-bump]
+    needs: [apply-app-bump, apply-chart-bump]
     if: >
-      always() && (
-        (github.event_name == 'push' && needs.detect-changes.outputs.app_version_changed == 'true') || (
-          github.event_name == 'pull_request' && (
-            contains(github.event.pull_request.labels.*.name, 'release-candidate') ||
-            github.event.label.name == 'release-candidate'
-          )
-        )
+      always() &&
+      github.event_name == 'pull_request' &&
+      (
+        contains(github.event.pull_request.labels.*.name, 'release-candidate') ||
+        github.event.label.name == 'release-candidate'
       )
     runs-on: ubuntu-latest
     permissions:
@@ -308,6 +217,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
 
       - name: Set up QEMU
@@ -323,37 +234,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Read app version
-        id: chart
-        run: |
-          app_version=$(grep '^appVersion:' charts/porpulsion/Chart.yaml | sed 's/appVersion: *"\(.*\)"/\1/')
-          echo "app_version=$app_version" >> "$GITHUB_OUTPUT"
-
       - name: Fetch latest branch head
-        if: >
-          github.event_name == 'pull_request' && (
-            contains(github.event.pull_request.labels.*.name, 'release-candidate') ||
-            github.event.label.name == 'release-candidate'
-          )
+        if: github.event.pull_request.head.repo.full_name == github.repository
         run: git fetch origin "${{ github.head_ref }}" && git checkout "origin/${{ github.head_ref }}" -- charts/porpulsion/Chart.yaml charts/porpulsion/values.yaml
 
-      - name: Re-read app version after fetch
-        if: >
-          github.event_name == 'pull_request' && (
-            contains(github.event.pull_request.labels.*.name, 'release-candidate') ||
-            github.event.label.name == 'release-candidate'
-          )
+      - name: Read app version
         id: chart_fresh
         run: |
           app_version=$(grep '^appVersion:' charts/porpulsion/Chart.yaml | sed 's/appVersion: *"\(.*\)"/\1/')
           echo "app_version=$app_version" >> "$GITHUB_OUTPUT"
 
       - name: Assert version bumped
-        if: >
-          github.event_name == 'pull_request' && (
-            contains(github.event.pull_request.labels.*.name, 'release-candidate') ||
-            github.event.label.name == 'release-candidate'
-          )
         run: |
           BASE_APP=$(git show "origin/${{ github.event.pull_request.base.ref }}:charts/porpulsion/Chart.yaml" | grep '^appVersion:' | sed 's/appVersion: *"\(.*\)"/\1/')
           PR_APP="${{ steps.chart_fresh.outputs.app_version }}"
@@ -371,17 +262,9 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=${{ needs.detect-changes.outputs.app_version }},enable=${{ needs.detect-changes.outputs.app_version_changed == 'true' }}
-            type=raw,value=${{ steps.chart_fresh.outputs.app_version }}-rc,enable=${{ github.event_name == 'pull_request' }}
+            type=raw,value=${{ steps.chart_fresh.outputs.app_version }}-rc
 
       - name: Build and push image
-        if: >
-          github.event_name == 'push' ||
-          contains(github.event.pull_request.labels.*.name, 'release-candidate') ||
-          github.event.label.name == 'release-candidate'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -394,7 +277,7 @@ jobs:
           cache-to: type=gha,mode=max
 
   # ---------------------------------------------------------------------------
-  # PR: E2E tests when release-candidate label is present
+  # E2E tests (release-candidate label only, after image is built)
   # ---------------------------------------------------------------------------
 
   e2e-tests:
@@ -415,8 +298,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Fetch latest branch head
+        if: github.event.pull_request.head.repo.full_name == github.repository
         run: git fetch origin "${{ github.head_ref }}" && git checkout "origin/${{ github.head_ref }}"
 
       - name: Install make
@@ -442,84 +329,7 @@ jobs:
         run: make teardown || true
 
   # ---------------------------------------------------------------------------
-  # PR: security scan (always, non-blocking)
-  # ---------------------------------------------------------------------------
-
-  scan-dependencies:
-    if: github.event_name == 'pull_request' && github.event.action != 'labeled'
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install pip-audit
-        run: pip install pip-audit
-
-      - name: Audit dependencies
-        run: pip-audit -r requirements.txt 2>&1 | tee pip-audit-report.txt || true
-
-      - name: Upload audit report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: pip-audit-report
-          path: pip-audit-report.txt
-          if-no-files-found: ignore
-
-  # ---------------------------------------------------------------------------
-  # PR: auto-upgrade pinned dependencies
-  # ---------------------------------------------------------------------------
-
-  upgrade-dependencies:
-    if: github.event_name == 'pull_request' && github.event.action != 'labeled'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref }}
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Configure git identity
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Upgrade dependencies
-        run: |
-          pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install --upgrade $(grep -v '^\s*#' requirements.txt | sed 's/[>=<!=].*//' | tr '\n' ' ')
-
-      - name: Pin upgraded requirements
-        run: |
-          pip freeze | grep -F -i -f <(grep -v '^\s*#' requirements.txt | sed 's/[>=<!=].*//') > requirements.txt.new
-          mv requirements.txt.new requirements.txt
-
-      - name: Commit and push
-        run: |
-          git diff --exit-code requirements.txt && echo "No dependency updates." || (
-            git add requirements.txt
-            git commit -m "chore: auto-upgrade pinned dependencies [skip ci]"
-            git push origin "${{ github.head_ref }}"
-          )
-
-  # ---------------------------------------------------------------------------
-  # PR: publish RC Helm chart when release-candidate label is present
+  # RC Helm chart publish (release-candidate label only)
   # ---------------------------------------------------------------------------
 
   publish-helm-chart-rc:
@@ -538,8 +348,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Fetch latest branch head
+        if: github.event.pull_request.head.repo.full_name == github.repository
         run: git fetch origin "${{ github.head_ref }}" && git checkout "origin/${{ github.head_ref }}" -- charts/porpulsion/Chart.yaml charts/porpulsion/values.yaml
 
       - name: Install Helm
@@ -576,115 +390,3 @@ jobs:
           for pkg in .cr-rc-packages/*.tgz; do
             helm push "$pkg" oci://ghcr.io/${{ github.repository_owner }}/charts
           done
-
-  # ---------------------------------------------------------------------------
-  # Main push: detect chart/appVersion changes
-  # ---------------------------------------------------------------------------
-
-  detect-changes:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    outputs:
-      app_version_changed: ${{ steps.detect.outputs.app_version_changed }}
-      app_version: ${{ steps.detect.outputs.app_version }}
-      chart_version_changed: ${{ steps.detect.outputs.chart_version_changed }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
-
-      - name: Detect version changes
-        id: detect
-        run: |
-          prev_app=$(git show HEAD~1:charts/porpulsion/Chart.yaml 2>/dev/null | grep '^appVersion:' | sed 's/appVersion: *"\(.*\)"/\1/' || echo "none")
-          curr_app=$(grep '^appVersion:' charts/porpulsion/Chart.yaml | sed 's/appVersion: *"\(.*\)"/\1/')
-          prev_chart=$(git show HEAD~1:charts/porpulsion/Chart.yaml 2>/dev/null | grep '^version:' | awk '{print $2}' || echo "none")
-          curr_chart=$(grep '^version:' charts/porpulsion/Chart.yaml | awk '{print $2}')
-
-          echo "appVersion:   $prev_app -> $curr_app"
-          echo "chartVersion: $prev_chart -> $curr_chart"
-          echo "app_version=$curr_app" >> "$GITHUB_OUTPUT"
-
-          [ "$prev_app" != "$curr_app" ] \
-            && echo "app_version_changed=true" >> "$GITHUB_OUTPUT" \
-            || echo "app_version_changed=false" >> "$GITHUB_OUTPUT"
-
-          [ "$prev_chart" != "$curr_chart" ] \
-            && echo "chart_version_changed=true" >> "$GITHUB_OUTPUT" \
-            || echo "chart_version_changed=false" >> "$GITHUB_OUTPUT"
-
-  # ---------------------------------------------------------------------------
-  # Main push: release Helm chart when chart version changed
-  # ---------------------------------------------------------------------------
-
-  publish-helm-chart:
-    needs: detect-changes
-    if: needs.detect-changes.outputs.chart_version_changed == 'true'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      packages: write
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Configure git identity
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-      - name: Install Helm
-        uses: azure/setup-helm@v4
-
-      - name: Package helm chart
-        uses: helm/chart-releaser-action@v1.7.0
-        with:
-          charts_dir: charts
-          config: .github/config/cr.yaml
-          skip_existing: true
-          skip_upload: true
-        env:
-          CR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Publish chart to GHCR
-        run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io \
-            --username "${{ github.repository_owner }}" --password-stdin
-          for pkg in .cr-release-packages/*.tgz; do
-            helm push "$pkg" oci://ghcr.io/${{ github.repository_owner }}/charts
-          done
-
-  # ---------------------------------------------------------------------------
-  # Main push: tag repo and create GitHub release when appVersion changes
-  # ---------------------------------------------------------------------------
-
-  create-release:
-    needs: detect-changes
-    if: needs.detect-changes.outputs.app_version_changed == 'true'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Configure git identity
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-      - name: Tag and create release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          VERSION="v${{ needs.detect-changes.outputs.app_version }}"
-          git tag "$VERSION"
-          git push origin "$VERSION"
-          gh release create "$VERSION" \
-            --title "$VERSION" \
-            --generate-notes \
-            --latest
