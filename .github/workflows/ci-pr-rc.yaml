@@ -77,6 +77,18 @@ jobs:
   # Apply version bumps (same-repo PRs only, when bump labels are present)
   # ---------------------------------------------------------------------------
 
+  debug-outputs:
+    needs: [check-labels]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print check-labels outputs
+        run: |
+          echo "has_app_bump='${{ needs['check-labels'].outputs.has_app_bump }}'"
+          echo "has_chart_bump='${{ needs['check-labels'].outputs.has_chart_bump }}'"
+          echo "is_rc='${{ needs['check-labels'].outputs.is_rc }}'"
+          echo "check-labels result='${{ needs['check-labels'].result }}'"
+
   apply-bumps:
     needs: [check-labels]
     if: "github.event.pull_request.head.repo.full_name == github.repository && (needs['check-labels'].outputs.has_app_bump == 'true' || needs['check-labels'].outputs.has_chart_bump == 'true')"
