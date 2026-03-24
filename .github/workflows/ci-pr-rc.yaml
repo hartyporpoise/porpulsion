@@ -33,6 +33,7 @@ jobs:
       has_chart_bump: ${{ steps.labels.outputs.has_chart_bump }}
       chart_bump_level: ${{ steps.labels.outputs.chart_bump_level }}
       is_rc: ${{ steps.labels.outputs.is_rc }}
+      is_same_repo: ${{ steps.labels.outputs.is_same_repo }}
     steps:
       - name: Fetch labels
         id: labels
@@ -41,6 +42,9 @@ jobs:
         run: |
           LABELS=$(gh api repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/labels --jq '.[].name')
           echo "Labels on PR: $LABELS"
+          echo "head repo: ${{ github.event.pull_request.head.repo.full_name }}"
+          echo "base repo: ${{ github.repository }}"
+          echo "is same repo: ${{ github.event.pull_request.head.repo.full_name == github.repository }}"
 
           echo "has_app_bump=false" >> "$GITHUB_OUTPUT"
           echo "app_bump_level=patch" >> "$GITHUB_OUTPUT"
@@ -70,6 +74,12 @@ jobs:
             echo "is_rc=true" >> "$GITHUB_OUTPUT"
           fi
 
+          if [ "${{ github.event.pull_request.head.repo.full_name }}" = "${{ github.repository }}" ]; then
+            echo "is_same_repo=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_same_repo=false" >> "$GITHUB_OUTPUT"
+          fi
+
 
   # ---------------------------------------------------------------------------
   # Apply version bumps (same-repo PRs only, when bump labels are present)
@@ -77,7 +87,7 @@ jobs:
 
   apply-bumps:
     needs: [check-labels]
-    if: always()
+    if: always() && needs['check-labels'].outputs.is_same_repo == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
