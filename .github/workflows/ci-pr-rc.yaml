@@ -1,7 +1,7 @@
 name: PR Release Candidate
 
-# Triggered by bump:app/chart labels and the release-candidate label on PRs.
-# Jobs: apply-bumps, build-and-publish (RC), e2e-tests, publish-helm-chart-rc
+# Triggered on all PR events. A first job fetches labels via API (reliable on
+# all event types) and exposes them as outputs. Downstream jobs gate on those.
 
 on:
   pull_request:
@@ -20,30 +20,67 @@ env:
 jobs:
 
   # ---------------------------------------------------------------------------
-  # Single bump job: handles app and chart bumps in one pass.
-  # Runs whenever any bump:* or release-candidate label is present (same-repo only).
-  # Skips silently if no bump labels are set.
+  # Fetch current PR labels via API so all downstream jobs have a reliable
+  # label set regardless of event type (labeled vs synchronize vs reopened).
+  # ---------------------------------------------------------------------------
+
+  check-labels:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    outputs:
+      has_app_bump: ${{ steps.labels.outputs.has_app_bump }}
+      app_bump_level: ${{ steps.labels.outputs.app_bump_level }}
+      has_chart_bump: ${{ steps.labels.outputs.has_chart_bump }}
+      chart_bump_level: ${{ steps.labels.outputs.chart_bump_level }}
+      is_rc: ${{ steps.labels.outputs.is_rc }}
+    steps:
+      - name: Fetch labels
+        id: labels
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          LABELS=$(gh api repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/labels --jq '.[].name')
+          echo "Labels on PR: $LABELS"
+
+          echo "has_app_bump=false" >> "$GITHUB_OUTPUT"
+          echo "app_bump_level=patch" >> "$GITHUB_OUTPUT"
+          echo "has_chart_bump=false" >> "$GITHUB_OUTPUT"
+          echo "chart_bump_level=patch" >> "$GITHUB_OUTPUT"
+          echo "is_rc=false" >> "$GITHUB_OUTPUT"
+
+          if echo "$LABELS" | grep -qE '^bump:app:(patch|minor|major)$'; then
+            echo "has_app_bump=true" >> "$GITHUB_OUTPUT"
+            if echo "$LABELS" | grep -q '^bump:app:major$'; then
+              echo "app_bump_level=major" >> "$GITHUB_OUTPUT"
+            elif echo "$LABELS" | grep -q '^bump:app:minor$'; then
+              echo "app_bump_level=minor" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+          if echo "$LABELS" | grep -qE '^bump:chart:(patch|minor|major)$'; then
+            echo "has_chart_bump=true" >> "$GITHUB_OUTPUT"
+            if echo "$LABELS" | grep -q '^bump:chart:major$'; then
+              echo "chart_bump_level=major" >> "$GITHUB_OUTPUT"
+            elif echo "$LABELS" | grep -q '^bump:chart:minor$'; then
+              echo "chart_bump_level=minor" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+          if echo "$LABELS" | grep -q '^release-candidate$'; then
+            echo "is_rc=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ---------------------------------------------------------------------------
+  # Apply version bumps (same-repo PRs only, when bump labels are present)
   # ---------------------------------------------------------------------------
 
   apply-bumps:
+    needs: [check-labels]
     if: >
-      github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       (
-        contains(toJson(github.event.pull_request.labels.*.name), 'bump:app:patch') ||
-        contains(toJson(github.event.pull_request.labels.*.name), 'bump:app:minor') ||
-        contains(toJson(github.event.pull_request.labels.*.name), 'bump:app:major') ||
-        contains(toJson(github.event.pull_request.labels.*.name), 'bump:chart:patch') ||
-        contains(toJson(github.event.pull_request.labels.*.name), 'bump:chart:minor') ||
-        contains(toJson(github.event.pull_request.labels.*.name), 'bump:chart:major') ||
-        contains(toJson(github.event.pull_request.labels.*.name), 'release-candidate') ||
-        github.event.label.name == 'bump:app:patch' ||
-        github.event.label.name == 'bump:app:minor' ||
-        github.event.label.name == 'bump:app:major' ||
-        github.event.label.name == 'bump:chart:patch' ||
-        github.event.label.name == 'bump:chart:minor' ||
-        github.event.label.name == 'bump:chart:major' ||
-        github.event.label.name == 'release-candidate'
+        needs.check-labels.outputs.has_app_bump == 'true' ||
+        needs.check-labels.outputs.has_chart_bump == 'true'
       )
     runs-on: ubuntu-latest
     permissions:
@@ -63,7 +100,6 @@ jobs:
 
       - name: Apply version bumps
         run: |
-          LABELS='${{ toJson(github.event.pull_request.labels.*.name) }}'
           CHART=charts/porpulsion/Chart.yaml
           VALUES=charts/porpulsion/values.yaml
           BASE_REF="origin/${{ github.event.pull_request.base.ref }}"
@@ -79,16 +115,11 @@ jobs:
           }
 
           # App bump: only if current branch version matches base (not yet bumped)
-          base_app=$(git show "$BASE_REF:$CHART" | grep '^appVersion:' | sed 's/appVersion: *"\(.*\)"/\1/')
-          curr_app=$(grep '^appVersion:' "$CHART" | sed 's/appVersion: *"\(.*\)"/\1/')
-
-          if echo "$LABELS" | grep -qE '"bump:app:(major|minor|patch)"'; then
+          if [ "${{ needs.check-labels.outputs.has_app_bump }}" = "true" ]; then
+            base_app=$(git show "$BASE_REF:$CHART" | grep '^appVersion:' | sed 's/appVersion: *"\(.*\)"/\1/')
+            curr_app=$(grep '^appVersion:' "$CHART" | sed 's/appVersion: *"\(.*\)"/\1/')
             if [ "$curr_app" = "$base_app" ]; then
-              if echo "$LABELS" | grep -q '"bump:app:major"'; then LEVEL=major
-              elif echo "$LABELS" | grep -q '"bump:app:minor"'; then LEVEL=minor
-              else LEVEL=patch; fi
-
-              new_app=$(bump_semver "$curr_app" "$LEVEL")
+              new_app=$(bump_semver "$curr_app" "${{ needs.check-labels.outputs.app_bump_level }}")
               IMAGE_REPO=$(grep 'image:' "$VALUES" | head -1 | awk '{print $2}' | sed 's/:[^:]*$//')
               sed -i "s/^appVersion: .*/appVersion: \"$new_app\"/" "$CHART"
               sed -i "s|^  image: .*|  image: $IMAGE_REPO:$new_app|" "$VALUES"
@@ -96,28 +127,19 @@ jobs:
             else
               echo "appVersion already bumped ($base_app -> $curr_app) - skipping"
             fi
-          else
-            echo "No bump:app:* label - skipping app bump"
           fi
 
           # Chart bump: only if current branch version matches base (not yet bumped)
-          base_chart=$(git show "$BASE_REF:$CHART" | grep '^version:' | awk '{print $2}')
-          curr_chart=$(grep '^version:' "$CHART" | awk '{print $2}')
-
-          if echo "$LABELS" | grep -qE '"bump:chart:(major|minor|patch)"'; then
+          if [ "${{ needs.check-labels.outputs.has_chart_bump }}" = "true" ]; then
+            base_chart=$(git show "$BASE_REF:$CHART" | grep '^version:' | awk '{print $2}')
+            curr_chart=$(grep '^version:' "$CHART" | awk '{print $2}')
             if [ "$curr_chart" = "$base_chart" ]; then
-              if echo "$LABELS" | grep -q '"bump:chart:major"'; then LEVEL=major
-              elif echo "$LABELS" | grep -q '"bump:chart:minor"'; then LEVEL=minor
-              else LEVEL=patch; fi
-
-              new_chart=$(bump_semver "$curr_chart" "$LEVEL")
+              new_chart=$(bump_semver "$curr_chart" "${{ needs.check-labels.outputs.chart_bump_level }}")
               sed -i "s/^version: .*/version: $new_chart/" "$CHART"
               echo "Bumped chart version: $curr_chart -> $new_chart"
             else
               echo "chart version already bumped ($base_chart -> $curr_chart) - skipping"
             fi
-          else
-            echo "No bump:chart:* label - skipping chart bump"
           fi
 
       - name: Commit and push
@@ -135,14 +157,12 @@ jobs:
   # ---------------------------------------------------------------------------
 
   build-and-publish:
-    needs: [apply-bumps]
+    needs: [check-labels, apply-bumps]
     if: >
       always() &&
-      github.event_name == 'pull_request' &&
-      (
-        contains(toJson(github.event.pull_request.labels.*.name), 'release-candidate') ||
-        github.event.label.name == 'release-candidate'
-      )
+      needs.check-labels.result == 'success' &&
+      needs.apply-bumps.result != 'failure' &&
+      needs.check-labels.outputs.is_rc == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -216,15 +236,11 @@ jobs:
   # ---------------------------------------------------------------------------
 
   e2e-tests:
-    needs: [build-and-publish]
+    needs: [check-labels, build-and-publish]
     if: >
       always() &&
       needs.build-and-publish.result == 'success' &&
-      github.event_name == 'pull_request' &&
-      (
-        contains(toJson(github.event.pull_request.labels.*.name), 'release-candidate') ||
-        github.event.label.name == 'release-candidate'
-      )
+      needs.check-labels.outputs.is_rc == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
@@ -268,14 +284,12 @@ jobs:
   # ---------------------------------------------------------------------------
 
   publish-helm-chart-rc:
-    needs: [build-and-publish, apply-bumps]
+    needs: [check-labels, build-and-publish, apply-bumps]
     if: >
       always() &&
-      github.event_name == 'pull_request' &&
-      (
-        contains(toJson(github.event.pull_request.labels.*.name), 'release-candidate') ||
-        github.event.label.name == 'release-candidate'
-      )
+      needs.check-labels.result == 'success' &&
+      needs.apply-bumps.result != 'failure' &&
+      needs.check-labels.outputs.is_rc == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
