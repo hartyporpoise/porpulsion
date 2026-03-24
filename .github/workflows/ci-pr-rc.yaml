@@ -70,6 +70,9 @@ jobs:
             echo "is_rc=true" >> "$GITHUB_OUTPUT"
           fi
 
+          echo "--- outputs ---"
+          cat "$GITHUB_OUTPUT"
+
   # ---------------------------------------------------------------------------
   # Apply version bumps (same-repo PRs only, when bump labels are present)
   # ---------------------------------------------------------------------------
