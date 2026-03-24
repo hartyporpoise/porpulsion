@@ -7,8 +7,6 @@ on:
   push:
     branches:
       - main
-    tags:
-      - 'v*'
 
 concurrency:
   group: ci-main-${{ github.ref }}
