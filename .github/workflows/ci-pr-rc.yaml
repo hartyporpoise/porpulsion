@@ -1,7 +1,7 @@
 name: PR Release Candidate
 
 # Triggered by bump:app/chart labels and the release-candidate label on PRs.
-# Jobs: apply-app-bump, apply-chart-bump, build-and-publish (RC), e2e-tests, publish-helm-chart-rc
+# Jobs: apply-bumps, build-and-publish (RC), e2e-tests, publish-helm-chart-rc
 
 on:
   pull_request:
@@ -20,10 +20,12 @@ env:
 jobs:
 
   # ---------------------------------------------------------------------------
-  # Version bump jobs (same-repo PRs only, triggered by bump:* labels)
+  # Single bump job: handles app and chart bumps in one pass.
+  # Runs whenever any bump:* or release-candidate label is present (same-repo only).
+  # Skips silently if no bump labels are set.
   # ---------------------------------------------------------------------------
 
-  apply-app-bump:
+  apply-bumps:
     if: >
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
@@ -31,9 +33,17 @@ jobs:
         contains(github.event.pull_request.labels.*.name, 'bump:app:patch') ||
         contains(github.event.pull_request.labels.*.name, 'bump:app:minor') ||
         contains(github.event.pull_request.labels.*.name, 'bump:app:major') ||
+        contains(github.event.pull_request.labels.*.name, 'bump:chart:patch') ||
+        contains(github.event.pull_request.labels.*.name, 'bump:chart:minor') ||
+        contains(github.event.pull_request.labels.*.name, 'bump:chart:major') ||
+        contains(github.event.pull_request.labels.*.name, 'release-candidate') ||
         github.event.label.name == 'bump:app:patch' ||
         github.event.label.name == 'bump:app:minor' ||
-        github.event.label.name == 'bump:app:major'
+        github.event.label.name == 'bump:app:major' ||
+        github.event.label.name == 'bump:chart:patch' ||
+        github.event.label.name == 'bump:chart:minor' ||
+        github.event.label.name == 'bump:chart:major' ||
+        github.event.label.name == 'release-candidate'
       )
     runs-on: ubuntu-latest
     permissions:
@@ -51,27 +61,34 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Resolve bump level
-        id: level
+      - name: Apply app version bump
         run: |
           LABELS='${{ toJson(github.event.pull_request.labels.*.name) }}'
           LABEL='${{ github.event.label.name }}'
 
-          if echo "$LABELS" | grep -q '"bump:app:major"' || [ "$LABEL" = "bump:app:major" ]; then
-            echo "level=major" >> "$GITHUB_OUTPUT"
-          elif echo "$LABELS" | grep -q '"bump:app:minor"' || [ "$LABEL" = "bump:app:minor" ]; then
-            echo "level=minor" >> "$GITHUB_OUTPUT"
-          else
-            echo "level=patch" >> "$GITHUB_OUTPUT"
+          HAS_MAJOR=false
+          HAS_MINOR=false
+          HAS_PATCH=false
+
+          { echo "$LABELS" | grep -q '"bump:app:major"' || [ "$LABEL" = "bump:app:major" ]; } && HAS_MAJOR=true || true
+          { echo "$LABELS" | grep -q '"bump:app:minor"' || [ "$LABEL" = "bump:app:minor" ]; } && HAS_MINOR=true || true
+          { echo "$LABELS" | grep -q '"bump:app:patch"' || [ "$LABEL" = "bump:app:patch" ]; } && HAS_PATCH=true || true
+
+          if [ "$HAS_MAJOR" = "false" ] && [ "$HAS_MINOR" = "false" ] && [ "$HAS_PATCH" = "false" ]; then
+            echo "No bump:app:* label - skipping app bump"
+            exit 0
           fi
 
-      - name: Write app version
-        id: versions
-        run: |
+          if [ "$HAS_MAJOR" = "true" ]; then
+            LEVEL=major
+          elif [ "$HAS_MINOR" = "true" ]; then
+            LEVEL=minor
+          else
+            LEVEL=patch
+          fi
+
           CHART=charts/porpulsion/Chart.yaml
           VALUES=charts/porpulsion/values.yaml
-          LEVEL="${{ steps.level.outputs.level }}"
-
           BASE_REF="origin/${{ github.event.pull_request.base.ref }}"
           curr_app=$(git show "$BASE_REF:$CHART" | grep '^appVersion:' | sed 's/appVersion: *"\(.*\)"/\1/')
 
@@ -91,75 +108,35 @@ jobs:
           sed -i "s/^appVersion: .*/appVersion: \"$new_app\"/" "$CHART"
           sed -i "s|^  image: .*|  image: $IMAGE_REPO:$new_app|" "$VALUES"
 
-          echo "new_app=$new_app" >> "$GITHUB_OUTPUT"
           echo "Bumped appVersion: $curr_app -> $new_app"
 
-      - name: Commit and push
-        run: |
-          git add charts/porpulsion/Chart.yaml charts/porpulsion/values.yaml
-          if git diff --cached --exit-code; then
-            echo "No changes to commit."
-          else
-            LAST_MSG=$(git log -1 --format="%s")
-            if echo "$LAST_MSG" | grep -q "chore: bump app="; then
-              git commit --amend --no-edit
-              git push --force-with-lease origin "${{ github.head_ref }}"
-            else
-              git commit -m "chore: bump app=${{ steps.versions.outputs.new_app }}"
-              git push origin "${{ github.head_ref }}"
-            fi
-          fi
-
-  apply-chart-bump:
-    needs: [apply-app-bump]
-    if: >
-      always() &&
-      github.event_name == 'pull_request' &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      (
-        contains(github.event.pull_request.labels.*.name, 'bump:chart:patch') ||
-        contains(github.event.pull_request.labels.*.name, 'bump:chart:minor') ||
-        contains(github.event.pull_request.labels.*.name, 'bump:chart:major') ||
-        github.event.label.name == 'bump:chart:patch' ||
-        github.event.label.name == 'bump:chart:minor' ||
-        github.event.label.name == 'bump:chart:major'
-      )
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref }}
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Configure git identity
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-      - name: Resolve bump level
-        id: level
+      - name: Apply chart version bump
         run: |
           LABELS='${{ toJson(github.event.pull_request.labels.*.name) }}'
           LABEL='${{ github.event.label.name }}'
 
-          if echo "$LABELS" | grep -q '"bump:chart:major"' || [ "$LABEL" = "bump:chart:major" ]; then
-            echo "level=major" >> "$GITHUB_OUTPUT"
-          elif echo "$LABELS" | grep -q '"bump:chart:minor"' || [ "$LABEL" = "bump:chart:minor" ]; then
-            echo "level=minor" >> "$GITHUB_OUTPUT"
-          else
-            echo "level=patch" >> "$GITHUB_OUTPUT"
+          HAS_MAJOR=false
+          HAS_MINOR=false
+          HAS_PATCH=false
+
+          echo "$LABELS" | grep -q '"bump:chart:major"' || [ "$LABEL" = "bump:chart:major" ] && HAS_MAJOR=true || true
+          echo "$LABELS" | grep -q '"bump:chart:minor"' || [ "$LABEL" = "bump:chart:minor" ] && HAS_MINOR=true || true
+          echo "$LABELS" | grep -q '"bump:chart:patch"' || [ "$LABEL" = "bump:chart:patch" ] && HAS_PATCH=true || true
+
+          if [ "$HAS_MAJOR" = "false" ] && [ "$HAS_MINOR" = "false" ] && [ "$HAS_PATCH" = "false" ]; then
+            echo "No bump:chart:* label - skipping chart bump"
+            exit 0
           fi
 
-      - name: Write chart version
-        id: versions
-        run: |
-          CHART=charts/porpulsion/Chart.yaml
-          LEVEL="${{ steps.level.outputs.level }}"
+          if [ "$HAS_MAJOR" = "true" ]; then
+            LEVEL=major
+          elif [ "$HAS_MINOR" = "true" ]; then
+            LEVEL=minor
+          else
+            LEVEL=patch
+          fi
 
+          CHART=charts/porpulsion/Chart.yaml
           BASE_REF="origin/${{ github.event.pull_request.base.ref }}"
           curr_chart=$(git show "$BASE_REF:$CHART" | grep '^version:' | awk '{print $2}')
 
@@ -176,21 +153,20 @@ jobs:
           new_chart=$(bump_semver "$curr_chart" "$LEVEL")
           sed -i "s/^version: .*/version: $new_chart/" "$CHART"
 
-          echo "new_chart=$new_chart" >> "$GITHUB_OUTPUT"
           echo "Bumped chart version: $curr_chart -> $new_chart"
 
       - name: Commit and push
         run: |
-          git add charts/porpulsion/Chart.yaml
+          git add charts/porpulsion/Chart.yaml charts/porpulsion/values.yaml
           if git diff --cached --exit-code; then
             echo "No changes to commit."
           else
             LAST_MSG=$(git log -1 --format="%s")
-            if echo "$LAST_MSG" | grep -q "chore: bump chart="; then
+            if echo "$LAST_MSG" | grep -qE "^chore: bump (app|chart)="; then
               git commit --amend --no-edit
               git push --force-with-lease origin "${{ github.head_ref }}"
             else
-              git commit -m "chore: bump chart=${{ steps.versions.outputs.new_chart }}"
+              git commit -m "chore: bump versions [skip ci]"
               git push origin "${{ github.head_ref }}"
             fi
           fi
@@ -200,7 +176,7 @@ jobs:
   # ---------------------------------------------------------------------------
 
   build-and-publish:
-    needs: [apply-app-bump, apply-chart-bump]
+    needs: [apply-bumps]
     if: >
       always() &&
       github.event_name == 'pull_request' &&
@@ -220,19 +196,6 @@ jobs:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Authenticate to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Fetch latest branch head
         if: github.event.pull_request.head.repo.full_name == github.repository
@@ -255,6 +218,19 @@ jobs:
             exit 1
           fi
           echo "Version bumped - OK"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Authenticate to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Resolve image tags
         id: meta
@@ -333,7 +309,7 @@ jobs:
   # ---------------------------------------------------------------------------
 
   publish-helm-chart-rc:
-    needs: [build-and-publish, apply-app-bump, apply-chart-bump]
+    needs: [build-and-publish, apply-bumps]
     if: >
       always() &&
       github.event_name == 'pull_request' &&
