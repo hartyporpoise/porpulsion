@@ -79,12 +79,7 @@ jobs:
 
   apply-bumps:
     needs: [check-labels]
-    if: >
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      (
-        needs.check-labels.outputs.has_app_bump == 'true' ||
-        needs.check-labels.outputs.has_chart_bump == 'true'
-      )
+    if: "github.event.pull_request.head.repo.full_name == github.repository && (needs['check-labels'].outputs.has_app_bump == 'true' || needs['check-labels'].outputs.has_chart_bump == 'true')"
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -161,11 +156,7 @@ jobs:
 
   build-and-publish:
     needs: [check-labels, apply-bumps]
-    if: >
-      always() &&
-      needs.check-labels.result == 'success' &&
-      needs.apply-bumps.result != 'failure' &&
-      needs.check-labels.outputs.is_rc == 'true'
+    if: "always() && needs['check-labels'].result == 'success' && needs['apply-bumps'].result != 'failure' && needs['check-labels'].outputs.is_rc == 'true'"
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -240,10 +231,7 @@ jobs:
 
   e2e-tests:
     needs: [check-labels, build-and-publish]
-    if: >
-      always() &&
-      needs.build-and-publish.result == 'success' &&
-      needs.check-labels.outputs.is_rc == 'true'
+    if: "always() && needs['build-and-publish'].result == 'success' && needs['check-labels'].outputs.is_rc == 'true'"
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
@@ -288,11 +276,7 @@ jobs:
 
   publish-helm-chart-rc:
     needs: [check-labels, build-and-publish, apply-bumps]
-    if: >
-      always() &&
-      needs.check-labels.result == 'success' &&
-      needs.apply-bumps.result != 'failure' &&
-      needs.check-labels.outputs.is_rc == 'true'
+    if: "always() && needs['check-labels'].result == 'success' && needs['apply-bumps'].result != 'failure' && needs['check-labels'].outputs.is_rc == 'true'"
     runs-on: ubuntu-latest
     permissions:
       contents: read
